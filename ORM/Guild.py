@@ -1,0 +1,17 @@
+from sqlalchemy import Column, Integer, String, BigInteger
+from sqlalchemy.orm import relationship
+from ORM import Base
+
+class Guild(Base):
+    __tablename__ = 'guild'
+    id = Column(Integer, primary_key=True)
+    discord_Id = Column(BigInteger, nullable=False)
+    name = Column(String(255), nullable=False)
+    roles = relationship('Role', back_populates='guild', lazy='dynamic')
+
+    def __init__(self, name, discordId):
+        self.name = name
+        self.discord_Id = discordId
+        
+    def __str__(self):
+        return self.name

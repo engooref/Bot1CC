@@ -1,0 +1,5 @@
+.vscode/
+ORM/__pycache__/
+__pycache__/
+Log/
+config
