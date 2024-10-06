@@ -1,6 +1,6 @@
 from sqlalchemy import Column, Integer, String, ForeignKey
 from sqlalchemy.orm import relationship
-from ORM import Base, ParameterType, User, Channel, Role
+from ORM import Base, Association, ParameterType, User, Channel, Role
 
 class Parameter(Base):
     __tablename__ = 'parameter'
@@ -16,12 +16,11 @@ class Parameter(Base):
     value_channel_id = Column(Integer, ForeignKey('channel.id'), nullable=True)
     channel = relationship('Channel')
     
-    value_role_id = Column(Integer, ForeignKey('role.id'), nullable=True)
-    role = relationship('Role')
+    roles = relationship("Role", secondary=Association.parmaeter_role_table)
     
     value_text = Column(String(255), nullable=True)
     
-    def __init__(self, name, type, user=None, channel=None, role=None):
+    def __init__(self, name, type, user=None, channel=None, role=[]):
         self.name = name
         self.type = type
         self.user = user
@@ -32,14 +31,11 @@ class Parameter(Base):
         if self.type.type_param == 'Text':
             return self.value_text
         
-        elif self.type.type_param == 'Role':
-            return self.role.discord_Id
-    
         elif self.type.type_param == 'Channel':
-            return self.channel.discord_Id
+            return self.channel.discord_id
         
         elif self.type.type_param == 'User':
-            return self.user.discord_Id
+            return self.user.discord_id
                
         else:
             return ''

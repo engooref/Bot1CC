@@ -10,12 +10,12 @@ class Traces(Base):
     user_id = Column(Integer, ForeignKey('user.id'), nullable=True)
     # Définition de la relation inverse Many-to-One
     user = relationship("User", back_populates="traces")
-    command = Column(String(255), nullable=False)
+    message = Column(String(255), nullable=False)
     time = Column(DateTime, nullable=False)
     
-    def __init__(self, userId, command):
+    def __init__(self, userId, message):
         self.user_id = userId
-        self.command = command
+        self.message = message
         self.time = datetime.datetime.now()
         
     def __str__(self):

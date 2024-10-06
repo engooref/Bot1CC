@@ -4,8 +4,9 @@ from sqlalchemy.orm.exc import DetachedInstanceError
 from sqlalchemy.orm import scoped_session, sessionmaker, declarative_base, joinedload
 from sqlalchemy_utils import database_exists, create_database
 from sqlalchemy.inspection import inspect
-import requests
-import Log
+import requests, Log
+from typing import List
+from ORM.ConditionField import *
 
 load_dotenv("config")
 
@@ -100,13 +101,29 @@ def select_all(model):
     finally:
         session.close()
         
-def select_by_field(model, field_name, field_value, oneResult = False):
+def select_by_field(model, field : ConditionField, oneResult = False, joins = None):
     session = DBSession()
     try:
         query = session.query(model)
         for relation in get_relations(model):
             query = query.options(joinedload(relation))
-        query = query.filter(getattr(model, field_name) == field_value)
+
+        # Ajouter des jointures dynamiques si fournies
+        if joins:
+            for join_model, on_condition in joins:
+                query = query.join(join_model, on_condition)
+
+        if field.model is None:
+            model_field = getattr(model, field.name)
+        else:
+            model_field = getattr(field.model, field.name)
+            
+        operator_func = operatorDict.get(field.operatorField)
+        if operator_func:
+            query = query.filter(operator_func(model_field, field.value))
+        else:
+            raise ValueError(f"Operator '{field.operatorField}' not supported.")
+        
         if not oneResult:
             return query.all()
         else:
@@ -117,17 +134,21 @@ def select_by_field(model, field_name, field_value, oneResult = False):
     finally:
         session.close()
         
-def select_by_fields(model, fields_and_values, one_result=False):
+def select_by_fields(model, fields : List[ConditionField], one_result=False):
     session = DBSession()
     try:
         query = session.query(model)
         for relation in get_relations(model):
             query = query.options(joinedload(relation))
         
-        # Filtrer par chaque champ et valeur
-        for field_name, field_value in fields_and_values.items():
-            query = query.filter(getattr(model, field_name) == field_value)
-        
+        for field in fields:
+            model_field = getattr(model, field.name)
+            operator_func = operatorDict.get(field.operatorField)
+            if operator_func:
+                query = query.filter(operator_func(model_field, field.value))
+            else:
+                raise ValueError(f"Operator '{field.operatorField}' not supported.")
+
         if not one_result:
             return query.all()
         else:
@@ -162,7 +183,7 @@ def select_by_discordId(model, discordId):
         query = session.query(model)
         for relation in get_relations(model):
             query = query.options(joinedload(relation))
-        query = query.filter(getattr(model, "discord_Id") == discordId)
+        query = query.filter(getattr(model, "discord_id") == discordId)
         return query.first()
     except Exception as e:
         Log.PrintLog(f'Error selecting data: {e}')

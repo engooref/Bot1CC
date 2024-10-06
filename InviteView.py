@@ -1,8 +1,5 @@
 import discord
 from discord.ui import Button, View
-from ORM import insertOrUpdate_data, select_by_fields, select_by_id, select_by_field, select_all, select_by_discordId
-from ORM import Response, Parameter
-import Log
 
 # Vue personnalisée avec des boutons
 class InviteView(View):

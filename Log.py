@@ -8,6 +8,9 @@ nameFile = f'{dirLog}/Log_{str(datetime.now().date())}'
 
 
 def Start():
+    if not os.path.exists(dirLog):
+        os.makedirs(dirLog)
+        
     with open(nameFile, 'a') as f:
             f.write(f"\n---------------------------------------------------\n\n")   
 
