@@ -4,7 +4,7 @@ from ORM import select_by_id, select_by_fields, select_by_field, insertOrUpdate_
 from ORM import select_by_discordId, select_all, insert_multiLigne
 from ORM import Traces, User, Role, Channel, Event, Parameter, Response, ConditionField
 from discord.message import Message
-import discord, locale, asyncio, Log, threading, schedule, time,requests, os, tempfile, openpyxl, excel2img
+import discord, locale, asyncio, Log, threading, schedule, time,requests, os, tempfile
 from InviteView import InviteView
 from urllib.parse import quote
 from datetime import datetime, timedelta
