@@ -1,11 +1,10 @@
 
 from time import sleep
-import CBot, Listeners, Log
-import asyncio, discord, os, threading
+import CBot, Listeners, Log, Flaskp, pymysql
+import asyncio, discord, os, threading, requests
 from ORM import initialize_sql
 from sqlalchemy import create_engine
-import Flaskp
-import pymysql
+ 
 pymysql.install_as_MySQLdb()
 
 Log.Start()
@@ -34,22 +33,41 @@ class App():
         await self.bot.add_cog(Listeners.Listeners(self.bot))
 
     def LaunchBot(self):
+            # Nom du fichier de contrôle
+        control_file = 'run.lock'
+
+        # Crée le fichier si besoin pour démarrer le processus
+        if not os.path.exists(control_file):
+            with open(control_file, 'w') as f:
+                pass
+
         Log.PrintLog("Lancement du Bot")
-        self.loop.create_task(self.bot.start(os.getenv("TOKEN"))) 
-        self.threadBot = threading.Thread(target=self.loop.run_forever)
+        self.threadBot = threading.Thread(target=self.run_bot)
         self.threadBot.start()
         self.threadFlask.start()
-        while 1:
-            pass
-    
-    async def StopBot(self):
-        await self.bot.Stop()
-        self.loop.stop()
-        self.threadBot.join()
-        self.threadFlask.stop()
-        Log.PrintLog("Arret du bot")
+        try:
+            while  os.path.exists(control_file):
+                sleep(5)   
+        finally:
+            self.StopBot()
 
-   
+            # Nettoyage si nécessaire, suppression du fichier par exemple.
+            if os.path.exists(control_file):
+                os.remove(control_file)   
+
+    def run_bot(self):
+        """Méthode pour lancer le bot dans une boucle d'événements."""
+        self.loop.run_until_complete(self.bot.start(os.getenv("TOKEN")))
+
+    def StopBot(self):
+        Log.PrintLog("Arret du bot")
+        asyncio.run_coroutine_threadsafe(self.bot.close(), self.loop)
+        # Attendre que le thread du bot se termine
+        if self.threadBot.is_alive():
+            self.threadBot.join()
+        requests.post('http://localhost:5000/shutdown', { 'token': self.threadFlask.shutdown_token })
+        
+
 app = App()
 app.LaunchBot()
 

@@ -65,9 +65,6 @@ class CBot(commands.Bot):
         except Exception as e:
             Log.PrintLog(f"on_ready - {e}")
             self.loop.stop()
-            
-    async def Stop(self):
-        Log.PrintLog("Arret du bot")
 
     async def on_command_error(self, ctx, error) -> None:
         if isinstance(error, commands.MissingRole):
@@ -295,6 +292,7 @@ class CBot(commands.Bot):
     def UpdateParamFlask(self):
         self.parameter = select_all(Parameter.Parameter)
         self.reset_scheduler()
+        return {}
 
     def AddUserFlask(self, userId):
         member = self.guild.get_member(userId)
@@ -324,6 +322,7 @@ class CBot(commands.Bot):
 
     def setEvent(self, eventID):
         asyncio.run_coroutine_threadsafe(self.async_set_event_flask(eventID), self.loop)
+        return {}
 
     
     async def async_set_event_flask(self, eventId):
@@ -433,6 +432,7 @@ class CBot(commands.Bot):
 
     def setAttributionEvent(self, eventId):
         asyncio.run_coroutine_threadsafe(self.async_attribution_event_flask(eventId), self.loop) 
+        return {}
 
     async def async_attribution_event_flask(self, eventId):
         try:
@@ -538,6 +538,7 @@ class CBot(commands.Bot):
 
     def suppEvent(self, eventID):
         asyncio.run_coroutine_threadsafe(self.async_supp_event_flask(eventID), self.loop)
+        return {}
 
     async def async_supp_event_flask(self, eventId):
         try:
