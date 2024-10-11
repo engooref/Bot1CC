@@ -1,6 +1,6 @@
 from flask import Flask, request, jsonify
 import threading, Log, CBot
-
+import traceback
 app = Flask(__name__)
 
 class ThreadFlask(threading.Thread):
@@ -13,7 +13,7 @@ class ThreadFlask(threading.Thread):
         self.app.add_url_rule('/setEvent', view_func=self.handleRequest, methods=['POST'])
         self.app.add_url_rule('/updateParam', view_func=self.handleRequest, methods=['GET'])
         self.app.add_url_rule('/suppEvent', view_func=self.handleRequest, methods=['POST'])
-        self.app.add_url_rule('/searchUserAttribution', view_func=self.handleRequest, methods=['GET'])
+        self.app.add_url_rule('/searchUserAttribution', view_func=self.handleRequest, methods=['POST'])
         self.app.add_url_rule('/setAttributionEvent', view_func=self.handleRequest, methods=['POST'])
         self.app.add_url_rule('/shutdown', view_func=self.shutdown, methods=['POST'])
 
@@ -66,6 +66,7 @@ class ThreadFlask(threading.Thread):
 
         except Exception as e:
             Log.PrintLog(e)
+            traceback.print_exc()
             return jsonify({"error": str(e)}), 400
     
 

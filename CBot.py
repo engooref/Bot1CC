@@ -9,7 +9,7 @@ from InviteView import InviteView
 from urllib.parse import quote
 from datetime import datetime, timedelta
 from itertools import zip_longest
-import traceback
+import traceback, json, re
 
 JourName = [
     'monday',
@@ -413,7 +413,7 @@ class CBot(commands.Bot):
                     else:
                         topic = await channelBriefing.create_thread(
                             name= event.name,  # Titre du topic
-                            applied_tags= channelBriefing.get_tag(int(os.getenv('EVENT_TAG'))),
+                            applied_tags= [channelBriefing.get_tag(int(os.getenv('EVENT_TAG'))),],
                             file=file
                         )
                         event.briefing_Discord_Id = topic.message.id
@@ -422,6 +422,7 @@ class CBot(commands.Bot):
                     # Créer un topic dans le forum
                     topic = await channelBriefing.create_thread(
                         name= event.name,  # Titre du topic
+                        applied_tags= [channelBriefing.get_tag(int(os.getenv('EVENT_TAG'))),],
                         file=file
                     )
 
@@ -530,6 +531,7 @@ class CBot(commands.Bot):
                     # Créer un topic dans le forum
                     topic = await channelBriefing.create_thread(
                         name= event.name,  # Titre du topic
+                        applied_tags= [channelBriefing.get_tag(int(os.getenv('EVENT_TAG'))),],
                         embed=embed
                     )    
                     event.attribution_discord_id = topic.message.id
@@ -569,10 +571,16 @@ class CBot(commands.Bot):
         except Exception as e:
             raise Exception(f"Le paramètre {nameParam} n'existe pas !")
 
+    
     def searchUserAttribution(self, searchUser):
         members = self.guild.members
-        matching_members = [member for member in members if member.name.lower().startswith(searchUser.lower())]
+        
+        matching_members = [
+           member for member in members 
+           if re.sub(r'\[[^\]]*\]', '', member.display_name).strip().lower().startswith(searchUser.lower())
+        ]
         membersList = list()
+        
         if matching_members:
             for member in matching_members:
                 memberDict = {
@@ -581,7 +589,7 @@ class CBot(commands.Bot):
                     'id' : member.id
                 }
                 membersList.append(memberDict)
-        
+        print(membersList)
         return membersList
 
 #------------------------------
