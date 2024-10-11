@@ -1,10 +1,15 @@
 from datetime import datetime
 from discord.ext import tasks
 import os
+# Chemin absolu du fichier en cours d'exécution
+current_file = os.path.abspath(__file__)
 
-dirLog = "./Log"
+# Dossier contenant le fichier
+current_dir = os.path.dirname(current_file)
+
+dirLog = current_dir + "/Log"
 nbLogFile = 5
-nameFile = f'{dirLog}/Log_{str(datetime.now().date())}'
+nameFile = f'{dirLog}/Log'
 
 
 def Start():

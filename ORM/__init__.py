@@ -7,8 +7,13 @@ from sqlalchemy.inspection import inspect
 import requests, Log
 from typing import List
 from ORM.ConditionField import *
+# Chemin absolu du fichier en cours d'exécution
+current_file = os.path.abspath(__file__)
 
-load_dotenv("config")
+# Dossier contenant le fichier
+current_dir = os.path.dirname(current_file)
+
+load_dotenv(current_dir + "/../config")
 
 DBSession = scoped_session(sessionmaker())
 Base = declarative_base()
