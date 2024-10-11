@@ -75,8 +75,9 @@ class CBot(commands.Bot):
         if message.author == self.user:
             return 
         
-        user = self.InsertAndGetUser(message.author)
-        insertOrUpdate_data(Traces.Traces(user.id, message.content))
+        if message.content.startswith('!'):
+            user = self.InsertAndGetUser(message.author)
+            insertOrUpdate_data(Traces.Traces(user.id, message.content))
         
         try:
             await self.process_commands(message)
