@@ -9,6 +9,7 @@ from InviteView import InviteView
 from urllib.parse import quote
 from datetime import datetime, timedelta
 from itertools import zip_longest
+import traceback
 
 JourName = [
     'monday',
@@ -412,6 +413,7 @@ class CBot(commands.Bot):
                     else:
                         topic = await channelBriefing.create_thread(
                             name= event.name,  # Titre du topic
+                            applied_tags= channelBriefing.get_tag(int(os.getenv('EVENT_TAG'))),
                             file=file
                         )
                         event.briefing_Discord_Id = topic.message.id
@@ -426,6 +428,7 @@ class CBot(commands.Bot):
                     event.briefing_Discord_Id = topic.message.id
         except Exception as e:
             Log.PrintLog(f"async_set_event_flask - {e}")
+            traceback.print_exc()
         
         if event is not None:
             insertOrUpdate_data(event)

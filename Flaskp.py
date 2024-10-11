@@ -40,7 +40,7 @@ class ThreadFlask(threading.Thread):
             path = request.path
             data = request.json if request.method == 'POST' else request.args
 
-            Log.PrintLog('Url Demandé :' + path + ' Data : ' + data)
+            Log.PrintLog('Url Demandé :' + path + ' Data : ' + str(data))
             
             # Gérer les différentes routes
             if path == '/updateUser':
