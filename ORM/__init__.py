@@ -92,7 +92,7 @@ def insert_multiLigne(instances):
     finally:
         session.close()    
 
-def select_all(model):
+def select_all(model) -> list:
     session = DBSession()
     try:
         query = session.query(model)
@@ -102,7 +102,7 @@ def select_all(model):
         return {str(entity): entity for entity in entities}
     except Exception as e:
         Log.PrintLog(f'Error selecting data: {e}')
-        return []
+        return list()
     finally:
         session.close()
         

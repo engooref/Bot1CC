@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, ForeignKey, Boolean, String, DateTime, Time, Text, JSON, BigInteger
+from sqlalchemy import Column, Integer, ForeignKey, Boolean, String, DateTime, Time, Text, BigInteger
 from sqlalchemy.orm import relationship
 from ORM import Base, EventType, FileExtTemplate
 from ORM.Association import user_events
@@ -29,6 +29,8 @@ class Event(Base):
     briefing_template_id = Column(Integer, ForeignKey('file_ext_template.id'), nullable=True)
     briefing_file_name = Column(String(255), nullable=True)
     attribution_discord_id = Column(BigInteger, nullable=True)
+    description = Column(Text, nullable=True, default="")
+    appel_msg_discord = Column(Boolean, nullable=False, default=False)
 
     type = relationship('EventType')
     responses = relationship('Response', cascade="all, delete-orphan")

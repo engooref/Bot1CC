@@ -12,25 +12,26 @@ from itertools import zip_longest
 import traceback, json, re
 
 JourName = [
-    'monday',
-    'tuesday',
-    'wednesday',
-    'thursday',
-    'friday',
-    'saturday',
-    'sunday'
+    'lundi',
+    'mardi',
+    'mercredi',
+    'jeudi',
+    'vendredi',
+    'samedi',
+    'dimanche'
 ]
 
 class CBot(commands.Bot):
     def __init__(self, intents, guildId):
         super().__init__(command_prefix='!', intents=intents)
+        locale.setlocale(locale.LC_TIME, 'fr_FR.UTF-8')
         self.userTrace = None
         self.guildId = int(guildId)
         self.guild : discord.Guild = None
         self.eventThread = None
         self.parameter : dict[str, Parameter.Parameter] = None
         self.urlSite = os.getenv('URL_SITE')
-
+        
 #-------------------------------------------------------
 #Parti Event du bot
 #-------------------------------------------------------  
@@ -39,7 +40,6 @@ class CBot(commands.Bot):
 
         try:
             self.userTrace = select_by_discordId(User.User, self.user.id)
-            locale.setlocale(locale.LC_TIME, 'fr_FR.UTF-8')
             if self.userTrace is None:
                 role = select_by_discordId(Role.Role, 1)
                 if role is None:
@@ -60,7 +60,7 @@ class CBot(commands.Bot):
             self.eventThread.daemon = True  # Définit le thread comme un daemon
             self.eventThread.start()
             self.start_scheduler()
-            
+            self.loop.create_task(self.check_events())
             
             Log.PrintLog("Le bot est pret.")
         except Exception as e:
@@ -279,8 +279,8 @@ class CBot(commands.Bot):
                 allRole = author.roles
                 allRole = self.InsertandGetNewRoles(allRole)
                 
-                user = insertOrUpdate_data(User.User(None, author.name, author.id, author.avatar.key, ' ', allRole, 0, 0))
-                insertOrUpdate_data(Traces.Traces(self.userTrace.id, f"Ajout de l'utilisateur: {author.name}"))
+                user = insertOrUpdate_data(User.User(None, author.display_name, author.id, author.avatar.key, ' ', allRole, 0, 0))
+                insertOrUpdate_data(Traces.Traces(self.userTrace.id, f"Ajout de l'utilisateur: {author.display_name}"))
 
             return user
         except Exception as e:
@@ -363,7 +363,7 @@ class CBot(commands.Bot):
             embedEvent.add_field(name=f"Lancement: " , value=f"```{event.lanc_serv.strftime('%H:%M')}```\n", inline=False)
             embedEvent.add_field(name="Spawn: " , value=f"{event.spawn}\n", inline=False)
             embedEvent.add_field(name="Type event: " , value=f"{event.type.name}", inline=False)
-            embedEvent.add_field(name="Description: ", value=f"\n{event.commentaire}\n", inline=False)
+            embedEvent.add_field(name="Description: ", value=f"\n{event.description}\n", inline=False)
             
             embedEvent.add_field(name="Lien", value=f"[Ajouter au calendrier Google](<{calendar_url}>)", inline=False)
 
@@ -450,7 +450,7 @@ class CBot(commands.Bot):
                 raise Exception(f"Le channel {channelBriefing.name} n'est pas un forum")
 
             conditionList = [
-                    ConditionField("type_rep", "in", ['accepted', 'added']),
+                    ConditionField("type_rep", "in", ['accepted']),
                     ConditionField("event_id", "==", eventId)
                 ]
             
@@ -609,11 +609,11 @@ class CBot(commands.Bot):
             Log.PrintLog(f"weekly_task - {e}")
 
     def start_scheduler(self):
-        schedule.every().day.at("22:21").do(self.checkDate)
+        schedule.every().day.at(os.getenv('HOURS_EVENT')).do(self.checkDate)
 
     def checkDate(self):
         currentDate = datetime.now().strftime('%A').lower() 
-        jourParam = JourName[int(self.getParameter('JOUR_EVENT'))]
+        jourParam = JourName[int(os.getenv('DAY_EVENT'))]
         if currentDate == jourParam:
             threading.Thread(target=self.weekly_task).start()
 
@@ -626,3 +626,71 @@ class CBot(commands.Bot):
         while True:
             schedule.run_pending()
             time.sleep(1)
+
+
+    async def check_events(self):
+        while True:
+            now = datetime.now()
+            
+            # Récupérer les événements du jour
+            today_events = self.get_events_for_today()
+
+            for event in today_events:
+                time_until_event = event.start - now
+                
+                # Si l'événement est dans moins de 15 minutes
+                if time_until_event > timedelta(minutes=0) and time_until_event <= timedelta(minutes=15):
+                    await self.send_event_reminder(event)
+                else:
+                    # Planifie le rappel 15 minutes avant l'événement
+                    await self.schedule_event_reminder(event)
+
+            # Attendre 60 secondes avant de vérifier à nouveau
+            await asyncio.sleep(60)
+
+    def get_events_for_today(self):
+        # Exemple d'événements récupérés depuis la base de données pour la journée actuelle
+        now = datetime.now()
+        today_start = datetime(now.year, now.month, now.day)
+        today_end = today_start + timedelta(days=1)
+
+        # Remplacer cela par une requête à la base de données
+        events = select_by_field(Event.Event, ConditionField('start', 'between', (today_start, today_end)))
+        return events
+    
+    async def schedule_event_reminder(self, event):
+        now = datetime.now()
+        time_until_reminder = event.start - timedelta(minutes=15) - now
+
+        # Attendre jusqu'à 15 minutes avant l'événement
+        await asyncio.sleep(time_until_reminder.total_seconds())
+
+        # Envoyer le rappel
+        await self.send_event_reminder(event)
+
+    async def send_event_reminder(self, event):
+        nameParam = 'CHANNEL_' + event.start.strftime('%A').upper()
+        channel: discord.TextChannel = self.get_channel(int(self.getParameter(nameParam)))
+        if channel is None:
+            raise Exception(f'Paramètrage incorrect: {nameParam}')
+        
+        if(event.discord_id != None and not event.appel_msg_discord):
+            message = await channel.fetch_message(event.discord_id)
+            if message is not None:
+                lFields = conditionList = [
+                    ConditionField("type_rep", "==", 'accepted'),
+                    ConditionField("event_id", "==", event.id)
+                ]
+
+                responses = select_by_fields(Response.Response, lFields)
+                msgStr = event.name + "\n\n"
+                for response in responses:
+                    user = self.guild.get_member(response.user.discord_id)
+                    if user is not None:
+                        msgStr += user.mention + " " 
+                
+                try:
+                    await message.reply(msgStr)
+                    event.appel_msg_discord = True
+                finally:
+                    insertOrUpdate_data(event)
