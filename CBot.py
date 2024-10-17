@@ -9,7 +9,7 @@ from InviteView import InviteView
 from urllib.parse import quote
 from datetime import datetime, timedelta
 from itertools import zip_longest
-import traceback, json, re
+import traceback, re, sys
 
 JourName = [
     'lundi',
@@ -355,7 +355,7 @@ class CBot(commands.Bot):
             )
 
             if event.picture:
-                req = requests.get(url=f"{self.urlSite}/files/get?nameFile={event.picture}&typeFile=2", verify=False)
+                req = requests.get(url=f"{self.urlSite}/files/get?nameFile={event.picture}&typeFile=2", verify=not sys.flags.debug)
                 if req.status_code == 200:
                     embedEvent.set_image(url=f"{self.urlSite}/files/get?nameFile={event.picture}&typeFile=2")
     
@@ -383,7 +383,7 @@ class CBot(commands.Bot):
             
             if(event.briefing_file_name != ""):
                 file = None
-                req = requests.get(url=f"{self.urlSite}/files/get?nameFile={event.briefing_file_name}&typeFile=2", verify=False)
+                req = requests.get(url=f"{self.urlSite}/files/get?nameFile={event.briefing_file_name}&typeFile=2", verify=not sys.flags.debug)
                 if req.status_code != 200:
                     raise Exception(f"Le fichier {event.briefing_file_name} n'existe pas")
                 else:
