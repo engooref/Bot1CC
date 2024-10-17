@@ -355,9 +355,9 @@ class CBot(commands.Bot):
             )
 
             if event.picture:
-                req = requests.get(url=f"{self.urlSite}/files/get?nameFile={event.picture}")
+                req = requests.get(url=f"{self.urlSite}/files/get?nameFile={event.picture}&typeFile=2", verify=False)
                 if req.status_code == 200:
-                    embedEvent.set_image(url=f"{self.urlSite}/files/get?nameFile={event.picture}")
+                    embedEvent.set_image(url=f"{self.urlSite}/files/get?nameFile={event.picture}&typeFile=2")
     
             embedEvent.add_field(name=f"Regroupement: " , value=f"```{event.start.strftime('%A %d %B %Y %H:%M')}```\n", inline=False)
             embedEvent.add_field(name=f"Lancement: " , value=f"```{event.lanc_serv.strftime('%H:%M')}```\n", inline=False)
@@ -381,9 +381,9 @@ class CBot(commands.Bot):
             event.discord_id = message.id
             await self.updateEvent(event)
             
-            if(event.briefing != None):
+            if(event.briefing_file_name != ""):
                 file = None
-                req = requests.get(url=f"{self.urlSite}/files/get?nameFile={event.briefing_file_name}")
+                req = requests.get(url=f"{self.urlSite}/files/get?nameFile={event.briefing_file_name}&typeFile=2", verify=False)
                 if req.status_code != 200:
                     raise Exception(f"Le fichier {event.briefing_file_name} n'existe pas")
                 else:
@@ -402,7 +402,10 @@ class CBot(commands.Bot):
                 if(event.briefing_Discord_Id != None):                        
                     for thread in channelBriefing.threads:
                         try:
-                            message = await thread.fetch_message(event.briefing_Discord_Id)
+                            try:
+                                message = await thread.fetch_message(event.briefing_Discord_Id)
+                            except discord.NotFound as ne:
+                                continue
                             if message is None:
                                 continue
                             await message.delete()
