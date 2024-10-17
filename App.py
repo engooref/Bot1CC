@@ -56,18 +56,19 @@ class App():
             # Tâche pour démarrer Quart
             flask_task = self.quart_app.start()
 
-            # Exécuter les deux tâches en parallèle
-            await asyncio.gather(bot_task, flask_task)
+            asyncio.create_task(bot_task)
+            asyncio.create_task(flask_task)
 
             try:
                 while  os.path.exists(control_file):
-                    sleep(5)   
+                    await asyncio.sleep(5)   
             finally:
-                self.StopBot()
+                await self.shutdown()
 
                 # Nettoyage si nécessaire, suppression du fichier par exemple.
                 if os.path.exists(control_file):
                     os.remove(control_file)
+
         except KeyboardInterrupt:
             Log.PrintLog("Arrêt du bot et du serveur Quart")
             asyncio.run(self.shutdown())   

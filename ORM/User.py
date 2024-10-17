@@ -31,7 +31,7 @@ class User(Base):
     events = relationship('Event', secondary=user_events, back_populates='users', overlaps="users")
     events_orig = relationship('Event', back_populates='user_orig', overlaps="user_orig")
 
-    def __init__(self, email, username, discordId, avatar, accessToken, roles, expPour, expLvl, traces=[]):
+    def __init__(self, email, username, discordId, avatar, accessToken, roles: list, expPour, expLvl, traces=[]):
         self.email = email
         self.roles = []
         self.username = username

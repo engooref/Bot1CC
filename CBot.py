@@ -170,13 +170,15 @@ class CBot(commands.Bot):
             accepted_list = list()
             declined_list = list()
             tentative_list = list()
-            for response in responses:
+            for response in responses[:]:
                 userbdd: User.User = select_by_id(User.User, response.users_id)
                 if userbdd is None:
                     continue
                 
                 user: discord.Member = self.guild.get_member(userbdd.discord_id)
-
+                if user is None:
+                    responses.remove(response)
+                    continue
                 if response.type_rep == 'accepted':
                     accepted_list.append(user.display_name)
                 
@@ -186,6 +188,7 @@ class CBot(commands.Bot):
                 if response.type_rep == 'tentative':
                     tentative_list.append(user.display_name)
 
+            insert_multiLigne(responses)
             message = await channel.fetch_message(event.discord_id)
             embed = message.embeds[0]
             for field in embed.fields:
@@ -220,7 +223,7 @@ class CBot(commands.Bot):
         Log.PrintLog('Fin Récupération Channels')
         
 
-    def InsertandGetNewRoles(self, roles : list):
+    def InsertandGetNewRoles(self, roles : list) -> list:
         try:
             if len(roles) == 0:
                 return list()
@@ -244,7 +247,7 @@ class CBot(commands.Bot):
         
         return select_all(Role.Role)
       
-    def InsertandGetNewChannels(self, channels : list):
+    def InsertandGetNewChannels(self, channels : list) -> list:
         try:
             if len(channels) == 0:
                 return list()
@@ -276,10 +279,10 @@ class CBot(commands.Bot):
             user = select_by_discordId(User.User, author.id)
         
             if user is None:
-                allRole = author.roles
-                allRole = self.InsertandGetNewRoles(allRole)
+                allRoleDiscord = author.roles
+                allRoles = self.InsertandGetNewRoles(allRoleDiscord)
                 
-                user = insertOrUpdate_data(User.User(None, author.display_name, author.id, author.avatar.key, ' ', allRole, 0, 0))
+                user = insertOrUpdate_data(User.User(None, author.display_name, author.id, author.avatar.key, ' ', list(allRoles.values()), 0, 0))
                 insertOrUpdate_data(Traces.Traces(self.userTrace.id, f"Ajout de l'utilisateur: {author.display_name}"))
 
             return user
@@ -381,7 +384,7 @@ class CBot(commands.Bot):
             event.discord_id = message.id
             await self.updateEvent(event)
             
-            if(event.briefing_file_name != ""):
+            if(event.briefing_file_name is not None):
                 file = None
                 req = requests.get(url=f"{self.urlSite}/files/get?nameFile={event.briefing_file_name}&typeFile=2", verify=not sys.flags.debug)
                 if req.status_code != 200:

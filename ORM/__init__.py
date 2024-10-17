@@ -92,7 +92,7 @@ def insert_multiLigne(instances):
     finally:
         session.close()    
 
-def select_all(model) -> list:
+def select_all(model):
     session = DBSession()
     try:
         query = session.query(model)
