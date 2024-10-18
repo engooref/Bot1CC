@@ -1,5 +1,5 @@
-from datetime import datetime, timedelta
-import os, zipfile, threading
+from datetime import datetime
+import os, zipfile, threading, traceback
 
 # Chemin absolu du fichier en cours d'exécution
 current_file = os.path.abspath(__file__)
@@ -66,3 +66,6 @@ def PrintLog(strLog):
     with open(get_log_filename(), 'a') as f:
         f.write(f"{datetime.now()} - {strLog} \n")
 
+def PrintError(strLog):
+    PrintLog(strLog)
+    PrintLog(traceback.format_exc ())

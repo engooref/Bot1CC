@@ -68,8 +68,7 @@ class AppQuart:
                     return jsonify({"error": "Route non reconnue"}), 404
 
             except Exception as e:
-                Log.PrintLog(e)
-                traceback.print_exc()
+                Log.PrintError(e)
                 return jsonify({"error": str(e)}), 400
 
     async def start(self):

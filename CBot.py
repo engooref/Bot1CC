@@ -9,7 +9,7 @@ from InviteView import InviteView
 from urllib.parse import quote
 from datetime import datetime, timedelta
 from itertools import zip_longest
-import traceback, re, sys
+import re, sys
 
 JourName = [
     'lundi',
@@ -64,7 +64,7 @@ class CBot(commands.Bot):
             
             Log.PrintLog("Le bot est pret.")
         except Exception as e:
-            Log.PrintLog(f"on_ready - {e}")
+            Log.PrintError(f"on_ready - {e}")
             self.loop.stop()
 
     async def on_command_error(self, ctx, error) -> None:
@@ -82,7 +82,7 @@ class CBot(commands.Bot):
         try:
             await self.process_commands(message)
         except Exception as e:
-            Log.PrintLog(f"on_message - {e}")
+            Log.PrintError(f"on_message - {e}")
             
     async def on_member_update(self, before: discord.Member, after: discord.Member):
         try:
@@ -116,7 +116,7 @@ class CBot(commands.Bot):
                     await self.updateEvent(event)
                     
         except Exception as e:
-            Log.PrintLog(f"on_member_update - {e}")
+            Log.PrintError(f"on_member_update - {e}")
         
 
     async def on_guild_role_create(self, role):
@@ -157,7 +157,7 @@ class CBot(commands.Bot):
                 await self.updateEvent(event)
                 
             except Exception as e:
-                Log.PrintLog(f"on_interaction - {e}")
+                Log.PrintError(f"on_interaction - {e}")
                 
     async def updateEvent(self, event: Event.Event):
         try:
@@ -203,7 +203,7 @@ class CBot(commands.Bot):
 
             await message.edit(embed=embed)   
         except Exception as e:
-            Log.PrintLog(f"updateEvent - {e}")
+            Log.PrintError(f"updateEvent - {e}")
             raise Exception(e)
 
 
@@ -242,7 +242,7 @@ class CBot(commands.Bot):
                     
             insert_multiLigne(newRolesBdd)    
         except Exception as e:
-            Log.PrintLog(f"InsertandGetNewRoles - {e}")
+            Log.PrintError(f"InsertandGetNewRoles - {e}")
             return None
         
         return select_all(Role.Role)
@@ -265,7 +265,7 @@ class CBot(commands.Bot):
                 
             insert_multiLigne(newchannelsBdd)
         except Exception as e:
-            Log.PrintLog(f"InsertandGetNewChannels - {e}")
+            Log.PrintError(f"InsertandGetNewChannels - {e}")
             return None
         
         for key, obj in channelsBdd.items():
@@ -287,7 +287,7 @@ class CBot(commands.Bot):
 
             return user
         except Exception as e:
-            Log.PrintLog(f"InsertAndGetUser - {e}")
+            Log.PrintError(f"InsertAndGetUser - {e}")
             return None
             
 #------------------------------
@@ -435,8 +435,8 @@ class CBot(commands.Bot):
 
                     event.briefing_Discord_Id = topic.message.id
         except Exception as e:
-            Log.PrintLog(f"async_set_event_flask - {e}")
-            traceback.print_exc()
+            Log.PrintError(f"async_set_event_flask - {e}")
+
         
         if event is not None:
             insertOrUpdate_data(event)
@@ -546,7 +546,7 @@ class CBot(commands.Bot):
 
             insertOrUpdate_data(event)
         except Exception as e:
-            Log.PrintLog(f"async_attribution_event_flask - {e}")
+            Log.PrintError(f"async_attribution_event_flask - {e}")
 
     def suppEvent(self, eventID):
         asyncio.run_coroutine_threadsafe(self.async_supp_event_flask(eventID), self.loop)
@@ -570,7 +570,7 @@ class CBot(commands.Bot):
                 except:
                     raise Exception(f"Appel Event non existant: {event.name}")
         except Exception as e:
-            Log.PrintLog(f"async_supp_event_flask - {e}")
+            Log.PrintError(f"async_supp_event_flask - {e}")
         
     def getParameter(self, nameParam : str) -> str:
         try:
@@ -612,7 +612,7 @@ class CBot(commands.Bot):
             for event in events:
                 self.setEvent(event.id)
         except Exception as e:
-            Log.PrintLog(f"weekly_task - {e}")
+            Log.PrintError(f"weekly_task - {e}")
 
     def start_scheduler(self):
         schedule.every().day.at(os.getenv('HOURS_EVENT')).do(self.checkDate)
