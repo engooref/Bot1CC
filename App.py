@@ -15,7 +15,7 @@ class App():
         self.quart_app = None
         self.loop = asyncio.get_event_loop()
         
-        engine = create_engine(os.getenv('URL_BDD'), echo=(os.getenv('ECHO_SQL') == "True"))
+        engine = create_engine(os.getenv('URL_BDD'), echo=(os.getenv('ECHO_SQL') == "True"), pool_pre_ping=True)
         initialize_sql(engine)
 
         # Lancer l'initialisation asynchrone
