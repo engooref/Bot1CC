@@ -358,9 +358,9 @@ class CBot(commands.Bot):
             )
 
             if event.picture:
-                req = requests.get(url=f"{self.urlSite}/files/get?nameFile={event.picture}&typeFile=2", verify=not sys.flags.debug)
+                req = requests.get(url=f"{self.urlSite}/files/get?nameFile={event.picture}&typeFile=3", verify=not sys.flags.debug)
                 if req.status_code == 200:
-                    embedEvent.set_image(url=f"{self.urlSite}/files/get?nameFile={event.picture}&typeFile=2")
+                    embedEvent.set_image(url=f"{self.urlSite}/files/get?nameFile={event.picture}&typeFile=3")
     
             embedEvent.add_field(name=f"Regroupement: " , value=f"```{event.start.strftime('%A %d %B %Y %H:%M')}```\n", inline=False)
             embedEvent.add_field(name=f"Lancement: " , value=f"```{event.lanc_serv.strftime('%H:%M')}```\n", inline=False)
