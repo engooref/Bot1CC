@@ -9,7 +9,7 @@ from InviteView import InviteView
 from urllib.parse import quote
 from datetime import datetime, timedelta
 from itertools import zip_longest
-import re, sys
+import re, sys, calendar
 
 JourName = [
     'lundi',
@@ -319,7 +319,7 @@ class CBot(commands.Bot):
             and any(rolem.id == obj.discord_id for rolem in member.roles) 
             and not any(roled.discord_id == obj.discord_id for roled in memberbdd.rolesDiscord)
         ]
-        memberbdd.username = member.global_name
+        memberbdd.username = member.display_name
 
         memberbdd = insertOrUpdate_data(memberbdd)
         
@@ -375,8 +375,25 @@ class CBot(commands.Bot):
             embedEvent.add_field(name="Tentative (0)", value="Aucun\n", inline=True)
             
             if(event.discord_id != None):
-                message : discord.Message = await channel.fetch_message(event.discord_id)
-                await message.edit(embed=embedEvent)
+                message : discord.Message = None
+                try:
+                    message = await channel.fetch_message(event.discord_id)
+                    await message.edit(embed=embedEvent)
+                except discord.NotFound as e:
+                    # Boucle sur tous les jours de la semaine
+                    for day in calendar.day_name:  # Renvoie les jours sous forme de noms ('Monday', 'Tuesday', ...)
+                        nameParam = 'CHANNEL_' + day.upper()
+                        channelTest: discord.TextChannel = self.get_channel(int(self.getParameter(nameParam)))
+                        try:
+                            message = None
+                            message = await channelTest.fetch_message(event.discord_id)
+                            await message.delete()
+                            break
+                        except discord.NotFound as e:
+                            pass
+
+                    view = InviteView(event.id)
+                    message = await channel.send(embed=embedEvent, view=view)
             else: 
                 view = InviteView(event.id)
                 message = await channel.send(embed=embedEvent, view=view)
@@ -415,6 +432,7 @@ class CBot(commands.Bot):
                             message = await thread.send(file=file)
                             event.briefing_Discord_Id = message.id
                             break
+                        
                         except Exception as e:
                             Log.PrintLog(f"async_set_event_flask test - {e}")
                     else:
