@@ -473,55 +473,9 @@ class CBot(commands.Bot):
             if not isinstance(channelBriefing, discord.ForumChannel):
                 raise Exception(f"Le channel {channelBriefing.name} n'est pas un forum")
 
-            conditionList = [
-                    ConditionField("type_rep", "in", ['accepted']),
-                    ConditionField("event_id", "==", eventId)
-                ]
-            
-            responses : list[Response.Response] = select_by_fields(Response.Response, conditionList)
-
-            # Groupement des joueurs par équipe
-            equipes = dict()
-            # Création de l'embed
-            embed = discord.Embed(title="Tableau des joueurs", color=discord.Color.blue())
-
-            for joueur in responses:
-                if joueur.team is not None:
-                    if (joueur.team.name not in equipes):
-                        equipes[joueur.team.name] = list()
-                    equipes[joueur.team.name].append(joueur)
-
-            for membres in equipes.values():
-                membres.sort(key=lambda membre: membre.user.username)
-
-            sorted_equipes_keys = sorted(equipes.keys())
-            valSep = ""
-            for equipe in sorted_equipes_keys:
-                embed.add_field(name=f"Équipe {equipe}", value="", inline=True)
-                valSep += "-----------------------------------------"
-            
-            embed.add_field(name=valSep, value="", inline=False)     
-                                    
-            # Parcourir les membres de chaque équipe en alternant
-            for membres in zip_longest(*(equipes[key] for key in sorted_equipes_keys), fillvalue=None):            
-                for membre in membres:
-                    if membre is None:
-                        continue
-                    vaisseau = membre.vaisseau if membre.vaisseau else "Aucun vaisseau"
-                    role_vaisseau = membre.role_vaisseau if membre.role_vaisseau else "Aucun rôle vaisseau"
-                    commentaire = membre.commentaire if membre.commentaire else "Aucun commentaire"
-                    embed.add_field(
-                        name=membre.user.username,
-                        value=(
-                            f"**Rôle:** {' / '.join(role.name for role in membre.roles)}\n"
-                            f"**Vaisseau d'affectation:** {vaisseau}\n"
-                            f"**Rôle vaisseau:** {role_vaisseau}\n"
-                            f"**Commentaire:** {commentaire}"
-                        ),
-                        inline=True
-                    )  
-                embed.add_field(name="", value="", inline=False)  # Ligne vide pour la séparation  
-
+            commmandJs = f"node {os.getenv("NODE_JS")} {os.getenv("URL_SITE")}/generate/event/{eventId} {tempfile.gettempdir()}/attribution_{eventId}.png"
+            os.system(command=commmandJs)
+            file_attrib: discord.File = discord.File(filename=f"attribution_{eventId}.png", fp=f"{tempfile.gettempdir()}/attribution_{eventId}.png")
             if(event.attribution_discord_id != None):                        
                 for thread in channelBriefing.threads:
                     try:
@@ -529,7 +483,8 @@ class CBot(commands.Bot):
                             message = await thread.fetch_message(event.attribution_discord_id)
                         except discord.NotFound as ne:
                             continue
-                        message = await message.edit(embed=embed)
+                        await message.delete()
+                        message = await thread.send(file=file_attrib)
                         event.attribution_discord_id = message.id
                         break
                     except Exception as e:
@@ -546,7 +501,7 @@ class CBot(commands.Bot):
                                 messageBriefing = await thread.fetch_message(event.briefing_Discord_Id)
                             except discord.NotFound as ne:
                                 continue
-                            message = await messageBriefing.reply(embed=embed)
+                            message = await messageBriefing.reply(file=file_attrib)
                             event.attribution_discord_id = message.id
                             break
                         except Exception as e:
@@ -557,7 +512,7 @@ class CBot(commands.Bot):
                     topic = await channelBriefing.create_thread(
                         name= event.name,  # Titre du topic
                         applied_tags= [channelBriefing.get_tag(int(os.getenv('EVENT_TAG'))),],
-                        embed=embed
+                        file=file_attrib
                     )    
                     event.attribution_discord_id = topic.message.id
                 # Créer un topic dans le forum
