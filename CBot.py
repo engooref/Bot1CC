@@ -9,7 +9,7 @@ from InviteView import InviteView
 from urllib.parse import quote
 from datetime import datetime, timedelta
 from itertools import zip_longest
-import re, sys, calendar
+import re, sys, calendar, urllib
 
 JourName = [
     'lundi',
@@ -360,8 +360,10 @@ class CBot(commands.Bot):
             if event.picture:
                 req = requests.get(url=f"{self.urlSite}/files/get?nameFile={event.picture}&typeFile=3", verify=not sys.flags.debug)
                 if req.status_code == 200:
-                    embedEvent.set_image(url=f"{self.urlSite}/files/get?nameFile={event.picture}&typeFile=3")
+                    embedEvent.set_image(url=urllib.parse.quote(f"{self.urlSite}/files/get?nameFile={event.picture}&typeFile=3", safe=':/?&='))
     
+            Log.PrintLog(f"{self.urlSite}/files/get?nameFile={event.picture}&typeFile=3")
+            
             embedEvent.add_field(name=f"Regroupement: " , value=f"```{event.start.strftime('%A %d %B %Y %H:%M')}```\n", inline=False)
             embedEvent.add_field(name=f"Lancement: " , value=f"```{event.lanc_serv.strftime('%H:%M')}```\n", inline=False)
             embedEvent.add_field(name="Spawn: " , value=f"{event.spawn}\n", inline=False)
@@ -473,9 +475,10 @@ class CBot(commands.Bot):
             if not isinstance(channelBriefing, discord.ForumChannel):
                 raise Exception(f"Le channel {channelBriefing.name} n'est pas un forum")
 
-            commmandJs = f"node {os.getenv("NODE_JS")} {os.getenv("URL_SITE")}/generate/event/{eventId} {tempfile.gettempdir()}/attribution_{eventId}.png"
-            os.system(command=commmandJs)
-            file_attrib: discord.File = discord.File(filename=f"attribution_{eventId}.png", fp=f"{tempfile.gettempdir()}/attribution_{eventId}.png")
+            commandJs = f"node {os.getenv("NODE_JS")} {os.getenv("URL_SITE")}/generate/event/{eventId} /home/gith5836/repositories/Bot1CC/tmp/attribution_{eventId}.png"
+            Log.PrintLog(commandJs)
+            os.system(command=commandJs)
+            file_attrib: discord.File = discord.File(filename=f"attribution_{eventId}.png", fp=f"/home/gith5836/repositories/Bot1CC/tmp/attribution_{eventId}.png")
             if(event.attribution_discord_id != None):                        
                 for thread in channelBriefing.threads:
                     try:
