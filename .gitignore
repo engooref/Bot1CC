@@ -4,3 +4,4 @@ __pycache__/
 Log/
 config
 run.lock
+temp_op/

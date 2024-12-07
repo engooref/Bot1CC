@@ -1,4 +1,5 @@
 from sqlalchemy import Column, Integer, String, ForeignKey, DateTime
+from sqlalchemy.dialects.mysql import LONGTEXT
 from ORM import Base
 import datetime
 from sqlalchemy.orm import relationship
@@ -12,11 +13,13 @@ class Traces(Base):
     user = relationship("User", back_populates="traces")
     message = Column(String(255), nullable=False)
     time = Column(DateTime, nullable=False)
+    parameter = Column(LONGTEXT, nullable=True)
     
-    def __init__(self, userId, message):
+    def __init__(self, userId, message, parameter = None):
         self.user_id = userId
         self.message = message
         self.time = datetime.datetime.now()
+        self.parameter = parameter
         
     def __str__(self):
         return str(self.id)

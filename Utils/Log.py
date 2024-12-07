@@ -63,7 +63,7 @@ def PrintLog(strLog):
         archiving_thread.start()
 
     print(strLog)
-    with open(get_log_filename(), 'a') as f:
+    with open(get_log_filename(), 'a', encoding="utf-8") as f:
         f.write(f"{datetime.now()} - {strLog} \n")
 
 def PrintError(strLog):

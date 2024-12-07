@@ -4,7 +4,7 @@ from sqlalchemy.orm.exc import DetachedInstanceError
 from sqlalchemy.orm import scoped_session, sessionmaker, declarative_base, joinedload
 from sqlalchemy_utils import database_exists, create_database
 from sqlalchemy.inspection import inspect
-import requests, Log
+import requests, Utils.Log as Log
 from typing import List
 from ORM.ConditionField import *
 # Chemin absolu du fichier en cours d'exécution
@@ -18,29 +18,6 @@ load_dotenv(current_dir + "/../config")
 DBSession = scoped_session(sessionmaker())
 Base = declarative_base()
 
-urlBase = 'http://{api_url}/{api_key}/'.format(api_url=os.getenv('API_URL'), api_key=os.getenv('API_KEY'))
-url = urlBase + 'v1/live/'
-
-
-def GetNbRequest():
-   while True:        
-        r = requests.get(urlBase + 'me')
-        if r.status_code == 200:
-            return r.json()['data']['value']
-        else:
-            raise Exception("Erreur de requete: " + str(r.headers))
-
-def GetJSONFromRequest(url, param):
-   while True:     
-        if GetNbRequest != 0:
-            r = requests.get(url, params=param)
-            if r.status_code == 200:
-                return r.json()
-            else:
-                raise Exception("Erreur de requete: " + str(r.headers))
-        else:
-            raise Exception("Nombre de requête limite atteinte")
-        
 def initialize_sql(engine):
     DBSession.configure(bind=engine)
     
@@ -71,9 +48,9 @@ def _repr(self, **fields: typing.Any) -> str:
 def insertOrUpdate_data(instance):
     session = DBSession()
     try:
-        session.add(instance)
+        instance = session.merge(instance)
         session.commit()
-        instance = select_by_id(instance.__class__, instance.id)
+        
     except Exception as e:
         session.rollback()
         Log.PrintLog(f'Error inserting data: {e}')
@@ -106,29 +83,43 @@ def select_all(model):
     finally:
         session.close()
         
-def select_by_field(model, field : ConditionField, oneResult = False, joins = None):
+def select_by_field(model, field : ConditionField, oneResult = False):
     session = DBSession()
     try:
         query = session.query(model)
+
+        # Charger les relations via joinedload
         for relation in get_relations(model):
-            query = query.options(joinedload(relation))
+            query = query.options(joinedload(relation))  # Charge les relations explicitement
 
-        # Ajouter des jointures dynamiques si fournies
-        if joins:
-            for join_model, on_condition in joins:
-                query = query.join(join_model, on_condition)
-
-        if field.model is None:
-            model_field = getattr(model, field.name)
+        # Gestion des relations imbriquées avec jointure
+        if '.' in field.name:
+            parts = field.name.split('.')
+            current_model = model
+            model_field = None
+            for part in parts:
+                model_field = getattr(current_model, part, None)
+                if model_field is None:
+                    raise ValueError(f"Field '{field.name}' does not exist in model {current_model.__name__}")
+                # Si c'est une relation, ajouter une jointure
+                if hasattr(model_field, 'prop') and hasattr(model_field.prop, 'mapper'):
+                    related_model = model_field.prop.mapper.class_
+                    query = query.join(related_model, model_field)
+                    current_model = related_model
+                else:
+                    break
         else:
-            model_field = getattr(field.model, field.name)
-            
+            # Si le champ n'est pas imbriqué
+            model_field = getattr(model, field.name)
+
+        # Appliquer les filtres
         operator_func = operatorDict.get(field.operatorField)
         if operator_func:
             query = query.filter(operator_func(model_field, field.value))
         else:
             raise ValueError(f"Operator '{field.operatorField}' not supported.")
         
+        # Retourner un seul résultat ou tous les résultats en fonction de `oneResult`
         if not oneResult:
             return query.all()
         else:
@@ -147,12 +138,33 @@ def select_by_fields(model, fields : List[ConditionField], one_result=False):
             query = query.options(joinedload(relation))
         
         for field in fields:
-            model_field = getattr(model, field.name)
+            # Gestion des relations imbriquées avec jointure
+            if '.' in field.name:
+                parts = field.name.split('.')
+                current_model = model
+                model_field = None
+                for part in parts:
+                    model_field = getattr(current_model, part, None)
+                    if model_field is None:
+                        raise ValueError(f"Field '{field.name}' does not exist in model {current_model.__name__}")
+                    # Si c'est une relation, ajouter une jointure
+                    if hasattr(model_field, 'prop') and hasattr(model_field.prop, 'mapper'):
+                        related_model = model_field.prop.mapper.class_
+                        query = query.join(related_model)
+                        current_model = related_model
+                    else:
+                        break
+            else:
+                # Si le champ n'est pas imbriqué
+                model_field = getattr(model, field.name)
+
+            # Appliquer les filtres
             operator_func = operatorDict.get(field.operatorField)
             if operator_func:
                 query = query.filter(operator_func(model_field, field.value))
             else:
                 raise ValueError(f"Operator '{field.operatorField}' not supported.")
+            
 
         if not one_result:
             return query.all()
@@ -196,23 +208,48 @@ def select_by_discordId(model, discordId):
     finally:
         session.close()
         
-def delete_by_field(model, field_name, field_value):
+def delete_by_fields(model, fields):
     # Ouvrez une session SQLAlchemy
     session = DBSession()
     try:
         # Récupérez l'objet à supprimer en fonction du champ de recherche
-        obj = session.query(model).filter(getattr(model, field_name) == field_value).first()
+        query = session.query(model)
+        
+        if isinstance(fields, list):
+            for field in fields:
+                if field.model is None:
+                    model_field = getattr(model, field.name) 
+                else:
+                    model_field = getattr(field.model, field.name)
 
+                operator_func = operatorDict.get(field.operatorField)
+                if operator_func:
+                    query = query.filter(operator_func(model_field, field.value))
+                else:
+                    raise ValueError(f"Operator '{field.operatorField}' not supported.")
+        else:
+            if field.model is None:
+                model_field = getattr(model, field.name) 
+            else:
+                model_field = getattr(field.model, field.name)
+                
+            operator_func = operatorDict.get(field.operatorField)
+            if operator_func:
+                query = query.filter(operator_func(model_field, field.value))
+            else:
+                raise ValueError(f"Operator '{field.operatorField}' not supported.")
+            
+        obj = query.all()
         if obj:
             # Marquez l'objet comme étant à supprimer
-            session.delete(obj)
+            for object in obj:
+                session.delete(object)
 
             # Validez la transaction
             session.commit()
 
             print(f"{model.__name__} deleted successfully.")
-        else:
-            print(f"{model.__name__} not found with {field_name}={field_value}.")
+
     except Exception as e:
         print(f"Error deleting {model.__name__}: {e}")
         # En cas d'erreur, effectuez un rollback de la transaction

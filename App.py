@@ -1,8 +1,9 @@
 from time import sleep
-import CBot, Listeners, Log, Flaskp, pymysql
+import BotManager, Utils.Log as Log, Quart, pymysql
 import asyncio, discord, os
 from ORM import initialize_sql
 from sqlalchemy import create_engine
+import Cogs.CommandManager as CommandManager
  
 pymysql.install_as_MySQLdb()
 
@@ -13,8 +14,8 @@ class App():
         Log.PrintLog("Lancement de l'App")
         self.bot = None
         self.quart_app = None
-        self.loop = asyncio.get_event_loop()
         
+        Log.PrintLog("Lancement SQLAlchemy et BDD")
         engine = create_engine(os.getenv('URL_BDD'), echo=(os.getenv('ECHO_SQL') == "True"), pool_pre_ping=True)
         initialize_sql(engine)
 
@@ -28,15 +29,14 @@ class App():
         intents.message_content = True
 
         # Créer et configurer le bot Discord
-        self.bot = CBot.CBot(intents, os.getenv('GUILD_ID'))
+        self.bot = BotManager.BotManager(intents, os.getenv('GUILD_ID'))
         self.bot.remove_command('help')
+        await self.bot.load_extension("Cogs.CommandManager")
+        
 
         # Créer et configurer le serveur Quart
-        self.quart_app = Flaskp.AppQuart(self.bot)
+        self.quart_app = Quart.AppQuart(self.bot)
 
-        # Ajoute les cogs au bot (Listeners)
-        await self.bot.add_cog(Listeners.Listeners(self.bot))
-    
     async def LaunchBot(self):
         try:
             # Nom du fichier de contrôle
@@ -54,10 +54,10 @@ class App():
             bot_task = self.bot.start(os.getenv("TOKEN"))
 
             # Tâche pour démarrer Quart
-            flask_task = self.quart_app.start()
+            quart_task = self.quart_app.start()
 
             asyncio.create_task(bot_task)
-            asyncio.create_task(flask_task)
+            asyncio.create_task(quart_task)
 
             try:
                 while  os.path.exists(control_file):
@@ -65,17 +65,15 @@ class App():
             finally:
                 await self.shutdown()
 
-                # Nettoyage si nécessaire, suppression du fichier par exemple.
-                if os.path.exists(control_file):
-                    os.remove(control_file)
-
         except KeyboardInterrupt:
             Log.PrintLog("Arrêt du bot et du serveur Quart")
             asyncio.run(self.shutdown())   
 
-    def run_bot(self):
-        """Méthode pour lancer le bot dans une boucle d'événements."""
-        self.loop.run_until_complete(self.bot.start(os.getenv("TOKEN")))
+        finally:
+            # Nettoyage si nécessaire, suppression du fichier par exemple.
+            if os.path.exists(control_file):
+                os.remove(control_file)
+
 
     async def shutdown(self):
         """Arrêter proprement l'application"""
@@ -83,8 +81,12 @@ class App():
         await self.bot.close()  # Arrête le bot Discord
         await self.quart_app.shutdown()  # Arrête le serveur Quart
 
-app = App()
-asyncio.run(app.LaunchBot())
-
+app = None
+try:
+    app = App()
+    asyncio.run(app.LaunchBot())
+except Exception as e:
+    Log.PrintError(e)
+        
 
 
