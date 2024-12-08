@@ -104,7 +104,8 @@ def select_by_field(model, field : ConditionField, oneResult = False):
                 # Si c'est une relation, ajouter une jointure
                 if hasattr(model_field, 'prop') and hasattr(model_field.prop, 'mapper'):
                     related_model = model_field.prop.mapper.class_
-                    query = query.join(related_model, model_field)
+                    if related_model != model:
+                        query = query.join(related_model, model_field)
                     current_model = related_model
                 else:
                     break
