@@ -13,6 +13,9 @@ class StarCitizenManager():
         self.urlBase = 'http://{api_url}/api_key/'.format(api_url=os.getenv('API_URL'))
         self.url = self.urlBase + 'v1/live/'
 
+        with open('stars', 'r') as file:
+            # Supprime les espaces blancs et lignes vides
+            self.systems_autorized = [line.strip() for line in file if line.strip()]
 
     def get_nb_request(self):
         r = requests.get(self.urlBase.replace('api_key', self.api_key[self.iapi]) + 'v1/me')
@@ -88,13 +91,9 @@ class StarCitizenManager():
     def insert_and_get_locations_sc(self): 
         try:  
             Log.PrintLog('Récupération Systèmes Star Citizen via API')
-            all_systems = self.get_data_from_api_sc('starmap/systems')
-            parts_pourcent = 100 / len(all_systems["data"]) 
-            pourcent = 0
-            for system in all_systems["data"]:
-                pourcent += parts_pourcent
-                Log.PrintLog(f"Insertion du système: {system["name"]} - {round(pourcent)}% ({self.get_nb_request()})")
-                data_system = self.get_data_from_api_sc('starmap/search', {'name' : system['name']}) 
+            for system in self.systems_autorized:
+                Log.PrintLog(f"Insertion du système: {system} - ({self.get_nb_request()})")
+                data_system = self.get_data_from_api_sc('starmap/search', {'name' : system}) 
                 stars = list()
                 planets = list()
                 satellites = list()
