@@ -332,6 +332,7 @@ class Operation():
                 discord.SelectOption(label="Dans 3 heures", value="180"),
             ]
 
+            self.val["minutes"] = "15"
             heure_select = Select(
                 placeholder="",
                 options=option_hours,
@@ -509,7 +510,7 @@ class Operation():
                 self.write_svg("info", entete, root)
                 self.write_svg("Date", formatted_date, root)
                 self.write_svg("Materiel", f"Equipement : {self.val['prev']}", root)
-                self.write_svg("Prime", f"Prime : {self.val['price']}" if "price" in self.val else "", root)
+                self.write_svg("Prime", f"Prime : {self.val['price']}" if self.val['price'] != "" else "", root)
 
                 # Récupérer le texte "Description"
                 description_text = root.find(".//*[@id='Description']")  # Trouver l'élément par son id
