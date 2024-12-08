@@ -373,38 +373,51 @@ class Operation():
 
         
         async def on_star_select(self, interaction: discord.Interaction):
-            # Lorsque l'utilisateur choisit une étoile, activer le select de la planète
-            selected_star = self.select_star.values[0]
-            
-            star_bdd: SCLocations.SCLocations = [star for star in self.stars_bdd if str(star.id) == selected_star][0]
-            
-            # Remplir les options de la planète en fonction de l'étoile sélectionnée
-            self.current_planets = [discord.SelectOption(label="Aucun", value="0")] + [discord.SelectOption(label=planet.name, value=str(planet.id)) for planet in star_bdd.children]
-            
-            self.val["location"] = selected_star + '.0.0'
-            await interaction.response.edit_message(content= "- Localisation: ", view=await self.update_location())
+            try:
+                # Lorsque l'utilisateur choisit une étoile, activer le select de la planète
+                selected_star = self.select_star.values[0]
+                
+                star_bdd: SCLocations.SCLocations = [star for star in self.stars_bdd if str(star.id) == selected_star][0]
+                
+                # Remplir les options de la planète en fonction de l'étoile sélectionnée
+                self.current_planets = [discord.SelectOption(label="Aucun", value="0")] + [discord.SelectOption(label=planet.name, value=str(planet.id)) for planet in star_bdd.children]
+                
+                self.val["location"] = selected_star + '.0.0'
+                await interaction.response.edit_message(content= "- Localisation: ", view=await self.update_location())
+            except Exception as e:
+                Log.PrintError(e)
+                await interaction.response.defer()
+                
 
         async def on_planet_select(self, interaction: discord.Interaction):
-            # Lorsque l'utilisateur choisit une planète, activer le select de la lune
-            selected_planet = self.select_planet.values[0]
+            try:
+                # Lorsque l'utilisateur choisit une planète, activer le select de la lune
+                selected_planet = self.select_planet.values[0]
 
-            planet: SCLocations.SCLocations = self.bot.database_manager.select_entity_by_id(SCLocations.SCLocations, selected_planet)
+                planet: SCLocations.SCLocations = self.bot.database_manager.select_entity_by_id(SCLocations.SCLocations, selected_planet)
 
-            # Remplir les options de la lune en fonction de la planète sélectionnée
-            self.current_moons = [discord.SelectOption(label="Aucun", value="0")]
-            if selected_planet != "aucun":
-                self.current_moons += [discord.SelectOption(label=moon.name, value=str(moon.id)) for moon in planet.children]
+                # Remplir les options de la lune en fonction de la planète sélectionnée
+                self.current_moons = [discord.SelectOption(label="Aucun", value="0")]
+                if selected_planet != "aucun":
+                    self.current_moons += [discord.SelectOption(label=moon.name, value=str(moon.id)) for moon in planet.children]
 
 
-            location = self.val["location"].split('.')
-            self.val["location"] =  location[0] + '.' + selected_planet + '.0'
-            await interaction.response.edit_message(content= "- Localisation: ", view=await self.update_location())
-
+                location = self.val["location"].split('.')
+                self.val["location"] =  location[0] + '.' + selected_planet + '.0'
+                await interaction.response.edit_message(content= "- Localisation: ", view=await self.update_location())
+            except Exception as e:
+                Log.PrintError(e)
+                await interaction.response.defer()
+            
         async def on_moon_select(self, interaction: discord.Interaction):
-            # Répondre après que l'utilisateur ait sélectionné une lune
-            location = self.val["location"].split('.')
-            self.val["location"] = location[0] + '.' + location[1] + '.' + self.select_moon.values[0]
-            await interaction.response.edit_message(content= "- Localisation: ", view=await self.update_location())
+            try:
+                # Répondre après que l'utilisateur ait sélectionné une lune
+                location = self.val["location"].split('.')
+                self.val["location"] = location[0] + '.' + location[1] + '.' + self.select_moon.values[0]
+                await interaction.response.edit_message(content= "- Localisation: ", view=await self.update_location())
+            except Exception as e:
+                Log.PrintError(e)
+                await interaction.response.defer()
 
         async def on_search_btn(self, interaction: discord.Interaction):
             # Ouvrir un modal pour entrer un texte
