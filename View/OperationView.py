@@ -187,7 +187,7 @@ class Operation():
     async def open_ticket(self, interaction: discord.Interaction): 
         try:
             await interaction.response.send_message(
-                f"Votre demande d'Opération va être envoyé en DM", ephemeral=True
+                f"Votre demande d'Opération va être envoyée en DM", ephemeral=True
             )
             dm_channel = await interaction.user.create_dm()
             async for message in dm_channel.history(limit=100):  # Limiter pour des performances optimales
@@ -320,9 +320,31 @@ class Operation():
 
             view_details.add_item(details_button)
 
+            view_heure = View(timeout=None)
+            option_hours = [
+                discord.SelectOption(label="Dans 15 minutes", value="15", default=True),
+                discord.SelectOption(label="Dans 30 minutes", value="30"),
+                discord.SelectOption(label="Dans 45 minutes", value="45"),
+                discord.SelectOption(label="Dans 1 heure", value="60"),
+                discord.SelectOption(label="Dans 1 heure 30", value="90"),
+                discord.SelectOption(label="Dans 2 heures", value="120"),
+                discord.SelectOption(label="Dans 2 heures 30", value="150"),
+                discord.SelectOption(label="Dans 3 heures", value="180"),
+            ]
+
+            heure_select = Select(
+                placeholder="",
+                options=option_hours,
+                custom_id="select_type"
+            )
+            heure_select.callback = self.heure_select_callback
+            view_heure.add_item(heure_select)
+
+
             await channel.send("- Type d'opération: ", view=view_select_type)
+            await channel.send("- Début de l'opération dans:", view=view_heure)
             self.location_message: discord.Message = await channel.send("- Localisation: ", view=await self.update_location())
-            await channel.send("- Décrire le besoin : ", view=view_details)
+            await channel.send("- Détails Opération : ", view=view_details)
             self.validate_message: discord.Message = await channel.send("- Poster ?", view=self.view_validate)
 
         async def update_location(self):
@@ -384,6 +406,7 @@ class Operation():
                 
                 self.val["location"] = selected_star + '.0.0'
                 await interaction.response.edit_message(content= "- Localisation: ", view=await self.update_location())
+                await self.confirm_operation(interaction)
             except Exception as e:
                 Log.PrintError(e)
                 await interaction.response.defer()
@@ -437,13 +460,22 @@ class Operation():
 
         # Menu de sélection pour le type d'opération
         async def select_type_callback(self, interaction: discord.Interaction):
-            await interaction.response.defer()
-            selected_value = interaction.data['values'][0]
-            
-            self.val["type"] = selected_value
-            await self.confirm_operation(interaction)
+            try:
+                await interaction.response.defer()
+                selected_value = interaction.data['values'][0]
+                self.val["type"] = selected_value
+                await self.confirm_operation(interaction)
+            except Exception as e:
+                Log.PrintError(e)
 
-
+        async def heure_select_callback(self, interaction: discord.Interaction):
+            try:
+                await interaction.response.defer()
+                selected_value = interaction.data['values'][0]
+                self.val["minutes"] = selected_value
+            except Exception as e:
+                Log.PrintError(e)
+                
         # Callback pour le bouton Valider
         async def validate_button_callback(self, interaction: discord.Interaction):
             try:
@@ -456,14 +488,15 @@ class Operation():
                 
                 date = datetime.datetime.now()
                 # Ajouter 15 minutes à l'heure actuelle
-                time_plus_15 = date + datetime.timedelta(minutes=15)
+                time_plus_15 = date + datetime.timedelta(minutes=int(self.val["minutes"]))
 
                 # Formater l'heure dans le style [HH:MM]
                 formatted_time = time_plus_15.strftime("[%H:%M]").upper()
                 formatted_date = date.strftime("%A %d/%m/%Y").upper()
                 description = self.val["description"] if "description" in self.val else ""
 
-                entete = f"{formatted_time} MISSION {role.name.upper()} - RESPONSABLE: {interaction.user.display_name}"
+                entete = f"{formatted_time} OPÉRATION {role.name.upper()[role.name.upper().find('OPÉ-') + 1:]} - RESPONSABLE: {interaction.user.display_name}"
+                
 
                 localisation = ''
                 for location in self.val["location"].split("."):
@@ -476,9 +509,8 @@ class Operation():
                 self.write_svg("info", entete, root)
                 self.write_svg("Date", formatted_date, root)
                 self.write_svg("Materiel", f"Equipement : {self.val['prev']}", root)
-                if "price" in self.val:
-                    self.write_svg("Prime", f"Prime : {self.val['price']}", root)
-        
+                self.write_svg("Prime", f"Prime : {self.val['price']}" if "price" in self.val else "", root)
+
                 # Récupérer le texte "Description"
                 description_text = root.find(".//*[@id='Description']")  # Trouver l'élément par son id
 
@@ -605,12 +637,20 @@ class Operation():
                 
         async def confirm_operation(self, interaction: discord.Interaction):
             try:
+
+                disabled_validate = (
+                    ("type" not in self.val) 
+                    or ("price" not in self.val) 
+                    or ("description" not in self.val) 
+                    or (self.val["location"].split('.')[0] == "0")
+                )
+
                 self.view_validate = View(timeout=None)
                 validate_button = Button(
                         custom_id="send_btn", 
                         label="Valider", 
                         style=discord.ButtonStyle.green,
-                        disabled= "type" not in self.val
+                        disabled= disabled_validate
                     )
                 
                 cancel_button = Button(
@@ -688,7 +728,7 @@ class Operation():
             self.val["description"] = description
             self.val["price"] = price
             self.val["prev"] = prev
-        
+            await self.confirm_operation(None)
 
 
 
