@@ -118,9 +118,6 @@ class Operation():
             if not channel:
                 self.bot.add_traces(f"Création du canal {name_channel} dans la catégorie '{category_name}'")
                 channel = await self.bot.guild.create_text_channel(name_channel, category=category)
-
-        
-        
         
 
     async def ensure_channel_and_category(self):
@@ -166,7 +163,7 @@ class Operation():
                 color=discord.Color.blue()
             )
                 
-            view = View()
+            view = View(timeout=None)
             button_view = Button(
                 custom_id="op_btn", 
                 label="Créer une Opération", 
@@ -282,7 +279,7 @@ class Operation():
                 role = self.bot.guild.get_role(self.role_emojis[emoji])
                 options_type.append(discord.SelectOption(label=role.name, value=str(self.role_emojis[emoji])))
 
-            view_select_type = View()
+            view_select_type = View(timeout=None)
             select_type = Select(
                 placeholder="Choisissez le type d'opération",
                 options=options_type,
@@ -292,7 +289,7 @@ class Operation():
             select_type.callback = self.select_type_callback
             view_select_type.add_item(select_type)
 
-            self.view_validate = View()
+            self.view_validate = View(timeout=None)
             validate_button = Button(
                 custom_id="send_btn", 
                 label="Valider", 
@@ -312,7 +309,7 @@ class Operation():
             self.view_validate.add_item(validate_button)
             self.view_validate.add_item(cancel_button)
 
-            view_details = View()
+            view_details = View(timeout=None)
             details_button = Button(
                 custom_id="details_btn", 
                 label="Ajouter", 
@@ -331,7 +328,7 @@ class Operation():
         async def update_location(self):
             location = self.val["location"].split(".")
 
-            view_select_location = View()
+            view_select_location = View(timeout=None)
             self.select_star = Select(
                 placeholder="Choisissez une étoile",
                 options=[discord.SelectOption(label=star.label, value=star.value, default=(star.value == location[0])) for star in self.current_stars],
@@ -573,7 +570,7 @@ class Operation():
             try:
                 
                 # Créer une vue avec des boutons pour la confirmation
-                view = View()
+                view = View(timeout=None)
                 
                 # Créer un bouton pour annuler l'opération
                 cancel_button = Button(label="Non", style=discord.ButtonStyle.red, disabled=False)
@@ -595,7 +592,7 @@ class Operation():
                 
         async def confirm_operation(self, interaction: discord.Interaction):
             try:
-                self.view_validate = View()
+                self.view_validate = View(timeout=None)
                 validate_button = Button(
                         custom_id="send_btn", 
                         label="Valider", 
