@@ -111,7 +111,7 @@ class Operation():
             await self.message_role.add_reaction(value)
         
             role = self.bot.guild.get_role(self.role_emojis[value])
-            name_channel = (role.name + "-opération").lower().replace(" ", "-")
+            name_channel = (role.name).lower().replace(" ", "-")
 
             # Vérifie si le canal role existe dans la catégorie
             channel = discord.utils.get(category.channels, name=name_channel)
@@ -562,7 +562,7 @@ class Operation():
 
                 category: discord.CategoryChannel = discord.utils.get(self.bot.guild.categories, name=category_name)
                 # Vérifie si le canal existe dans la catégorie
-                channel = discord.utils.get(category.channels, name=(role.name.replace(' ', '-') + "-opération").lower())
+                channel = discord.utils.get(category.channels, name=(role.name.replace(' ', '-')).lower())
 
                 message = await channel.send(content=f"{role.mention}\nPour valider votre présence interagissez avec l'emoji {emoji}", file=discord.File(f"{folder_path}/{name_file_png}"))
                 await message.add_reaction(emoji)
