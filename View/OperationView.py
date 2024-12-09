@@ -1,9 +1,10 @@
-import discord, datetime, os, json, time, cairosvg, asyncio
+import discord, datetime, os, json, cairosvg, asyncio
 from discord.ui import View, Select, Button, TextInput, Modal
 from Utils import Log
 import BotManager
 from ORM import ConditionField, SCLocations, SCLocationsType
 import xml.etree.ElementTree as ET
+
 
 category_name: str = "Opérations"
 folder_path = "./temp_op"
@@ -205,6 +206,7 @@ class Operation():
 
 
             operation = Operation.OperationForm(self.bot, self.role_emojis)
+           
             await dm_channel.send(f"Bonjour {interaction.user.mention}, Veuillez remplir le formulaire suivant pour votre opération:")
             await operation.create_messages(dm_channel)
             
@@ -510,7 +512,13 @@ class Operation():
                 self.write_svg("info", entete, root)
                 self.write_svg("Date", formatted_date, root)
                 self.write_svg("Materiel", f"Equipement : {self.val['prev']}", root)
-                self.write_svg("Prime", f"Prime : {self.val['price']}" if self.val['price'] != "" else "", root)
+
+                if self.val['price'] != "":
+                    text_element = self.write_svg("Prime", f"Prime : {self.val['price']}", root)
+                    if text_element is not None:
+                        text_element.set('x', str(self.calculate_text_position(text_element, root.attrib.get("width", None))))
+                else:
+                    self.write_svg("Prime", "", root)
 
                 # Récupérer le texte "Description"
                 description_text = root.find(".//*[@id='Description']")  # Trouver l'élément par son id
@@ -554,7 +562,7 @@ class Operation():
 
                 category: discord.CategoryChannel = discord.utils.get(self.bot.guild.categories, name=category_name)
                 # Vérifie si le canal existe dans la catégorie
-                channel = discord.utils.get(category.channels, name=(role.name + "-opération").lower())
+                channel = discord.utils.get(category.channels, name=(role.name.replace(' ', '-') + "-opération").lower())
 
                 message = await channel.send(content=f"{role.mention}\nPour valider votre présence interagissez avec l'emoji {emoji}", file=discord.File(f"{folder_path}/{name_file_png}"))
                 await message.add_reaction(emoji)
@@ -575,6 +583,11 @@ class Operation():
                 await interaction.message.reply(f"erreur lors de la validation: {e}")
 
 
+        def calculate_text_position(self, text_element, svg_width, char_width=5):
+            text_width = len(text_element.text) * char_width
+            # Calculer la position pour centrer le texte
+            return (int(svg_width) - text_width) / 2
+
         def write_svg(self, id, val, root):
             # Rechercher un élément avec un attribut spécifique (par exemple, id="myText")
             namespace = {'svg': 'http://www.w3.org/2000/svg'}  # Namespace SVG
@@ -583,6 +596,9 @@ class Operation():
 
             if text_element is not None:
                 text_element.text = val  # Remplacer le texte
+            
+            return text_element
+
 
         # Fonction pour diviser un texte
         def split_text(self, text, max_width, char_width=12):
