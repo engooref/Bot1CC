@@ -496,7 +496,7 @@ class Operation():
                 formatted_date = date.strftime("%A %d/%m/%Y").upper()
                 description = self.val["description"] if "description" in self.val else ""
 
-                entete = f"{formatted_time} OPÉRATION {role.name.upper()[role.name.upper().find('OPÉ-') + 1:]} - RESPONSABLE: {interaction.user.display_name}"
+                entete = f"{formatted_time} OPÉRATION {role.name.upper()[role.name.upper().find('-') + 1:]} - RESPONSABLE: {interaction.user.display_name}"
                 
 
                 localisation = ''
