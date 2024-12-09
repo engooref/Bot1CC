@@ -48,9 +48,10 @@ def _repr(self, **fields: typing.Any) -> str:
 def insertOrUpdate_data(instance):
     session = DBSession()
     try:
-        instance = session.merge(instance)
+        session.add(instance)
         session.commit()
         
+        instance = select_by_id(instance.__class__, instance.id)
     except Exception as e:
         session.rollback()
         Log.PrintLog(f'Error inserting data: {e}')
