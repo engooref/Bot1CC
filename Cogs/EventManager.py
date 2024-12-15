@@ -2,8 +2,10 @@
 import discord, calendar, os, re
 import BotManager
 
+
 from ORM import Event, Response, ConditionField, User
-from urllib.parse import quote
+from urllib.parse import quote, urlparse, urlunparse
+
 from Utils import Log
 from View import InviteView
 
@@ -34,7 +36,15 @@ class EventManager:
             )
 
             if event.picture:
-                embedEvent.set_image(url=f"{self.urlSite}/files/get?nameFile={event.picture}&typeFile=3")
+                # Encoder uniquement le chemin et les paramètres de l'URL
+                parsed_url = urlparse(f"{self.urlSite}/files/get?typeFile=3&nameFile={event.picture}")
+                encoded_path = quote(parsed_url.path)
+                encoded_query = quote(parsed_url.query, safe="=&")
+
+                # Reconstruire l'URL encodée
+                safe_url = urlunparse(parsed_url._replace(path=encoded_path, query=encoded_query))
+                print(safe_url)
+                embedEvent.set_image(url=safe_url)
     
             embedEvent.add_field(name=f"Regroupement: " , value=f"```{event.start.strftime('%A %d %B %Y %H:%M')}```\n", inline=False)
             embedEvent.add_field(name=f"Lancement: " , value=f"```{event.lanc_serv.strftime('%H:%M')}```\n", inline=False)
