@@ -37,11 +37,12 @@ class BotManager(commands.Bot):
             if self.has_started:
                 return  # Évite une exécution multiple
             self.has_started = True
-            #Récupration ou ajout de l'utilisateur utilisé pour le Bot
-            self.userTrace = self.database_manager.insert_and_get_user(self.user)
 
             #Récuperation du serveur Discord
             self.guild = self.get_guild(self.guildId)
+            
+            #Récupration ou ajout de l'utilisateur utilisé pour le Bot
+            self.userTrace = self.database_manager.insert_and_get_user(self.guild.me)
             if self.guild is None:
                 raise Exception("Serveur non trouvé")
             

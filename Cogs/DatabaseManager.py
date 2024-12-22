@@ -9,7 +9,7 @@ class DatabaseManager:
     def __init__(self, bot):
         self.bot: BotManager.BotManager = bot
 
-    def insert_and_get_user(self, author):
+    def insert_and_get_user(self, author: discord.Member):
         # Méthode pour insérer et obtenir de nouveaux utilisateurs
         try:
             #Sécurité

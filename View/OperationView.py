@@ -111,6 +111,9 @@ class Operation():
             await self.message_role.add_reaction(value)
         
             role = self.bot.guild.get_role(self.role_emojis[value])
+            if role is None:
+                continue
+            
             name_channel = (role.name).lower().replace(" ", "-")
 
             # Vérifie si le canal role existe dans la catégorie
