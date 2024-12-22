@@ -165,6 +165,9 @@ class SchedulerManager:
 
             time_until_event = event.start - datetime.now()
                     
+            if event.appel_msg_discord:
+                return
+            
             # Si l'événement est dans moins de 15 minutes
             if time_until_event > timedelta(minutes=0) and time_until_event <= timedelta(minutes=15):
                 asyncio.create_task(self.send_event_reminder(event))
