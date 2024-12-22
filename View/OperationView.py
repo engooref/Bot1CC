@@ -324,7 +324,8 @@ class Operation():
 
             view_heure = View(timeout=None)
             option_hours = [
-                discord.SelectOption(label="Dans 15 minutes", value="15", default=True),
+		            discord.SelectOption(label="Immediat", value="0", default=True),
+                discord.SelectOption(label="Dans 15 minutes", value="15"),
                 discord.SelectOption(label="Dans 30 minutes", value="30"),
                 discord.SelectOption(label="Dans 45 minutes", value="45"),
                 discord.SelectOption(label="Dans 1 heure", value="60"),
