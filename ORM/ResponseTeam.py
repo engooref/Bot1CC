@@ -6,6 +6,7 @@ class ResponseTeam(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     name = Column(String(255), nullable=False)
+    color = Column(String(255), nullable=False)
 
     def __init__(self, name):
         self.name = name

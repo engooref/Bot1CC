@@ -1,7 +1,8 @@
 # EventManager.py
 import discord, calendar, os, re
 import BotManager
-
+import svgwrite, uuid, cairosvg
+import tempfile
 
 from ORM import Event, Response, ConditionField, User
 from urllib.parse import quote, urlparse, urlunparse
@@ -198,14 +199,30 @@ class EventManager:
 
     async def attribution_event(self, event: Event.Event):
         try:
-            channelBriefing = self.get_channel(int(self.bot.get_parameter("CHANNEL_BRIEFING")))
+            channelBriefing = self.bot.get_channel(int(self.bot.get_parameter("CHANNEL_BRIEFING")))
             if not isinstance(channelBriefing, discord.ForumChannel):
                 raise Exception(f"Le channel {channelBriefing.name} n'est pas un forum")
 
-            raise(f'Bouge toi le cul a le faire')
-            #TODO a faire manuellement en generant le svg
+            conditions = [
+                ConditionField('event_id', '==', event.id),
+                ConditionField('type_rep', 'in', ['accepted', 'added']),
+            ]
+            responses: list[Response.Response] = self.bot.database_manager.select_entity(Response.Response, conditions)
+            data = list()
+            for response in responses:
 
-            file_attrib = None
+                data.append([
+                    response.user.username,
+                    response.team.name if response.team else 'Aucune équipe',
+                    ", ".join([f"{role.name}|{role.color}" for role in response.roles]) if response.roles else '',
+                    response.vaisseau,
+                    response.role_vaisseau,
+                    response.commentaire
+                ])
+
+            file_attrib = self.create_svg_table(data=data, title=event.name)
+            with open(file_attrib.name, 'rb') as file:
+                file_attrib = discord.File(file, filename=file_attrib.name)
 
             if(event.attribution_discord_id != None):                        
                 for thread in channelBriefing.threads:
@@ -248,7 +265,7 @@ class EventManager:
                     event.attribution_discord_id = topic.message.id
                 # Créer un topic dans le forum
 
-            insertOrUpdate_data(event)
+            #insertOrUpdate_data(event)
         except Exception as e:
             Log.PrintError(f"attribution_event - {e}")
 
@@ -282,3 +299,95 @@ class EventManager:
         
         return channel
     
+    def create_svg_table(self, data, cell_height=30, padding=10, title=''):
+        header_height = 60
+        data.insert(0, ['Joueur', 'Équipe', 'Rôle', 'Vaisseau', 'Rôle Vaisseau', 'Commentaire'])
+
+        def get_text_width(text, font_size=14):
+            clean_text = re.sub(r'#[0-9A-Fa-f]{6}', '', text)
+            return len(clean_text) * (font_size * 0.6)
+
+        def get_text_color(background_color):
+            r, g, b = tuple(int(background_color[i:i+2], 16) for i in (1, 3, 5))
+            luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255
+            return '#000000' if luminance > 0.5 else '#FFFFFF'
+        
+        def adjust_brightness(color, factor=0.8):
+            # Convertir la couleur hexadécimale en RGB
+            r, g, b = tuple(int(color[i:i+2], 16) for i in (1, 3, 5))
+            # Appliquer le facteur d'éclaircissement ou d'assombrissement
+            r = min(255, int(r * factor))
+            g = min(255, int(g * factor))
+            b = min(255, int(b * factor))
+            # Retourner la nouvelle couleur au format hexadécimal
+            return f'#{r:02x}{g:02x}{b:02x}'
+
+        data = [data[0]] + sorted(data[1:], key=lambda x: (x[1], re.sub(r'\s*\[[^\]]*\]\s*', '', x[0])))
+
+        columns = len(data[0]) if data else 0
+        col_widths = [max(get_text_width(str(row[col])) for row in data) + 2 * padding for col in range(columns)]
+
+        rows = len(data)
+        table_width = sum(col_widths)
+        table_height = rows * cell_height
+        svg_height = header_height + table_height + 50
+
+        
+        temp_file = tempfile.NamedTemporaryFile(suffix=".svg", delete=False)
+        dwg = svgwrite.Drawing(temp_file.name, size=(table_width + 50, svg_height))
+
+        # Ajouter un dégradé noir pour l'en-tête
+        dwg.defs.add(dwg.linearGradient(id='headerGradient', x1='0%', y1='0%', x2='0%', y2='100%')
+                     .add_stop_color(0, '#333333').add_stop_color(1, '#000000'))
+        dwg.add(dwg.rect(insert=(0, 0), size=(table_width, header_height), fill='url(#headerGradient)', rx=10, ry=10))
+        dwg.add(dwg.text(f'Affectation des Joueurs - {title}',
+                         insert=(table_width / 2, 40),
+                         font_size=26, fill='white', text_anchor='middle', font_family='Arial'))
+
+        dwg.add(dwg.rect(insert=(0, header_height), size=(table_width, table_height), fill='none', stroke='black', rx=10, ry=10))
+
+        y = header_height
+        for row in range(rows):
+            x = 0
+            for col in range(columns):
+                cell_width = col_widths[col]
+                fill_color = '#f2f2f2' if row % 2 == 0 else '#ffffff'
+                if row == 0:
+                    fill_color = '#a4c2f4'
+
+                dwg.add(dwg.rect(insert=(x, y), size=(cell_width, cell_height), fill=fill_color, stroke='black', rx=5, ry=5))
+
+                cell_data = str(data[row][col])
+                if col == 2 and cell_data and row > 0:
+                    roles = [tuple(role.split("|")) for role in cell_data.split(", ")]
+                    role_x = x + 5
+                    for role_name, role_color in roles:
+                        role_width = get_text_width(role_name, font_size=12) + 20
+                        text_color = get_text_color(role_color)
+
+                        end_color = adjust_brightness(role_color, 0.8)
+                        idRoles = str(uuid.uuid4())
+
+                        dwg.defs.add(dwg.linearGradient(id=idRoles, x1='0%', y1='0%', x2='0%', y2='100%')
+                                    .add_stop_color(0, role_color)
+                                    .add_stop_color(1, end_color))
+
+                        dwg.add(dwg.rect(insert=(role_x, y + 5), size=(role_width, cell_height - 10),
+                                         fill=f'url(#{idRoles})', stroke='black', rx=5, ry=5))
+                        
+                        dwg.add(dwg.text(role_name, insert=(role_x + role_width / 2, y + cell_height / 2), 
+                                         text_anchor='middle', alignment_baseline='middle', font_size=12, fill=text_color, font_family='Arial'))
+                        role_x += role_width + 10
+                else:
+                    dwg.add(dwg.text(cell_data, insert=(x + cell_width / 2, y + cell_height / 2),
+                                    text_anchor='middle', alignment_baseline='middle', font_size=14, font_family='Arial'))
+                x += cell_width
+            y += cell_height
+
+        dwg.save()
+        temp_file_png = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
+
+        cairosvg.svg2png(url=temp_file.name, write_to=temp_file_png.name, scale=2.0)
+
+        return temp_file_png
+

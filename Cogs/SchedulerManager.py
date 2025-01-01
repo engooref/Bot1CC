@@ -50,9 +50,18 @@ class SchedulerManager:
         async def send_event_week(self):
             try:
                 Log.PrintLog("Envoie des Appels Event")
+                # Obtenir la date actuelle
                 today = datetime.now().date()
-                one_week_later = today + timedelta(weeks=1)
-                conditionList = [ConditionField("start", "between", (today, one_week_later))]
+
+                # Trouver le lundi de la semaine prochaine
+                days_until_next_monday = (7 - today.weekday()) % 7 + 1  # Passe au lundi suivant
+                next_monday = today + timedelta(days=days_until_next_monday)
+
+                # Calculer le dimanche de la semaine suivante
+                next_sunday = next_monday + timedelta(days=6)
+
+                # Créer les conditions pour la base de données
+                conditionList = [ConditionField("start", "between", (next_monday, next_sunday))]
                 events: list[Event.Event] = self.bot.database_manager.select_entity(Event.Event, conditionList)
                 for event in events:
                     await self.bot.event_manager.set_event(event)

@@ -30,10 +30,6 @@ class AppQuart:
                     event = self.bot.database_manager.select_entity_by_id(Event.Event, data["eventId"])
                     if event is None:
                         raise Exception(f"Event avec l'id {data["eventId"]} n'existe pas")
-                    
-                userId: int = -1
-                if 'userId' in data:
-                    userId = int(data["userId"])
 
                 search: str = ''
                 if 'search' in data:
@@ -44,9 +40,7 @@ class AppQuart:
                     token = data['token']
 
                 result = None
-                if path == 'updateUser':
-                    result = self.bot.user_manager.update_user(userId)                    
-                elif path == 'setEvent':
+                if path == 'setEvent':
                     await self.bot.event_manager.set_event(event)             
                 elif path == 'updateParam' and request.method == 'GET':
                     self.bot.update_param()
@@ -64,7 +58,8 @@ class AppQuart:
                         return jsonify({"message": "Le serveur s'arrête."}), 200
                     else:
                         return jsonify({"error": "Token incorrect."}), 403
-
+                elif path == 'ping':
+                    return jsonify({}), 200
                 else:
                     return jsonify({"error": "Route non reconnue"}), 404
 
