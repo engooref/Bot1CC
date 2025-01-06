@@ -3,13 +3,13 @@ from sqlalchemy.orm import relationship
 from ORM import Base, SCLocationsType
 
 class SCLocations(Base):
-    __tablename__ = 'sc_locations'
+    __tablename__ = 'sclocations'
     id = Column(Integer, primary_key=True, autoincrement=True)
     name = Column(String(255), nullable=False, default="")
     designation = Column(String(255), nullable=False, default="")
     
-    type_id = Column(Integer, ForeignKey('sc_locations_type.id'), nullable=False)
-    parent_id = Column(Integer, ForeignKey('sc_locations.id'), nullable=True)
+    type_id = Column(Integer, ForeignKey('sclocations_type.id'), nullable=False)
+    parent_id = Column(Integer, ForeignKey('sclocations.id'), nullable=True)
 
     type = relationship('SCLocationsType', back_populates="locations")
     # Relation avec le parent (si la location est une planète, elle a un parent, l'étoile)
