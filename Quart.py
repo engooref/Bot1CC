@@ -23,7 +23,8 @@ class AppQuart:
                 if request.method == 'POST':
                     data = await request.json
 
-                Log.PrintLog(f"URL demandée: {path} - Data : {data}")
+                if "ping" not in path:
+                    Log.PrintLog(f"URL demandée: {path} - Data : {data}")
                 
                 event: Event.Event = None
                 if 'eventId' in data:
