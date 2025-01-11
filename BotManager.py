@@ -4,23 +4,26 @@ from Cogs.EventManager import EventManager
 from Cogs.DatabaseManager import DatabaseManager
 from Cogs.SchedulerManager import SchedulerManager
 from Cogs.UserManager import UserManager
-from Cogs.StarCitizenManager import StarCitizenManager
-from ORM import User, Event, ConditionField, Response, Role, Parameter
+from ORM import User, Event, ConditionField, Response, Role, Parameter, TicketBots
 from Utils import Log
 import locale, discord, os
 from View.OperationView import Operation
-from discord.ui import Select, Button
+from View.TicketView import Ticket
+
 
 class BotManager(commands.Bot):
     def __init__(self, intents, guildId):
         super().__init__(command_prefix='!', intents=intents)
+        
         locale.setlocale(locale.LC_TIME, 'fr_FR.UTF-8')
         
         #Initialisation des variables
         self.guildId = int(guildId)
         self.guild = None
         self.userTrace = None
+        self.role_member: discord.Role = None
         self.parameter : dict[str, Parameter.Parameter] = None
+
         self.has_started = False
 
         #Initialisation des Cogs
@@ -28,10 +31,9 @@ class BotManager(commands.Bot):
         self.database_manager: DatabaseManager = DatabaseManager(self)
         self.user_manager: UserManager = UserManager(self)
         self.operation: Operation = Operation(self)
-        self.star_citizen_manager: StarCitizenManager = StarCitizenManager(self)
         self.scheduler_manager: SchedulerManager = SchedulerManager(self)
+        self.ticket: Ticket = Ticket(self)
         
-
     async def on_ready(self):
         try:
             if self.has_started:
@@ -39,8 +41,8 @@ class BotManager(commands.Bot):
             self.has_started = True
 
             #Récuperation du serveur Discord
-            self.guild = self.get_guild(self.guildId)
-            
+            self.guild: discord.Guild = self.get_guild(self.guildId)
+            self.role_member: discord.Role = self.guild.get_role(int(os.getenv('ROLE_ID')))
             #Récupration ou ajout de l'utilisateur utilisé pour le Bot
             self.userTrace = self.database_manager.insert_and_get_user(self.guild.me)
             if self.guild is None:
@@ -54,11 +56,9 @@ class BotManager(commands.Bot):
             self.database_manager.insert_and_get_new_channels(self.guild.channels)
             Log.PrintLog('Fin Récupération Channels')
             
-            if os.getenv('EDIT_SC_LAUNCH') == "True":
-                self.star_citizen_manager.insert_and_get_locations_sc()
-
             self.parameter = self.database_manager.select_all(Parameter.Parameter)
 
+            await self.ticket.ticket_command()
             await self.operation.ensure_channel_and_category()
             self.loop.create_task(self.scheduler_manager.scheduler_weekly.run_scheduler())  # Démarre la tâche asyncio pour le scheduler
             self.loop.create_task(self.scheduler_manager.scheduler_today.check_events())
@@ -85,15 +85,82 @@ class BotManager(commands.Bot):
                     parameter = ''
 
                 self.add_traces(f"Execution de la commande - {command}", user, parameter)
-            
-            await self.process_commands(message)
+                await self.process_commands(message)
+
+            else:
+                if isinstance(message.channel, discord.DMChannel):
+                    ticket = None
+                    # Récupérer le message auquel l'utilisateur répond
+                    if message.reference:
+                        # Cas 1 : Répondre à un message spécifique
+                        referenced_message = await message.channel.fetch_message(message.reference.message_id)
+                        ticket: TicketBots.TicketBots = self.database_manager.select_entity(
+                            TicketBots.TicketBots,
+                            ConditionField('message_id', '==', referenced_message.id),
+                            True
+                        )
+                
+                    if not ticket:
+                        await message.channel.send("Aucun ticket trouvé.")
+                        return
+        
+                    extra_data = ticket.extra_data_json()
+
+                        # Sépare les couples par espaces
+                    pairs = message.content.split('"')[:-1]  # Ignore la première entrée vide
+                    ajout_reponses = ["### Informations ajoutées :\n"]
+
+                    for i in range(0, len(pairs), 2):
+                        chemin = pairs[i].strip()
+                        valeur = pairs[i + 1].strip().strip('"')
+
+                        path_list = [p.strip() for p in chemin.split('/') if p.strip()]
+
+                        # Crée ou navigue dans le chemin spécifié
+                        current = extra_data
+                        for segment in path_list[:-1]:
+                            if segment not in current:
+                                current[segment] = {}
+                            current = current[segment]
+                        last_key = path_list[-1]
+
+                        if last_key not in current:
+                            current[last_key] = []
+                        if not isinstance(current[last_key], list):
+                            current[last_key] = [current[last_key]]
+                        current[last_key].append(valeur)
+
+                        ajout_reponses.append(f"- **{chemin}** : \"{valeur}\"")
+
+                    if message.attachments:
+                        ajout_reponses.append("### Fichiers ajoutées :\n")
+                        for attachment in message.attachments:
+                            folder_path = f"{os.getenv('UPLOAD_IMAGE')}/{ticket.id}"
+                            file_path = f"{folder_path}/{attachment.filename}"
+                            if not os.path.exists(folder_path):
+                                os.makedirs(folder_path)
+
+                            await attachment.save(file_path)  # Sauvegarder le fichier localement
+                            ajout_reponses.append(f"- {attachment.filename}")
+                            extra_data["files"][len(extra_data["files"]) + 1] = attachment.filename
+
+                    await message.reply("\n".join(ajout_reponses))
+                    ticket.extra_data_json(extra_data)
+                    self.database_manager.insert_entity(ticket)
+                    
         except Exception as e:
             Log.PrintError(f"on_message - {e}")
 
     async def on_command_error(self, ctx, error):
         if isinstance(error, commands.MissingRole):
             await ctx.reply("Vous n'avez le rôle requis pour cette commande.")
-        
+        elif isinstance(error, commands.CommandNotFound):
+            await ctx.reply("Commande inconnue.")
+        elif isinstance(error, commands.MissingRequiredArgument):
+            await ctx.reply("Argument manquant.")
+        else:
+            await ctx.reply(f"Erreur : {str(error)}")
+
     async def on_member_update(self, before, after):
         try:
             #Récupération Utilisateur
@@ -149,9 +216,10 @@ class BotManager(commands.Bot):
         if interaction.guild and interaction.guild.id == self.guildId:
             try:
                 if 'custom_id' in interaction.data:
+
                     custom_id = interaction.data['custom_id']
                         
-                    if "_" in custom_id and not custom_id.endswith('btn') and not custom_id.endswith('_loc'):
+                    if "_" in custom_id and not custom_id.endswith('btn') and not custom_id.endswith('_loc') and not custom_id.startswith('closeTicket'):
                         await interaction.response.defer()
                         if custom_id.startswith("select_"):
                             return
@@ -180,6 +248,10 @@ class BotManager(commands.Bot):
                         # Mise à jour de l'affichage de l'événement
                         event = self.database_manager.select_entity_by_id(Event.Event, event_id)
                         await self.event_manager.update_event(event)
+
+                    if custom_id.startswith('closeTicket'):
+                        close_button_id = interaction.data.get("custom_id").split('_')[1]
+                        await interaction.response.send_modal(Ticket.CloseTicketModal(close_button_id, interaction.channel, self))
 
             except Exception as e:
                 Log.PrintError(f"on_interaction - {e}")

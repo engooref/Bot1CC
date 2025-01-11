@@ -41,6 +41,7 @@ class AppQuart:
                     token = data['token']
 
                 result = None
+                
                 if path == 'setEvent':
                     await self.bot.event_manager.set_event(event)             
                 elif path == 'updateParam' and request.method == 'GET':

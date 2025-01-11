@@ -149,6 +149,7 @@ class Operation():
                 
                 channel = await guild.create_text_channel('création-opération', category=category)
             
+            messageSend = None
             async for message in channel.history(limit=100):  # Limiter à 100 messages pour les performances
                 if (
                     message.author == channel.guild.me  # Vérifier si c'est le bot qui a envoyé le message
@@ -158,7 +159,8 @@ class Operation():
                     embed = message.embeds[0]  # On prend le premier embed du message (s'il y en a un)
                     # Vérifier le titre et la description de l'embed
                     if embed.title == "Création Opération" and embed.description == "Pour créer une opération, cliquez sur le bouton ci-dessous.":
-                        await message.delete()
+                        messageSend = message
+                        break
 
             Log.PrintLog("Création du message pour les Opérations")    
             embed = discord.Embed(
@@ -175,16 +177,15 @@ class Operation():
             )
             button_view.callback = self.open_ticket
             view.add_item(button_view)
-            # Si aucun message correspondant n'est trouvé, envoie un nouveau message
-            await channel.send(embed=embed, view=view)
+            if messageSend:
+                await messageSend.edit(embed=embed, view=view)
+            else:
+                # Si aucun message correspondant n'est trouvé, envoie un nouveau message
+                await channel.send(embed=embed, view=view)
 
             await self.update_roles()
             asyncio.create_task(self.watch_file_for_changes())
-            
-
-            
-            
-
+        
         except Exception as e:
             Log.PrintError(f"Erreur lors de la configuration des canaux : {e}")
           

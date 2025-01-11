@@ -29,8 +29,7 @@ class SchedulerManager:
 
         def start_scheduler(self):
             schedule.every().day.at(os.getenv('HOURS_EVENT')).do(self.check_date)
-            schedule.every().day.at('03:00').do(self.bot.star_citizen_manager.insert_and_get_locations_sc)
-            
+  
         def check_date(self):
             #Check si la date est celle configuré
             currentDate = datetime.now().strftime('%A').lower() 
@@ -106,6 +105,7 @@ class SchedulerManager:
         
         async def schedule_event_reminder(self, event: Event.Event):
             # Planifier un rappel d'événement
+            event = self.bot.database_manager.refresh(event)
             now = datetime.now()
             time_until_reminder = event.start - timedelta(minutes=15) - now
 

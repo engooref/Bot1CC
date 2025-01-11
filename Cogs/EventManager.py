@@ -150,7 +150,7 @@ class EventManager:
                 if response.type_rep == 'tentative':
                     tentative_list.append(user.display_name)
 
-            self.bot.database_manager.insert_entity(responses)
+            self.bot.database_manager.insert_entity(responses, False)
             message = await channel.fetch_message(event.discord_id)
             embed = message.embeds[0]
             for field in embed.fields:
@@ -210,7 +210,6 @@ class EventManager:
             responses: list[Response.Response] = self.bot.database_manager.select_entity(Response.Response, conditions)
             data = list()
             for response in responses:
-
                 data.append([
                     response.user.username,
                     response.team.name if response.team else 'Aucune équipe',
@@ -241,7 +240,6 @@ class EventManager:
                     event.attribution_discord_id = None
 
             if(event.attribution_discord_id is None):
-                message = None
                 if (event.briefing_Discord_Id != None):
                     for thread in channelBriefing.threads:
                         try:
@@ -255,14 +253,14 @@ class EventManager:
                         except Exception as e:
                             Log.PrintLog('async_attribution_event_flask - {e}')
                 
-                if message is None:
-                    # Créer un topic dans le forum
-                    topic = await channelBriefing.create_thread(
-                        name= event.name,  # Titre du topic
-                        applied_tags= [channelBriefing.get_tag(int(os.getenv('EVENT_TAG'))),],
-                        file=file_attrib
-                    )    
-                    event.attribution_discord_id = topic.message.id
+            if event.attribution_discord_id is None:
+                # Créer un topic dans le forum
+                topic = await channelBriefing.create_thread(
+                    name= event.name,  # Titre du topic
+                    applied_tags= [channelBriefing.get_tag(int(os.getenv('EVENT_TAG'))),],
+                    file=file_attrib
+                )    
+                event.attribution_discord_id = topic.message.id
                 # Créer un topic dans le forum
 
             #insertOrUpdate_data(event)

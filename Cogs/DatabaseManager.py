@@ -3,7 +3,7 @@ from ORM import *
 from ORM import User, Role, Channel, Traces, SCLocations, SCLocationsType
 from Utils import Log
 import discord, BotManager
-
+from sqlalchemy.orm.session import object_session
 
 class DatabaseManager:
     def __init__(self, bot):
@@ -97,21 +97,28 @@ class DatabaseManager:
         return select_all(Channel.Channel)
 
 #--------------------------------------------------------------------------------------------------------
-    def insert_entity(self, entity):
-        return insertOrUpdate_data(entity) if not isinstance(entity, list) else insert_multiLigne(entity)
+    def insert_entity(self, entity, merge=True):
+        instanceEntity = insertOrUpdate_data(entity) if not isinstance(entity, list) else insert_multiLigne(entity)
+        return DBSession().merge(instanceEntity) if merge else instanceEntity
 
-    def select_entity(self, model, conditions, one_result = False):
-        return select_by_fields(model, conditions, one_result) if isinstance(conditions, list) else select_by_field(model, conditions, one_result)
+    def select_entity(self, model, conditions, one_result = False, order_by_desc = False):
+        return select_by_fields(model, conditions, one_result, order_by_desc) if isinstance(conditions, list) else select_by_field(model, conditions, one_result, order_by_desc)
 
     def select_entity_by_id(self, model, id):
         return select_by_id(model, id)
     
-    def select_all(self, model):
-        return select_all(model)
+    def select_all(self, model, inList=False):
+        return select_all(model, inList)
 
     def add_traces(self, message: str, user: User.User, parameter = None):
         insertOrUpdate_data(Traces.Traces(user.id, message, parameter))
         Log.PrintLog(message)
 
-    def delete_entity(self, model, conditions):
-        return delete_by_fields(model, conditions)
+    def delete_entity(self, entity):
+        return delete(entity)
+    
+    def refresh(self, entity):
+        if object_session(entity) is None:
+            DBSession().add(entity)
+            DBSession().refresh(entity)
+        return entity
