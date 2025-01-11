@@ -188,22 +188,27 @@ class Ticket():
             ticketType = self.bot.database_manager.select_all(TicketType.TicketType, True)
             ticketType = sorted(ticketType, key=lambda object: object.name)
             for type in ticketType:
-                await get_or_create_category_tickets(type.category, self.bot)
+                await get_or_create_category_tickets(type, self.bot)
         except Exception as e:
             Log.PrintError(e)
 
 
-async def get_or_create_category_tickets(category_name, bot) -> discord.CategoryChannel: 
+async def get_or_create_category_tickets(type: TicketType.TicketType, bot) -> discord.CategoryChannel: 
     try:
-        category: discord.CategoryChannel = discord.utils.get(bot.guild.categories, name=category_name)
+        role_auth: discord.Role = bot.guild.get_role(int(type.role_auth))
+        category: discord.CategoryChannel = discord.utils.get(bot.guild.categories, name=type.category)
         if not category:
-            bot.add_traces(f"Création de la catégorie '{category_name}'")
+            bot.add_traces(f"Création de la catégorie '{type.category}'")
+            
             overwrites = {
                 bot.guild.default_role: discord.PermissionOverwrite(view_channel=False),  # Bloque la lecture et l'écriture pour tout le monde
                 bot.role_member: discord.PermissionOverwrite(view_channel=True, send_messages=False), # Bloque la lecture et l'écriture pour tout le monde
-                bot.role_member: discord.PermissionOverwrite(view_channel=True) # Bloque la lecture et l'écriture pour tout le monde
             }
-            category = await bot.guild.create_category(category_name, overwrites=overwrites)
+
+            if role_auth:
+                overwrites[role_auth] = discord.PermissionOverwrite(view_channel=True, send_messages=True)
+
+            category = await bot.guild.create_category(type.category, overwrites=overwrites)
             
         channel = discord.utils.get(category.channels, name="recap-tickets")
         if not channel:
@@ -213,12 +218,15 @@ async def get_or_create_category_tickets(category_name, bot) -> discord.Category
                 bot.role_member: discord.PermissionOverwrite(view_channel=False) # Bloque la lecture et l'écriture pour tout le monde
             }
 
+            if role_auth:
+                overwrites[role_auth] = discord.PermissionOverwrite(view_channel=True, send_messages=True)
+
             bot.add_traces(f"Création du canal 'recap-tickets' dans la catégorie '{category.name}'")     
             channel = await bot.guild.create_text_channel('recap-tickets', category=category, overwrites=overwrites)
 
         return category
     except Exception as e:
-        print(e)
+        Log.PrintError(e)
 
 
 
