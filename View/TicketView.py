@@ -82,6 +82,7 @@ class Ticket():
             self.bot: BotManager.BotManager = bot
 
             self.options = self.bot.database_manager.select_all(TicketType.TicketType, True)
+            
             select = Select(
                 placeholder="Selectionnez le service",
                 options=[discord.SelectOption(label=option.name, value=str(option.id)) for option in self.options],
@@ -145,47 +146,51 @@ class Ticket():
                 Log.PrintLog(e) 
 
     async def ticket_command(self):
-        category: discord.CategoryChannel = discord.utils.get(self.bot.guild.categories, id=int(os.getenv("CATEGORY_TICKET")))
-        if not category:
-            self.bot.add_traces(f"Création de la catégorie '{type.category}'")
-            overwrites = {
-                self.bot.guild.default_role: discord.PermissionOverwrite(view_channel=False), 
-                self.bot.role_member: discord.PermissionOverwrite(view_channel=True, send_message=False) # Bloque la lecture et l'écriture pour tout le monde
-            }
-            category = await self.bot.guild.create_category(type.category, overwrites=overwrites)
+        try:
+            category: discord.CategoryChannel = discord.utils.get(self.bot.guild.categories, id=int(os.getenv("CATEGORY_TICKET")))
+            if not category:
+                self.bot.add_traces(f"Création de la catégorie '{type.category}'")
+                overwrites = {
+                    self.bot.guild.default_role: discord.PermissionOverwrite(view_channel=False), 
+                    self.bot.role_member: discord.PermissionOverwrite(view_channel=True, send_message=False) # Bloque la lecture et l'écriture pour tout le monde
+                }
+                category = await self.bot.guild.create_category(type.category, overwrites=overwrites)
 
 
-        channel = discord.utils.get(category.channels, name="creation-tickets")
-        if not channel:
-            self.bot.add_traces(f"Création du canal 'creation-tickets' dans la catégorie '{category.name}'")            
-            channel = await self.bot.guild.create_text_channel('creation-tickets', category=category)
-        
-        messageSend = None
-        embed = discord.Embed(
-            title="Tickets",
-            description="Pour créer un ticket, cliquer sur le bouton ci-dessous.",
-            color=discord.Color.blurple()
-        )
+            channel = discord.utils.get(category.channels, name="creation-tickets")
+            if not channel:
+                self.bot.add_traces(f"Création du canal 'creation-tickets' dans la catégorie '{category.name}'")            
+                channel = await self.bot.guild.create_text_channel('creation-tickets', category=category)
+            
+            messageSend = None
+            embed = discord.Embed(
+                title="Tickets",
+                description="Pour créer un ticket, cliquer sur le bouton ci-dessous.",
+                color=discord.Color.blurple()
+            )
 
-        async for message in channel.history(limit=100):
-            if (
-                message.author == channel.guild.me 
-                and message.embeds 
-                and message.components 
-            ):
-                embedTest = message.embeds[0] 
-                if embedTest.title == embed.title and embedTest.description == embed.description:
-                    messageSend = message
-                    break
+            async for message in channel.history(limit=100):
+                if (
+                    message.author == channel.guild.me 
+                    and message.embeds 
+                    and message.components 
+                ):
+                    embedTest = message.embeds[0] 
+                    if embedTest.title == embed.title and embedTest.description == embed.description:
+                        messageSend = message
+                        break
 
-        if messageSend:
-            await messageSend.edit(embed=embed, view=Ticket.OpenTicketButton(self.bot))
-        else:
-            await channel.send(embed=embed, view=Ticket.OpenTicketButton(self.bot))
+            if messageSend:
+                await messageSend.edit(embed=embed, view=Ticket.OpenTicketButton(self.bot))
+            else:
+                await channel.send(embed=embed, view=Ticket.OpenTicketButton(self.bot))
 
-        ticketType = self.bot.database_manager.select_all(TicketType.TicketType, True)
-        for type in ticketType:
-            await get_or_create_category_tickets(type.category, self.bot)
+            ticketType = self.bot.database_manager.select_all(TicketType.TicketType, True)
+            ticketType = sorted(ticketType, key=lambda object: object.name)
+            for type in ticketType:
+                await get_or_create_category_tickets(type.category, self.bot)
+        except Exception as e:
+            Log.PrintError(e)
 
 
 async def get_or_create_category_tickets(category_name, bot) -> discord.CategoryChannel: 
