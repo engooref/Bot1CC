@@ -96,16 +96,19 @@ class Ticket():
 
                 # Utiliser le nom de l'utilisateur pour nommer le canal avec des tirets à la place des espaces
                 user_name = interaction.user.name.replace(" ", "-").lower()
-                category_name = ticket_type.category.replace(" ", "-").lower()
 
-                category: discord.CategoryChannel = await get_or_create_category_tickets(category_name, self.bot)
+                category: discord.CategoryChannel = await get_or_create_category_tickets(ticket_type, self.bot)
 
+                role_auth = self.bot.guild.get_role(int(ticket_type.role_auth))
                 overwrites = {
                     interaction.guild.default_role: discord.PermissionOverwrite(view_channel=False),
                     interaction.user: discord.PermissionOverwrite(view_channel=True, send_messages=True),
                     interaction.guild.me: discord.PermissionOverwrite(view_channel=True, send_messages=True),
                     self.bot.role_member: discord.PermissionOverwrite(view_channel=False)
                 }
+
+                if role_auth:
+                    overwrites[role_auth] = discord.PermissionOverwrite(view_channel=True, send_messages=True)
 
                 ticket: TicketBots.TicketBots = TicketBots.TicketBots(ticket_type, interaction.user.id, datetime.datetime.now())
                 ticket: TicketBots.TicketBots = self.bot.database_manager.insert_entity(ticket)
