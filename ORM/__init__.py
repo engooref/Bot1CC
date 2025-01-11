@@ -50,8 +50,9 @@ def insertOrUpdate_data(instance):
     try:
         session.add(instance)
         session.commit()
-        
-        instance = select_by_id(instance.__class__, instance.id)
+
+       
+        return instance
     except Exception as e:
         session.rollback()
         Log.PrintLog(f'Error inserting data: {e}')
@@ -70,21 +71,21 @@ def insert_multiLigne(instances):
     finally:
         session.close()    
 
-def select_all(model):
+def select_all(model, inList=False):
     session = DBSession()
     try:
         query = session.query(model)
         for relation in get_relations(model):
             query = query.options(joinedload(relation))
         entities = query.all()
-        return {str(entity): entity for entity in entities}
+        return {str(entity): entity for entity in entities} if not inList else entities
     except Exception as e:
         Log.PrintLog(f'Error selecting data: {e}')
         return list()
     finally:
         session.close()
         
-def select_by_field(model, field : ConditionField, oneResult = False):
+def select_by_field(model, field : ConditionField, oneResult = False, order_by_desc = False):
     session = DBSession()
     try:
         query = session.query(model)
@@ -121,6 +122,8 @@ def select_by_field(model, field : ConditionField, oneResult = False):
         else:
             raise ValueError(f"Operator '{field.operatorField}' not supported.")
         
+        if order_by_desc:
+            query.order_by(model.id.desc())
         # Retourner un seul résultat ou tous les résultats en fonction de `oneResult`
         if not oneResult:
             return query.all()
@@ -132,7 +135,7 @@ def select_by_field(model, field : ConditionField, oneResult = False):
     finally:
         session.close()
         
-def select_by_fields(model, fields : List[ConditionField], one_result=False):
+def select_by_fields(model, fields : List[ConditionField], one_result=False, order_by_desc = False):
     session = DBSession()
     try:
         query = session.query(model)
@@ -167,6 +170,8 @@ def select_by_fields(model, fields : List[ConditionField], one_result=False):
             else:
                 raise ValueError(f"Operator '{field.operatorField}' not supported.")
             
+        if order_by_desc:
+            query.order_by(model.id.desc())
 
         if not one_result:
             return query.all()
@@ -210,50 +215,23 @@ def select_by_discordId(model, discordId):
     finally:
         session.close()
         
-def delete_by_fields(model, fields):
+def delete(objects):
     # Ouvrez une session SQLAlchemy
     session = DBSession()
     try:
-        # Récupérez l'objet à supprimer en fonction du champ de recherche
-        query = session.query(model)
-        
-        if isinstance(fields, list):
-            for field in fields:
-                if field.model is None:
-                    model_field = getattr(model, field.name) 
-                else:
-                    model_field = getattr(field.model, field.name)
-
-                operator_func = operatorDict.get(field.operatorField)
-                if operator_func:
-                    query = query.filter(operator_func(model_field, field.value))
-                else:
-                    raise ValueError(f"Operator '{field.operatorField}' not supported.")
-        else:
-            if field.model is None:
-                model_field = getattr(model, field.name) 
-            else:
-                model_field = getattr(field.model, field.name)
-                
-            operator_func = operatorDict.get(field.operatorField)
-            if operator_func:
-                query = query.filter(operator_func(model_field, field.value))
-            else:
-                raise ValueError(f"Operator '{field.operatorField}' not supported.")
-            
-        obj = query.all()
-        if obj:
-            # Marquez l'objet comme étant à supprimer
-            for object in obj:
+        if isinstance(objects, list):
+            for object in object:
                 session.delete(object)
 
-            # Validez la transaction
-            session.commit()
+        else:
+            session.delete(objects)
+        
+        # Validez la transaction
+        session.commit()
 
-            print(f"{model.__name__} deleted successfully.")
-
+        Log.PrintLog(f'Supression des données reussi')
     except Exception as e:
-        print(f"Error deleting {model.__name__}: {e}")
+        Log.PrintLog(f'Error deleting data: {e}')
         # En cas d'erreur, effectuez un rollback de la transaction
         session.rollback()
     finally:
