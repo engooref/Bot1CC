@@ -86,7 +86,7 @@ class EventManager:
             event.discord_id = message.id
             await self.update_event(event)
             
-            if(event.briefing_file_name is not None):
+            if(event.briefing_file_name != ''):
                 
                 channelBriefing = self.bot.get_channel(int(self.bot.get_parameter("CHANNEL_BRIEFING")))
                 if not isinstance(channelBriefing, discord.ForumChannel):
