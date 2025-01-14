@@ -16,7 +16,13 @@ class App():
         self.quart_app = None
         
         Log.PrintLog("Lancement SQLAlchemy et BDD")
-        engine = create_engine(os.getenv('URL_BDD'), echo=(os.getenv('ECHO_SQL') == "True"), pool_pre_ping=True)
+        engine = create_engine(os.getenv('URL_BDD'), 
+                                echo=(os.getenv('ECHO_SQL') == "True"),
+                                pool_pre_ping=True,
+                                pool_size=10,          
+                                max_overflow=20,       
+                                pool_recycle=3600
+                                )
         initialize_sql(engine)
 
         # Lancer l'initialisation asynchrone
