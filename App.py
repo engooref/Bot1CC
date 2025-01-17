@@ -3,7 +3,7 @@ import BotManager, Utils.Log as Log, Quart, pymysql
 import asyncio, discord, os
 from ORM import initialize_sql
 from sqlalchemy import create_engine
-
+from Commands import TicketsCommands
  
 pymysql.install_as_MySQLdb()
 
@@ -39,7 +39,8 @@ class App():
         # Créer et configurer le bot Discord
         self.bot = BotManager.BotManager(intents, os.getenv('GUILD_ID'))
         self.bot.remove_command('help')
-        
+        await self.bot.load_extension('Commands.TicketsCommands')
+  
 
         # Créer et configurer le serveur Quart
         self.quart_app = Quart.AppQuart(self.bot)

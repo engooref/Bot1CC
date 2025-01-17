@@ -16,6 +16,7 @@ class TicketBots(Base):
     open = Column(DateTime, nullable=False)
     closed = Column(DateTime, nullable=False, default=datetime.datetime.now())
     closed_message = Column(String(255), nullable=False, default='')
+    issue = Column(String(255), nullable=False, default='')
 
     type = relationship('TicketType')
 

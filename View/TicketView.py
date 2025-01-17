@@ -3,7 +3,8 @@ from discord.ui import Button, View, Select, TextInput, Modal
 import BotManager
 from Utils import Log
 import datetime
-from ORM import TicketType, TicketBots, ConditionField
+from ORM import TicketType, TicketBots
+from Utils.Git import github
 
 
 class Ticket():
@@ -17,6 +18,11 @@ class Ticket():
             self.channel: discord.TextChannel = channel
             self.ticket_id = ticket_id
             self.bot: BotManager.BotManager = bot
+
+            self.g = Github(os.getenv('GIT_TOKEN'))
+            self.site_repo = self.g.get_repo(os.getenv('REPO_SITE'))
+            self.bot_repo = self.g.get_repo(os.getenv('REPO_BOT'))
+
 
             # Champ pour le message de clôture
             self.add_item(TextInput(label="Message de Clôture", placeholder="Indiquez un message de clôture (optionnel)", required=False))
@@ -32,12 +38,6 @@ class Ticket():
                 close_message = self.children[0].value
                 ticket.closed_message = (close_message if close_message != "" else "Aucune raison indiquée")
                 user_open = self.bot.guild.get_member(ticket.user_id)
-
-                embed = discord.Embed(
-                    title=f"Clôture Ticket",
-                    description="Recapitulatif Ticket",
-                    color=discord.Color.random()
-                )
 
                 embed = discord.Embed(
                     title="Clôture Ticket",
@@ -60,7 +60,6 @@ class Ticket():
 
                 # Raison de la clôture (ligne indépendante)
                 embed.add_field(name="Raison Clôture :", value=ticket.closed_message, inline=False)
-                
                 channel_recap: discord.TextChannel = discord.utils.get(self.channel.category.channels, name="recap-tickets")
                 
                 if channel_recap:
@@ -72,9 +71,26 @@ class Ticket():
                 dm_channel = await user_open.create_dm()
                 # Envoyer une confirmation de clôture
                 await dm_channel.send(embed=embed)
+                if ticket.issue != '':
+                    self.close_issue_with_comment(ticket.issue, ticket.closed_message)
                 self.bot.database_manager.insert_entity(ticket)
             except Exception as e:
                 Log.PrintError(e)
+
+        def close_issue_with_comment(self, issue_text, comment):
+            issue_number = issue_text.split(':')[1]
+            issue_name = issue_text.split(':')[0]
+
+            repo = self.bot_repo if self.bot_repo.name == issue_name else self.site_repo
+            
+            issue = repo.get_issue(number=int(issue_number))
+            issue.create_comment(comment)  # Ajouter un commentaire
+            if issue.state != "closed":
+                issue.edit(state="closed")
+                Log.PrintLog(f"Issue #{issue_number} fermée avec succès avec un commentaire.")
+            else:
+                Log.PrintLog(f"Issue #{issue_number} est déjà fermée.")
+                
 
     class TicketView(View):
         def __init__(self, bot):
@@ -118,7 +134,7 @@ class Ticket():
                 self.bot.database_manager.insert_entity(ticket)
 
                 embed = discord.Embed(
-                    title=f"Ticket n°{ticket_id} Créé",
+                    title=f"Ticket n°{ticket_id} Créé" + (f'- {role_auth.mention}' if role_auth else '')  ,
                     description="Votre ticket a été créé avec succès. Utilisez les options ci-dessous pour le gérer.",
                     color=discord.Color.random()
                 )
@@ -150,14 +166,14 @@ class Ticket():
 
     async def ticket_command(self):
         try:
-            category: discord.CategoryChannel = discord.utils.get(self.bot.guild.categories, id=int(os.getenv("CATEGORY_TICKET")))
+            category: discord.CategoryChannel = discord.utils.get(self.bot.guild.categories, name='assistance')
             if not category:
-                self.bot.add_traces(f"Création de la catégorie '{type.category}'")
+                self.bot.add_traces(f"Création de la catégorie 'assistance'")
                 overwrites = {
                     self.bot.guild.default_role: discord.PermissionOverwrite(view_channel=False), 
-                    self.bot.role_member: discord.PermissionOverwrite(view_channel=True, send_message=False) # Bloque la lecture et l'écriture pour tout le monde
+                    self.bot.role_member: discord.PermissionOverwrite(view_channel=True, send_messages=False) # Bloque la lecture et l'écriture pour tout le monde
                 }
-                category = await self.bot.guild.create_category(type.category, overwrites=overwrites)
+                category = await self.bot.guild.create_category('assistance', overwrites=overwrites)
 
 
             channel = discord.utils.get(category.channels, name="creation-tickets")
@@ -188,10 +204,25 @@ class Ticket():
             else:
                 await channel.send(embed=embed, view=Ticket.OpenTicketButton(self.bot))
 
-            ticketType = self.bot.database_manager.select_all(TicketType.TicketType, True)
-            ticketType = sorted(ticketType, key=lambda object: object.name)
-            for type in ticketType:
-                await get_or_create_category_tickets(type, self.bot)
+
+            channel = discord.utils.get(category.channels, name="recap-tickets")
+            if not channel:
+                overwrites = {
+                    self.bot.guild.default_role: discord.PermissionOverwrite(view_channel=False),
+                    self.bot.guild.me: discord.PermissionOverwrite(view_channel=True, send_messages=True),
+                    self.bot.role_member: discord.PermissionOverwrite(view_channel=False) # Bloque la lecture et l'écriture pour tout le monde
+                }
+        
+                ticketType = self.bot.database_manager.select_all(TicketType.TicketType, True)
+                for type in ticketType:
+                    role_type = self.bot.guild.get_role(type.role_auth)
+                    if role_type:
+                        overwrites[role_type] = discord.PermissionOverwrite(view_channel=True, send_messages=True)
+        
+
+                self.bot.add_traces(f"Création du canal 'recap-tickets' dans la catégorie '{category.name}'")     
+                channel = await self.bot.guild.create_text_channel('recap-tickets', category=category, overwrites=overwrites)
+
         except Exception as e:
             Log.PrintError(e)
 
@@ -199,19 +230,7 @@ class Ticket():
 async def get_or_create_category_tickets(type: TicketType.TicketType, bot) -> discord.CategoryChannel: 
     try:
         role_auth: discord.Role = bot.guild.get_role(int(type.role_auth))
-        category: discord.CategoryChannel = discord.utils.get(bot.guild.categories, name=type.category)
-        if not category:
-            bot.add_traces(f"Création de la catégorie '{type.category}'")
-            
-            overwrites = {
-                bot.guild.default_role: discord.PermissionOverwrite(view_channel=False),  # Bloque la lecture et l'écriture pour tout le monde
-                bot.role_member: discord.PermissionOverwrite(view_channel=True, send_messages=False), # Bloque la lecture et l'écriture pour tout le monde
-            }
-
-            if role_auth:
-                overwrites[role_auth] = discord.PermissionOverwrite(view_channel=True, send_messages=True)
-
-            category = await bot.guild.create_category(type.category, overwrites=overwrites)
+        category: discord.CategoryChannel = discord.utils.get(bot.guild.categories, name='assistance')
             
         channel = discord.utils.get(category.channels, name="recap-tickets")
         if not channel:

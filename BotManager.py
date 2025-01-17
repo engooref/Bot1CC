@@ -9,6 +9,7 @@ from Utils import Log
 import locale, discord, os
 from View.OperationView import Operation
 from View.TicketView import Ticket
+from Commands import TicketsCommands
 
 
 class BotManager(commands.Bot):
@@ -39,6 +40,8 @@ class BotManager(commands.Bot):
             if self.has_started:
                 return  # Évite une exécution multiple
             self.has_started = True
+
+            await self.tree.sync()
 
             #Récuperation du serveur Discord
             self.guild: discord.Guild = self.get_guild(self.guildId)
@@ -258,10 +261,18 @@ class BotManager(commands.Bot):
 
     async def on_raw_reaction_add(self, payload):
         try:
-            channel = self.get_channel(payload.channel_id)
+            if payload.user_id == self.user.id:
+                return 
+            
             user = channel.guild.get_member(payload.user_id)
+            channel = self.get_channel(payload.channel_id)
             emoji = payload.emoji
             message = await channel.fetch_message(payload.message_id)
+            # Vérifiez si le message est déjà en cache pour éviter un fetch inutile
+            if channel:
+                message = discord.utils.get(self.bot.cached_messages, id=payload.message_id)
+                if not message:
+                    message = await channel.fetch_message(payload.message_id)  # Seulement si nécessaire
             if user.id == self.user.id or message != self.operation.message_role or not emoji.name in self.operation.role_emojis:
                 return
 

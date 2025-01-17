@@ -13,7 +13,8 @@ current_file = os.path.abspath(__file__)
 # Dossier contenant le fichier
 current_dir = os.path.dirname(current_file)
 
-load_dotenv(current_dir + "/../config")
+load_dotenv(current_dir + "/../Config/config_gen")
+load_dotenv(f"{current_dir}/../Config/config_git")
 
 DBSession = scoped_session(sessionmaker())
 Base = declarative_base()
