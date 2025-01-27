@@ -1,7 +1,7 @@
 # SchedulerManager.py
-import schedule, asyncio, os, datetime, BotManager
-from Utils import Log
+import schedule, asyncio, os
 from datetime import datetime, timedelta
+from Utils import Log
 from ORM import Event, ConditionField, Response
 
 JourName = [
@@ -16,27 +16,24 @@ JourName = [
 
 class SchedulerManager:
     def __init__(self, bot):
-        self.scheduler_weekly:  SchedulerManager.SchedulerWeekly = SchedulerManager.SchedulerWeekly(bot)
-        self.scheduler_today:   SchedulerManager.SchedulerToday = SchedulerManager.SchedulerToday(bot)
-
+        self.scheduler_weekly: SchedulerManager.SchedulerWeekly = SchedulerManager.SchedulerWeekly(bot)
+        self.scheduler_today: SchedulerManager.SchedulerToday = SchedulerManager.SchedulerToday(bot)
 
     class SchedulerWeekly:
         def __init__(self, bot):
-            self.bot: BotManager.BotManager = bot
+            self.bot = bot
             self.start_scheduler()
             Log.PrintLog(f"Création de schedule pour envoyer les events automatiquement: Date -> {JourName[int(os.getenv('DAY_EVENT'))]} Heure -> {os.getenv('HOURS_EVENT')}")
-
 
         def start_scheduler(self):
             schedule.every().day.at(os.getenv('HOURS_EVENT')).do(self.check_date)
   
         def check_date(self):
-            #Check si la date est celle configuré
-            currentDate = datetime.now().strftime('%A').lower() 
-            jourParam = JourName[int(os.getenv('DAY_EVENT'))]
-            if currentDate == jourParam:
+            current_date = datetime.now().strftime('%A').lower()
+            jour_param = JourName[int(os.getenv('DAY_EVENT'))]
+            if current_date == jour_param:
                 asyncio.create_task(self.send_event_week())
-                
+
         async def run_scheduler(self):
             while True:
                 schedule.run_pending()
@@ -49,137 +46,116 @@ class SchedulerManager:
         async def send_event_week(self):
             try:
                 Log.PrintLog("Envoie des Appels Event")
-                # Obtenir la date actuelle
                 today = datetime.now().date()
-
-                # Trouver le lundi de la semaine prochaine
-                days_until_next_monday = (7 - today.weekday()) % 7 + 1  # Passe au lundi suivant
+                days_until_next_monday = (7 - today.weekday()) % 7 + 1
                 next_monday = today + timedelta(days=days_until_next_monday)
-
-                # Calculer le dimanche de la semaine suivante
                 next_sunday = next_monday + timedelta(days=6)
 
-                # Créer les conditions pour la base de données
-                conditionList = [ConditionField("start", "between", (next_monday, next_sunday))]
-                events: list[Event.Event] = self.bot.database_manager.select_entity(Event.Event, conditionList)
+                condition_list = [ConditionField("start", "between", (next_monday, next_sunday))]
+                events = await self.bot.database_manager.select_entity(Event.Event, condition_list)
+
                 for event in events:
                     await self.bot.event_manager.set_event(event)
             except Exception as e:
                 Log.PrintError(f"send_event_week - {e}")
- 
 
     class SchedulerToday:
         def __init__(self, bot):
-            self.bot: BotManager.BotManager = bot
+            self.bot = bot
             self.scheduled_tasks = {}
 
         async def check_events(self):
-            # Code pour vérifier les événements
-            while True:                
-                # Récupérer les événements du jour
-                today_events = self.get_events_for_today()
+            while True:
+                today_events = await self.get_events_for_today()
 
                 for event in today_events:
                     time_until_event = event.start - datetime.now()
                     
-                    # Si l'événement est dans moins de 15 minutes
-                    if time_until_event > timedelta(minutes=0) and time_until_event <= timedelta(minutes=15):
+                    if timedelta(minutes=0) < time_until_event <= timedelta(minutes=15):
                         await self.send_event_reminder(event)
                     else:
-                        # Planifie le rappel 15 minutes avant l'événement
                         await self.schedule_event_reminder(event)
 
-                # Attendre 60 secondes avant de vérifier à nouveau
                 await asyncio.sleep(60)
-                
 
-        def get_events_for_today(self):
-            # Code pour obtenir les événements d'aujourd'hui
+        async def get_events_for_today(self):
             now = datetime.now()
             today_start = datetime(now.year, now.month, now.day)
             today_end = today_start + timedelta(days=1)
 
-            # Remplacer cela par une requête à la base de données
-            events = self.bot.database_manager.select_entity(Event.Event, ConditionField('start', 'between', (today_start, today_end)))
-            return events
-        
-        async def schedule_event_reminder(self, event: Event.Event):
-            # Planifier un rappel d'événement
-            event = self.bot.database_manager.refresh(event)
+            return await self.bot.database_manager.select_entity(
+                Event.Event, ConditionField('start', 'between', (today_start, today_end))
+            )
+
+        async def schedule_event_reminder(self, event):
+            event = await self.bot.database_manager.refresh(event)
             now = datetime.now()
             time_until_reminder = event.start - timedelta(minutes=15) - now
 
-            # Si le rappel est dans le passé, ne rien faire
             if time_until_reminder.total_seconds() <= 0 or event.start > now + timedelta(days=1):
                 return
 
             if event.id in self.scheduled_tasks:
                 return
 
-            # Créer une nouvelle tâche pour le rappel
             task = asyncio.create_task(self._wait_and_remind(event, time_until_reminder))
             self.scheduled_tasks[event.id] = task
 
-        async def _wait_and_remind(self, event: Event.Event, delay: timedelta):
+        async def _wait_and_remind(self, event, delay):
             try:
-                # Attendre jusqu'à 15 minutes avant l'événement
                 await asyncio.sleep(delay.total_seconds())
 
-                # Envoyer le rappel si l'événement est encore valide
                 if self.is_event_valid(event):
                     await self.send_event_reminder(event)
             except asyncio.CancelledError:
                 pass
 
-        def cancel_event_reminder(self, event: Event.Event):
+        def cancel_event_reminder(self, event):
             if event.id in self.scheduled_tasks:
-                # Annuler la tâche programmée
                 self.scheduled_tasks[event.id].cancel()
                 del self.scheduled_tasks[event.id]
 
             event.appel_msg_discord = False
 
-        def is_event_valid(self, event: Event.Event):
-            # Vérifie si l'événement existe toujours et est prévu pour aujourd'hui
+        def is_event_valid(self, event):
             now = datetime.now()
-            return event.start > now and event.id in [e.id for e in self.get_events_for_today()]
-        
-        async def send_event_reminder(self, event: Event.Event):
+            today_events = asyncio.run(self.get_events_for_today())
+            return event.start > now and event.id in [e.id for e in today_events]
+
+        async def send_event_reminder(self, event):
             channel = self.bot.event_manager.get_channel(event)
 
-            if(event.discord_id != None and not event.appel_msg_discord):
+            if event.discord_id and not event.appel_msg_discord:
                 message = await channel.fetch_message(event.discord_id)
                 if message is not None:
-                    lFields = [
+                    conditions = [
                         ConditionField("type_rep", "==", 'accepted'),
                         ConditionField("event_id", "==", event.id)
                     ]
 
-                    responses = self.bot.database_manager.select_entity(Response.Response, lFields)
-                    msgStr = event.name + "\n\n"
+                    responses = await self.bot.database_manager.select_entity(Response.Response, conditions)
+                    msg_str = f"{event.name}\n\n"
+
                     for response in responses:
                         user = self.bot.guild.get_member(response.user.discord_id)
-                        if user is not None:
-                            msgStr += user.mention + " " 
+                        if user:
+                            msg_str += f"{user.mention} "
                     
                     try:
-                        await message.reply(msgStr)
+                        await message.reply(msg_str)
                         event.appel_msg_discord = True
                     finally:
-                        self.bot.database_manager.insert_entity(event)
-            
-        def update_event(self, event: Event.Event):
-            # Annule le rappel existant
+                        await self.bot.database_manager.insert_entity(event)
+        
+        def update_event(self, event):
             self.cancel_event_reminder(event)
 
             time_until_event = event.start - datetime.now()
-                    
+
             if event.appel_msg_discord:
                 return
-            
-            # Si l'événement est dans moins de 15 minutes
-            if time_until_event > timedelta(minutes=0) and time_until_event <= timedelta(minutes=15):
+
+            if timedelta(minutes=0) < time_until_event <= timedelta(minutes=15):
                 asyncio.create_task(self.send_event_reminder(event))
             else:
-                # Planifie le rappel 15 minutes avant l'événement
                 asyncio.create_task(self.schedule_event_reminder(event))

@@ -2,7 +2,6 @@ from time import sleep
 import BotManager, Utils.Log as Log, Quart, pymysql
 import asyncio, discord, os
 from ORM import initialize_sql
-from sqlalchemy import create_engine
 from Commands import TicketsCommands
  
 pymysql.install_as_MySQLdb()
@@ -15,21 +14,13 @@ class App():
         self.bot = None
         self.quart_app = None
         
-        Log.PrintLog("Lancement SQLAlchemy et BDD")
-        engine = create_engine(os.getenv('URL_BDD'), 
-                                echo=(os.getenv('ECHO_SQL') == "True"),
-                                pool_pre_ping=True,
-                                pool_size=10,          
-                                max_overflow=20,       
-                                pool_recycle=3600
-                                )
-        initialize_sql(engine)
-
         # Lancer l'initialisation asynchrone
         asyncio.run(self.Param())
 
     async def Param(self):
         """Initialisation des composants asynchrones : bot et serveur Quart"""
+        
+
         intents = discord.Intents.default()
         intents.members = True
         intents.message_content = True
@@ -55,6 +46,10 @@ class App():
                 with open(control_file, 'w') as f:
                     pass
 
+            Log.PrintLog("Lancement SQLAlchemy et BDD")
+        
+            await initialize_sql()
+            
             """Démarrer l'application avec Quart et le bot Discord"""
             Log.PrintLog("Lancement du bot Discord et du serveur Quart")
 

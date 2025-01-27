@@ -17,7 +17,6 @@ class EventManager:
 
     async def set_event(self, event: Event.Event):
         try:
-            nameParam = 'CHANNEL_' + event.start.strftime('%A').upper()
             channel = self.get_channel(event)
             
             # Encodage des paramètres pour l'URL
@@ -44,9 +43,8 @@ class EventManager:
 
                 # Reconstruire l'URL encodée
                 safe_url = urlunparse(parsed_url._replace(path=encoded_path, query=encoded_query))
-                print(safe_url)
                 embedEvent.set_image(url=safe_url)
-    
+
             embedEvent.add_field(name=f"Regroupement: " , value=f"```{event.start.strftime('%A %d %B %Y %H:%M')}```\n", inline=False)
             embedEvent.add_field(name=f"Lancement: " , value=f"```{event.lanc_serv.strftime('%H:%M')}```\n", inline=False)
             embedEvent.add_field(name="Spawn: " , value=f"{event.spawn}\n", inline=False)
@@ -58,9 +56,9 @@ class EventManager:
             embedEvent.add_field(name="Accepted (0)", value="Aucun\n", inline=True)
             embedEvent.add_field(name="Declined (0)", value="Aucun\n", inline=True)
             embedEvent.add_field(name="Tentative (0)", value="Aucun\n", inline=True)
-            
-            if(event.discord_id != None):
-                message : discord.Message = None
+
+            view = InviteView.InviteView(event.id)
+            if event.discord_id:
                 try:
                     message = await channel.fetch_message(event.discord_id)
                     await message.edit(embed=embedEvent)
@@ -77,10 +75,9 @@ class EventManager:
                         except discord.NotFound as e:
                             pass
 
-                    view = InviteView.InviteView(event.id)
+                    
                     message = await channel.send(embed=embedEvent, view=view)
-            else: 
-                view = InviteView.InviteView(event.id)
+            else:
                 message = await channel.send(embed=embedEvent, view=view)
 
             event.discord_id = message.id
@@ -126,54 +123,52 @@ class EventManager:
 
     async def update_event(self, event: Event.Event):
         try:
-            responses: list[Response.Response] = self.bot.database_manager.select_entity(Response.Response, ConditionField("event_id", "==", event.id))
+            responses = await self.bot.database_manager.select_entity(
+                Response.Response, [ConditionField("event_id", "==", event.id)]
+            )
             channel = self.get_channel(event)
         
-            accepted_list = list()
-            declined_list = list()
-            tentative_list = list()
+            accepted_list = []
+            declined_list = []
+            tentative_list = []
             for response in responses[:]:
-                userbdd: User.User = self.bot.database_manager.select_entity_by_id(User.User, response.users_id)
+                userbdd = await self.bot.database_manager.select_entity_by_id(User.User, response.users_id)
                 if userbdd is None:
                     continue
                 
-                user: discord.Member = self.bot.guild.get_member(userbdd.discord_id)
+                user = self.bot.guild.get_member(userbdd.discord_id)
                 if user is None:
                     responses.remove(response)
                     continue
+
                 if response.type_rep == 'accepted':
                     accepted_list.append(user.display_name)
-                
-                if response.type_rep == 'declined':
+                elif response.type_rep == 'declined':
                     declined_list.append(user.display_name)
-
-                if response.type_rep == 'tentative':
+                elif response.type_rep == 'tentative':
                     tentative_list.append(user.display_name)
 
-            self.bot.database_manager.insert_entity(responses, False)
+            await self.bot.database_manager.insert_entity(responses)
             message = await channel.fetch_message(event.discord_id)
             embed = message.embeds[0]
             for field in embed.fields:
                 if field.name.startswith("Accepted"):
-                    embed.set_field_at(embed.fields.index(field), name=f"Accepted ({len(accepted_list)})" , value="\n".join(accepted_list) or "Aucun", inline=field.inline)
-                    
+                    embed.set_field_at(embed.fields.index(field), name=f"Accepted ({len(accepted_list)})", value="\n".join(accepted_list) or "Aucun", inline=field.inline)
                 elif field.name.startswith("Declined"):
-                    embed.set_field_at(embed.fields.index(field), name=f"Declined ({len(declined_list)})" , value="\n".join(declined_list) or "Aucun", inline=field.inline)
-                
+                    embed.set_field_at(embed.fields.index(field), name=f"Declined ({len(declined_list)})", value="\n".join(declined_list) or "Aucun", inline=field.inline)
                 elif field.name.startswith("Tentative"):
-                    embed.set_field_at(embed.fields.index(field), name=f"Tentative ({len(tentative_list)})" , value="\n".join(tentative_list)  or "Aucun", inline=field.inline)
+                    embed.set_field_at(embed.fields.index(field), name=f"Tentative ({len(tentative_list)})", value="\n".join(tentative_list) or "Aucun", inline=field.inline)
 
-            await message.edit(embed=embed)   
+            await message.edit(embed=embed)
         except Exception as e:
             Log.PrintError(f"update_event - {e}")
-            raise Exception(e)
         finally:
-            self.bot.scheduler_manager.scheduler_today.update_event(event)
-        
+            await self.bot.scheduler_manager.scheduler_today.update_event(event)
+
     async def supp_event(self, event: Event.Event):
         try:
-            channel: discord.TextChannel = self.get_channel(event)
-            if(event.discord_id != None):
+            channel = self.get_channel(event)
+            if event.discord_id:
                 try:
                     message = await channel.fetch_message(event.discord_id)
                     
@@ -186,11 +181,12 @@ class EventManager:
                                     break
 
                     await message.delete()
-                    self.bot.scheduler_manager.scheduler_today.update_event(event)
-                except:
-                    raise Exception(f"Appel Event non existant: {event.name}")
+                    await self.bot.scheduler_manager.scheduler_today.update_event(event)
+                except discord.NotFound:
+                    Log.PrintError(f"Message de l'événement non trouvé : {event.name}")
         except Exception as e:
             Log.PrintError(f"supp_event - {e}")
+
 
 
 #------------------------------
@@ -207,7 +203,7 @@ class EventManager:
                 ConditionField('event_id', '==', event.id),
                 ConditionField('type_rep', 'in', ['accepted', 'added']),
             ]
-            responses: list[Response.Response] = self.bot.database_manager.select_entity(Response.Response, conditions)
+            responses: list[Response.Response] = await self.bot.database_manager.select_entity(Response.Response, conditions)
             data = list()
             for response in responses:
                 data.append([
@@ -223,7 +219,7 @@ class EventManager:
             with open(file_attrib.name, 'rb') as file:
                 file_attrib = discord.File(file, filename=file_attrib.name)
 
-            if(event.attribution_discord_id != None):                        
+            if event.attribution_discord_id:
                 for thread in channelBriefing.threads:
                     try:
                         try:
@@ -252,20 +248,19 @@ class EventManager:
                             break
                         except Exception as e:
                             Log.PrintLog('async_attribution_event_flask - {e}')
-                
-            if event.attribution_discord_id is None:
-                # Créer un topic dans le forum
+
+            if not event.attribution_discord_id:
                 topic = await channelBriefing.create_thread(
                     name= event.name,  # Titre du topic
                     applied_tags= [channelBriefing.get_tag(int(os.getenv('EVENT_TAG'))),],
                     file=file_attrib
                 )    
                 event.attribution_discord_id = topic.message.id
-                # Créer un topic dans le forum
 
-            #insertOrUpdate_data(event)
         except Exception as e:
             Log.PrintError(f"attribution_event - {e}")
+
+    
 
     def search_user_attribution(self, searchUser: str):
         members = self.bot.guild.members
@@ -291,12 +286,16 @@ class EventManager:
 #------------------------------
     def get_channel(self, event: Event.Event):
         nameParam = 'CHANNEL_' + event.start.strftime('%A').upper()
-        channel: discord.TextChannel = self.bot.get_channel(int(self.bot.get_parameter(nameParam)))
-        if channel is None:
-            raise(f'Paramètrage incorrect: {nameParam}')
-        
-        return channel
-    
+        try:
+            channel_id = int(self.bot.get_parameter(nameParam))
+            channel = self.bot.get_channel(channel_id)
+            if not channel:
+                raise ValueError(f"Channel non trouvé pour le paramètre : {nameParam}")
+            return channel
+        except Exception as e:
+            Log.PrintError(f"get_channel - {e}")
+            raise
+
     def create_svg_table(self, data, cell_height=30, padding=10, title=''):
         header_height = 60
         data.insert(0, ['Joueur', 'Équipe', 'Rôle', 'Vaisseau', 'Rôle Vaisseau', 'Commentaire'])

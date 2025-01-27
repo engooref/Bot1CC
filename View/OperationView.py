@@ -5,7 +5,6 @@ import BotManager
 from ORM import ConditionField, SCLocations, SCLocationsType
 import xml.etree.ElementTree as ET
 
-
 category_name: str = "Opérations"
 folder_path = "./temp_op"
 
@@ -13,47 +12,47 @@ class Operation():
     def __init__(self, bot):
         global folder_path
         self.bot: BotManager.BotManager = bot
-        
+
         self.role_path = f"{folder_path}/roles.json"
         self.role_emojis = {}
-        
+
         self.message_role = None
 
-    # Charger les données JSON dans un dictionnaire
     async def load_roles_from_file(self):
+        """Charge les rôles depuis un fichier JSON."""
         try:
             with open(self.role_path, "r", encoding="utf-8") as file:
                 return json.load(file)
         except Exception as e:
-            print(f"Erreur lors du chargement du fichier JSON: {e}")
+            Log.PrintError(f"Erreur lors du chargement du fichier JSON: {e}")
             return {}
-        
-    # Détecter les modifications dans le fichier
-    async  def watch_file_for_changes(self, interval=1):
+
+    async def watch_file_for_changes(self, interval=1):
+        """Surveille les modifications du fichier JSON."""
         last_modified_time = os.path.getmtime(self.role_path)
         while True:
-            await asyncio.sleep(interval)  # Pause asynchrone
+            await asyncio.sleep(interval)
             try:
                 current_modified_time = os.path.getmtime(self.role_path)
                 if current_modified_time != last_modified_time:
                     last_modified_time = current_modified_time
-                    await self.update_roles()  # Appel asynchrone au callback
+                    await self.update_roles()
             except Exception as e:
-                print(f"Erreur lors de la surveillance du fichier: {e}")
+                Log.PrintError(f"Erreur lors de la surveillance du fichier: {e}")
 
-    # Callback pour mettre à jour le dictionnaire
     async def update_roles(self):
+        """Met à jour les rôles et emojis à partir du fichier JSON."""
         global category_name
         new_data = await self.load_roles_from_file()
         modified = False
+
         for emoji, role_id in new_data.items():
             if emoji not in self.role_emojis:
                 modified = True
                 Log.PrintLog(f"Ajout du nouvel emoji: {emoji} -> {role_id}")
                 self.role_emojis[emoji] = role_id
 
-        # Supprimer les anciens emojis/roles non présents dans le nouveau fichier
-        for emoji in list(self.role_emojis.keys()):  # Utiliser une liste pour éviter RuntimeError
+        for emoji in list(self.role_emojis.keys()):
             if emoji not in new_data:
                 modified = True
                 removed_role_id = self.role_emojis.pop(emoji)
@@ -61,14 +60,11 @@ class Operation():
 
         if not modified:
             return
-        
+
         category = discord.utils.get(self.bot.guild.categories, name=category_name)
-        
-        # Vérifie si le canal role existe dans la catégorie
         channel = discord.utils.get(category.channels, name="role-opération")
         if not channel:
-            self.bot.add_traces(f"Création du canal 'role-opération' dans la catégorie '{category_name}'")
-            
+            await self.bot.add_traces(f"Création du canal 'role-opération' dans la catégorie '{category_name}'")
             channel = await self.bot.guild.create_text_channel('role-opération', category=category)
         
 
@@ -84,27 +80,24 @@ class Operation():
 
         embed = discord.Embed(
             title="Rôle Opération",
-            description="Réagissez aux emojis suivant pour les ping opérations:",
+            description="Réagissez aux emojis suivants pour les pings opérations:",
             color=discord.Color.red()
         )
 
-        for key in self.role_emojis:
-            role: discord.Role = self.bot.guild.get_role(self.role_emojis[key])
+        for key, role_id in self.role_emojis.items():
+            role = self.bot.guild.get_role(role_id)
             if role:
-                embed.add_field(name="", value=key + " : " + role.name, inline=False)
-            
-        if not self.message_role:
-            Log.PrintLog("Création du message pour les roles Opérations")    
-            
-            self.message_role = await channel.send(embed=embed)
+                embed.add_field(name="", value=f"{key} : {role.name}", inline=False)
 
+        if not self.message_role:
+            Log.PrintLog("Création du message pour les rôles Opérations")
+            self.message_role = await channel.send(embed=embed)
         else:
             await self.message_role.edit(embed=embed)
 
         for reaction in self.message_role.reactions:
-            # Vérifie si le bot a réagi
             async for user in reaction.users():
-                if user == self.message_role.guild.me:  # Vérifie si l'utilisateur est le bot
+                if user == self.bot.user:
                     await self.message_role.remove_reaction(reaction.emoji, user)
                     
         for value in self.role_emojis:
@@ -120,79 +113,63 @@ class Operation():
             channel = discord.utils.get(category.channels, name=name_channel)
             
             if not channel:
-                self.bot.add_traces(f"Création du canal {name_channel} dans la catégorie '{category_name}'")
+                await self.bot.add_traces(f"Création du canal {name_channel} dans la catégorie '{category_name}'")
                 channel = await self.bot.guild.create_text_channel(name_channel, category=category)
         
 
     async def ensure_channel_and_category(self):
-        """
-        Vérifie si la catégorie et le canal existent, sinon les crée.
-        """
+        """Vérifie ou crée la catégorie et les canaux nécessaires."""
         try:
-            
             guild = self.bot.guild
-            # Vérifie si la catégorie existe
             category = discord.utils.get(guild.categories, name=category_name)
             if not category:
-                self.bot.add_traces(f"Création de la catégorie '{category_name}'")
+                await self.bot.add_traces(f"Création de la catégorie '{category_name}'")
                 overwrites = {
-                    guild.default_role: discord.PermissionOverwrite(read_messages=False, send_messages=False),  # Bloque la lecture et l'écriture pour tout le monde
+                    guild.default_role: discord.PermissionOverwrite(read_messages=False, send_messages=False)
                 }
                 category = await guild.create_category(category_name, overwrites=overwrites)
 
-            
-            # Vérifie si le canal existe dans la catégorie
             channel = discord.utils.get(category.channels, name="création-opération")
-            
             if not channel:
-                self.bot.add_traces(f"Création du canal 'création-opération' dans la catégorie '{category_name}'")
-                
+                await self.bot.add_traces(f"Création du canal 'création-opération' dans la catégorie '{category_name}'")
                 channel = await guild.create_text_channel('création-opération', category=category)
-            
-            messageSend = None
-            async for message in channel.history(limit=100):  # Limiter à 100 messages pour les performances
-                if (
-                    message.author == channel.guild.me  # Vérifier si c'est le bot qui a envoyé le message
-                    and message.embeds  # Vérifier si le message contient un embed
-                    and message.components  # Vérifier s'il contient des composants (comme une vue)
-                ):
-                    embed = message.embeds[0]  # On prend le premier embed du message (s'il y en a un)
-                    # Vérifier le titre et la description de l'embed
-                    if embed.title == "Création Opération" and embed.description == "Pour créer une opération, cliquez sur le bouton ci-dessous.":
-                        messageSend = message
-                        break
 
-            Log.PrintLog("Création du message pour les Opérations")    
             embed = discord.Embed(
                 title="Création Opération",
                 description="Pour créer une opération, cliquez sur le bouton ci-dessous.",
                 color=discord.Color.blue()
             )
-                
             view = View(timeout=None)
             button_view = Button(
-                custom_id="op_btn", 
-                label="Créer une Opération", 
+                custom_id="op_btn",
+                label="Créer une Opération",
                 style=discord.ButtonStyle.green
             )
+
             button_view.callback = self.open_ticket
             view.add_item(button_view)
-            if messageSend:
-                await messageSend.edit(embed=embed, view=view)
-            else:
-                # Si aucun message correspondant n'est trouvé, envoie un nouveau message
-                await channel.send(embed=embed, view=view)
 
+            async for message in channel.history(limit=100):
+                if (
+                    message.author == self.bot.user
+                    and message.embeds
+                    and message.components
+                ):
+                    await message.edit(embed=embed, view=view)
+                    break
+            else:
+                await channel.send(embed=embed, view=view)
             await self.update_roles()
             asyncio.create_task(self.watch_file_for_changes())
-        
+
         except Exception as e:
             Log.PrintError(f"Erreur lors de la configuration des canaux : {e}")
-          
-    async def open_ticket(self, interaction: discord.Interaction): 
+
+    async def open_ticket(self, interaction: discord.Interaction):
+        """Gère l'ouverture d'un ticket d'opération."""
         try:
             await interaction.response.send_message(
-                f"Votre demande d'Opération va être envoyée en DM", ephemeral=True
+                "Votre demande d'Opération va être envoyée en DM", ephemeral=True
             )
             dm_channel = await interaction.user.create_dm()
             async for message in dm_channel.history(limit=100):  # Limiter pour des performances optimales
@@ -210,6 +187,7 @@ class Operation():
 
 
             operation = Operation.OperationForm(self.bot, self.role_emojis)
+            await operation.initialize()
            
             await dm_channel.send(f"Bonjour {interaction.user.mention}, Veuillez remplir le formulaire suivant pour votre opération:")
             await operation.create_messages(dm_channel)
@@ -218,10 +196,11 @@ class Operation():
             Log.PrintLog(f"Envoi du formulaire opération à {interaction.user.name}")
 
         except Exception as e:
-            Log.PrintError(e)
-            await interaction.response.send_message(f"Erreur lors de la création de l'opération : {e}", ephemeral=True) 
-
-
+            Log.PrintError(f"open_ticket - {e}")
+            await interaction.response.send_message(
+                f"Erreur lors de la création de l'opération : {e}", ephemeral=True
+            )
+            
     class UserModal(Modal):
         def __init__(self, view, title, update_func, label_text, placeholder_search = "", placeholder_price = "", placeholder_prev = ""):
             super().__init__(title=title)
@@ -269,21 +248,32 @@ class Operation():
     class OperationForm():
         def __init__(self, bot, role_emojis):
             self.bot: BotManager.BotManager = bot
-            self.val = {'location' : '0.0.0'}
+            self.val = {'location': '0.0.0'}
             self.role_emojis = role_emojis
-            self.stars_bdd: list[SCLocations.SCLocations] = self.bot.database_manager.select_entity(SCLocations.SCLocations, ConditionField('type.name', '==', 'STAR'))
+            self.stars_bdd: list[SCLocations.SCLocations] = []
+            self.stars = []
+            self.current_stars = []
+            self.current_planets = [discord.SelectOption(label="Aucun", value="aucun")]
+            self.current_moons = [discord.SelectOption(label="Aucun", value="aucun")]
 
-            self.stars = [discord.SelectOption(label=star.name, value=str(star.id)) for star in self.stars_bdd]
-
-            self.current_stars = self.stars[:25]
-            self.current_planets = [discord.SelectOption(label="Aucun", value="aucun"),]
-            self.current_moons = [discord.SelectOption(label="Aucun", value="aucun"),]
+        async def initialize(self):
+            try:
+                self.stars_bdd: list[SCLocations.SCLocations] = await self.bot.database_manager.select_entity(
+                    SCLocations.SCLocations, ConditionField('type.name', '==', 'STAR')
+                )
+                self.stars = [discord.SelectOption(label=star.name, value=str(star.id)) for star in self.stars_bdd]
+                self.current_stars = self.stars[:25]
+            except Exception as e:
+                Log.PrintError(f"Erreur lors de l'initialisation des étoiles : {e}")
+                self.stars_bdd = []
+                self.stars = []
+                self.current_stars = []
 
         async def create_messages(self, channel: discord.TextChannel):
             options_type = list()
-            for emoji in self.role_emojis:
-                role = self.bot.guild.get_role(self.role_emojis[emoji])
-                options_type.append(discord.SelectOption(label=role.name, value=str(self.role_emojis[emoji])))
+            for key, role_id in self.role_emojis.items():
+                role = self.bot.guild.get_role(role_id)
+                options_type.append(discord.SelectOption(label=role.name, value=str(role_id)))
 
             view_select_type = View(timeout=None)
             select_type = Select(
@@ -425,7 +415,7 @@ class Operation():
                 # Lorsque l'utilisateur choisit une planète, activer le select de la lune
                 selected_planet = self.select_planet.values[0]
 
-                planet: SCLocations.SCLocations = self.bot.database_manager.select_entity_by_id(SCLocations.SCLocations, selected_planet)
+                planet: SCLocations.SCLocations = await self.bot.database_manager.select_entity_by_id(SCLocations.SCLocations, selected_planet)
 
                 # Remplir les options de la lune en fonction de la planète sélectionnée
                 self.current_moons = [discord.SelectOption(label="Aucun", value="0")]
@@ -509,7 +499,7 @@ class Operation():
                 localisation = ''
                 for location in self.val["location"].split("."):
                     if location != "0":
-                        object: SCLocations.SCLocations = self.bot.database_manager.select_entity_by_id(SCLocations.SCLocations, int(location))
+                        object: SCLocations.SCLocations = await self.bot.database_manager.select_entity_by_id(SCLocations.SCLocations, int(location))
                         localisation += (" >> " if localisation != '' else "") + object.name
         
 
@@ -708,7 +698,7 @@ class Operation():
 
         async def update_options(self, query):
             # Filtre les options en fonction de la recherche
-            body: SCLocations.SCLocations = self.bot.database_manager.select_entity(SCLocations.SCLocations, ConditionField('name', 'ilike', query), True)
+            body: SCLocations.SCLocations = await self.bot.database_manager.select_entity(SCLocations.SCLocations, ConditionField('name', 'ilike', query), True)
 
             if body:
                 star_obj = None
@@ -720,13 +710,13 @@ class Operation():
                         
                     case "PLANET":
                         planet_obj: SCLocations.SCLocations = body
-                        star_obj: SCLocations.SCLocations = self.bot.database_manager.select_entity_by_id(SCLocations.SCLocations, body.parent.id)
+                        star_obj: SCLocations.SCLocations = await self.bot.database_manager.select_entity_by_id(SCLocations.SCLocations, body.parent.id)
                         
 
                     case "SATELLITE":
                         moon_obj: SCLocations.SCLocations = body
-                        planet_obj: SCLocations.SCLocations = self.bot.database_manager.select_entity_by_id(SCLocations.SCLocations, body.parent.id) 
-                        star_obj: SCLocations.SCLocations = self.bot.database_manager.select_entity_by_id(SCLocations.SCLocations, planet_obj.parent.id)
+                        planet_obj: SCLocations.SCLocations = await self.bot.database_manager.select_entity_by_id(SCLocations.SCLocations, body.parent.id) 
+                        star_obj: SCLocations.SCLocations = await self.bot.database_manager.select_entity_by_id(SCLocations.SCLocations, planet_obj.parent.id)
                     
                 star_list = [star for star in self.current_stars if star.value == str(star_obj.id)]
                 if len(star_list) == 0:
