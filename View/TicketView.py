@@ -19,11 +19,6 @@ class Ticket():
             self.ticket_id = ticket_id
             self.bot: BotManager.BotManager = bot
 
-            self.g = Github(os.getenv('GIT_TOKEN'))
-            self.site_repo = self.g.get_repo(os.getenv('REPO_SITE'))
-            self.bot_repo = self.g.get_repo(os.getenv('REPO_BOT'))
-
-
             # Champ pour le message de clôture
             self.add_item(TextInput(label="Message de Clôture", placeholder="Indiquez un message de clôture (optionnel)", required=False))
 
@@ -31,7 +26,7 @@ class Ticket():
             try:
                 await interaction.response.defer()
 
-                ticket: TicketBots.TicketBots = self.bot.database_manager.select_entity_by_id(TicketBots.TicketBots, int(self.ticket_id))
+                ticket: TicketBots.TicketBots = await self.bot.database_manager.select_entity_by_id(TicketBots.TicketBots, int(self.ticket_id))
                 ticket.closed = datetime.datetime.now()
                 ticket.closed_user_id = interaction.user.id
                 # Récupérer le message de clôture saisi
@@ -71,33 +66,18 @@ class Ticket():
                 dm_channel = await user_open.create_dm()
                 # Envoyer une confirmation de clôture
                 await dm_channel.send(embed=embed)
-                if ticket.issue != '':
-                    self.close_issue_with_comment(ticket.issue, ticket.closed_message)
-                self.bot.database_manager.insert_entity(ticket)
+                await self.bot.database_manager.insert_entity(ticket)
             except Exception as e:
                 Log.PrintError(e)
-
-        def close_issue_with_comment(self, issue_text, comment):
-            issue_number = issue_text.split(':')[1]
-            issue_name = issue_text.split(':')[0]
-
-            repo = self.bot_repo if self.bot_repo.name == issue_name else self.site_repo
-            
-            issue = repo.get_issue(number=int(issue_number))
-            issue.create_comment(comment)  # Ajouter un commentaire
-            if issue.state != "closed":
-                issue.edit(state="closed")
-                Log.PrintLog(f"Issue #{issue_number} fermée avec succès avec un commentaire.")
-            else:
-                Log.PrintLog(f"Issue #{issue_number} est déjà fermée.")
-                
 
     class TicketView(View):
         def __init__(self, bot):
             super().__init__(timeout=None)
             self.bot: BotManager.BotManager = bot
+            self.options = []
 
-            self.options = self.bot.database_manager.select_all(TicketType.TicketType, True)
+        async def initialize(self):
+            self.options = await self.bot.database_manager.select_all(TicketType.TicketType, True)
             
             select = Select(
                 placeholder="Selectionnez le service",
@@ -127,11 +107,11 @@ class Ticket():
                     overwrites[role_auth] = discord.PermissionOverwrite(view_channel=True, send_messages=True)
 
                 ticket: TicketBots.TicketBots = TicketBots.TicketBots(ticket_type, interaction.user.id, datetime.datetime.now())
-                ticket: TicketBots.TicketBots = self.bot.database_manager.insert_entity(ticket)
+                await self.bot.database_manager.insert_entity(ticket)
                 ticket_id = ticket.id
                 channel: discord.TextChannel = await category.create_text_channel(name=f"ticket-{user_name}", overwrites=overwrites)
                 ticket.channel_id = channel.id
-                self.bot.database_manager.insert_entity(ticket)
+                await self.bot.database_manager.insert_entity(ticket)
 
                 embed = discord.Embed(
                     title=f"Ticket n°{ticket_id} Créé" + (f'- {role_auth.mention}' if role_auth else '')  ,
@@ -160,7 +140,9 @@ class Ticket():
 
         async def create_ticket(self, interaction: discord.Interaction):
             try:
-                await interaction.response.send_message("Quel service souhaitez-vous contacter ?", view=Ticket.TicketView(self.bot), ephemeral=True)
+                ticket = Ticket.TicketView(self.bot)
+                await ticket.initialize()
+                await interaction.response.send_message("Quel service souhaitez-vous contacter ?", view=ticket, ephemeral=True)
             except Exception as e:
                 Log.PrintLog(e) 
 
@@ -213,7 +195,7 @@ class Ticket():
                     self.bot.role_member: discord.PermissionOverwrite(view_channel=False) # Bloque la lecture et l'écriture pour tout le monde
                 }
         
-                ticketType = self.bot.database_manager.select_all(TicketType.TicketType, True)
+                ticketType = await self.bot.database_manager.select_all(TicketType.TicketType, True)
                 for type in ticketType:
                     role_type = self.bot.guild.get_role(type.role_auth)
                     if role_type:
