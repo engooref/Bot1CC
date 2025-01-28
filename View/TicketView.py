@@ -114,8 +114,12 @@ class Ticket():
                 await self.bot.database_manager.insert_entity(ticket)
 
                 embed = discord.Embed(
-                    title=f"Ticket n°{ticket_id} Créé" + (f'- {role_auth.mention}' if role_auth else '')  ,
-                    description="Votre ticket a été créé avec succès. Utilisez les options ci-dessous pour le gérer.",
+                    title=f"Ticket n°{ticket_id} Créé",
+                    description=(
+                        f"Votre ticket a été créé avec succès. "
+                        f"{role_auth.mention if role_auth else ''}\n"
+                        "Utilisez les options ci-dessous pour le gérer."
+                    ),
                     color=discord.Color.random()
                 )
 
