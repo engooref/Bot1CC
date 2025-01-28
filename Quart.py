@@ -28,7 +28,7 @@ class AppQuart:
                 
                 event: Event.Event = None
                 if 'eventId' in data:
-                    event = self.bot.database_manager.select_entity_by_id(Event.Event, data["eventId"])
+                    event = await self.bot.database_manager.select_entity_by_id(Event.Event, data["eventId"])
                     if event is None:
                         raise Exception(f"Event avec l'id {data["eventId"]} n'existe pas")
 
@@ -74,7 +74,7 @@ class AppQuart:
 
             finally:
                 if event is not None:
-                    self.bot.database_manager.insert_entity(event)
+                    await self.bot.database_manager.insert_entity(event)
             
 
     async def start(self):
