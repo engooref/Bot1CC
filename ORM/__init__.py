@@ -157,7 +157,7 @@ async def select_by_fields(model, fields: List[ConditionField], one_result=False
             if order_by_desc:
                 query = query.order_by(model.id.desc())
 
-            result = await session.execute(query)
+            result = (await session.execute(query)).unique()
 
             if not one_result:
                 return result.scalars().all()

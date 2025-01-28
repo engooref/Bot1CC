@@ -63,26 +63,26 @@ class Operation():
 
         category = discord.utils.get(self.bot.guild.categories, name=category_name)
         channel = discord.utils.get(category.channels, name="role-opération")
+        
         if not channel:
             await self.bot.add_traces(f"Création du canal 'role-opération' dans la catégorie '{category_name}'")
             channel = await self.bot.guild.create_text_channel('role-opération', category=category)
         
+        embed = discord.Embed(
+            title="Rôle Opération",
+            description="Réagissez aux emojis suivants pour les pings opérations:",
+            color=discord.Color.red()
+        )
 
         async for message in channel.history(limit=100):  # Limiter à 100 messages pour les performances
             if (
                 message.author == channel.guild.me  # Vérifier si c'est le bot qui a envoyé le message
                 and message.embeds  # Vérifier si le message contient un embed
             ):
-                embed = message.embeds[0]  # On prend le premier embed du message (s'il y en a un)
+                embed_t = message.embeds[0]  # On prend le premier embed du message (s'il y en a un)
                 # Vérifier le titre et la description de l'embed
-                if embed.title == "Rôle Opération" and embed.description == "Réagissez aux emojis suivant pour les ping opérations:":
+                if embed_t.title == embed.title and embed_t.description == embed.description:
                     self.message_role = message
-
-        embed = discord.Embed(
-            title="Rôle Opération",
-            description="Réagissez aux emojis suivants pour les pings opérations:",
-            color=discord.Color.red()
-        )
 
         for key, role_id in self.role_emojis.items():
             role = self.bot.guild.get_role(role_id)

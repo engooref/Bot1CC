@@ -132,13 +132,13 @@ class EventManager:
             declined_list = []
             tentative_list = []
             for response in responses[:]:
-                userbdd = await self.bot.database_manager.select_entity_by_id(User.User, response.users_id)
-                if userbdd is None:
+                if not response.user:
+                    await self.bot.database_manager.delete_entity(response)
                     continue
-                
-                user = self.bot.guild.get_member(userbdd.discord_id)
-                if user is None:
-                    responses.remove(response)
+
+                user = self.bot.guild.get_member(response.user.discord_id)
+                if not user:
+                    await self.bot.database_manager.delete_entity(response)
                     continue
 
                 if response.type_rep == 'accepted':
@@ -148,7 +148,6 @@ class EventManager:
                 elif response.type_rep == 'tentative':
                     tentative_list.append(user.display_name)
 
-            await self.bot.database_manager.insert_entity(responses)
             message = await channel.fetch_message(event.discord_id)
             embed = message.embeds[0]
             for field in embed.fields:
@@ -163,7 +162,7 @@ class EventManager:
         except Exception as e:
             Log.PrintError(f"update_event - {e}")
         finally:
-            await self.bot.scheduler_manager.scheduler_today.update_event(event)
+            self.bot.scheduler_manager.scheduler_today.update_event(event)
 
     async def supp_event(self, event: Event.Event):
         try:

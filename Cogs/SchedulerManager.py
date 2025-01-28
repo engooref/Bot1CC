@@ -88,7 +88,6 @@ class SchedulerManager:
             )
 
         async def schedule_event_reminder(self, event):
-            event = await self.bot.database_manager.refresh(event)
             now = datetime.now()
             time_until_reminder = event.start - timedelta(minutes=15) - now
 
