@@ -181,7 +181,7 @@ class BotManager(commands.Bot):
                         event_id = int(custom_id.split('_')[1])
 
                         # Traiter la réponse du bouton de sélection (accept, decline, etc.)
-                        user = self.database_manager.insert_and_get_user(interaction.user)
+                        user = await self.database_manager.insert_and_get_user(interaction.user)
                         if user is None:
                             return
 
@@ -191,16 +191,16 @@ class BotManager(commands.Bot):
                             ConditionField("event_id", "==", event_id)
                         ]
 
-                        response = self.database_manager.select_entity(Response.Response, conditionList, True)
+                        response = await self.database_manager.select_entity(Response.Response, conditionList, True)
                         if response:
                             response.type_rep = response_type  # Met à jour la réponse
                         else:
                             response = Response.Response(user.id, event_id, response_type)
 
-                        self.database_manager.insert_entity(response)
+                        await self.database_manager.insert_entity(response)
 
                         # Mise à jour de l'affichage de l'événement
-                        event = self.database_manager.select_entity_by_id(Event.Event, event_id)
+                        event = await self.database_manager.select_entity_by_id(Event.Event, event_id)
                         await self.event_manager.update_event(event)
 
                     if custom_id.startswith('closeTicket'):
