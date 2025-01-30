@@ -45,7 +45,7 @@ class AppQuart:
                 if path == 'setEvent':
                     await self.bot.event_manager.set_event(event)             
                 elif path == 'updateParam' and request.method == 'GET':
-                    self.bot.update_param()
+                    await self.bot.update_param()
                 elif path == 'suppEvent':
                     await self.bot.event_manager.supp_event(event)                 
                 elif path == 'searchUserAttribution':

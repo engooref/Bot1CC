@@ -262,6 +262,6 @@ class BotManager(commands.Bot):
         except KeyError:
             raise Exception(f"Le paramètre {nameParam} n'existe pas !")
 
-    def update_param(self):
-        self.parameter = self.database_manager.select_all(Parameter.Parameter)
+    async def update_param(self):
+        self.parameter = await self.database_manager.select_all(Parameter.Parameter)
         self.scheduler_manager.scheduler_weekly.reset_scheduler()
