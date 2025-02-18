@@ -30,6 +30,8 @@ class Event(Base):
     attribution_discord_id = Column(BigInteger, nullable=True)
     description = Column(Text, nullable=True, default="")
     appel_msg_discord = Column(Boolean, nullable=False, default=False)
+    briefing_template_name = Column(String(255), nullable=True)
+
 
     type = relationship('EventType')
     responses = relationship('Response', cascade="all, delete-orphan")
@@ -37,5 +39,19 @@ class Event(Base):
     user_orig_id = Column(Integer, ForeignKey('user.id'), nullable=False)
     user_orig = relationship('User', back_populates='events_orig', overlaps="events_orig")
         
+    @property
+    def start_date(self):
+        """Renvoie la date au format JJ/MM/AAAA."""
+        if self.start:
+            return self.start.strftime("%d/%m/%Y")
+        return ""
+
+    @property
+    def start_time(self):
+        """Renvoie l'heure au format HH:MM."""
+        if self.start:
+            return self.start.strftime("%H:%M")
+        return ""
+    
     def __str__(self):
         return self.name

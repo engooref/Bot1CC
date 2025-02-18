@@ -8,7 +8,6 @@ from Utils import Log
 import locale, discord, os
 from View.OperationView import Operation
 from View.TicketView import Ticket
-from Commands import TicketsCommands
 
 class BotManager(commands.Bot):
     def __init__(self, intents, guildId):
@@ -41,6 +40,9 @@ class BotManager(commands.Bot):
             self.has_started = True
 
             await self.tree.sync()
+            cmds = await self.tree.fetch_commands()
+            print(f"Commandes enregistrées : {[cmd.name for cmd in cmds]}")
+
 
             # Récupération du serveur Discord
             self.guild: discord.Guild = self.get_guild(self.guildId)

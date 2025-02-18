@@ -3,8 +3,14 @@ import discord, calendar, os, re
 import BotManager
 import svgwrite, uuid, cairosvg
 import tempfile
+from wand.image import Image
+from wand.drawing import Drawing
+from wand.color import Color
+from datetime import datetime, time
+import json
+from lxml import etree
 
-from ORM import Event, Response, ConditionField, User
+from ORM import Event, Response, ConditionField, EventType
 from urllib.parse import quote, urlparse, urlunparse
 
 from Utils import Log
@@ -83,12 +89,16 @@ class EventManager:
             event.discord_id = message.id
             await self.update_event(event)
             
-            if(event.briefing_file_name != ''):
+            if(event.briefing_template_name != ''):
                 
+                event.briefing_file_name = self.create_briefing(event)
                 channelBriefing = self.bot.get_channel(int(self.bot.get_parameter("CHANNEL_BRIEFING")))
+                if not channelBriefing:
+                    raise Exception('Le channel demandé par le parametre CHANNEL_BRIEFING n\'existe pas')
                 if not isinstance(channelBriefing, discord.ForumChannel):
                     raise Exception(f"Le channel {channelBriefing.name} n'est pas un forum")
                         
+                
                 if(event.briefing_Discord_Id != None):                        
                     for thread in channelBriefing.threads:
                         try:
@@ -195,6 +205,8 @@ class EventManager:
     async def attribution_event(self, event: Event.Event):
         try:
             channelBriefing = self.bot.get_channel(int(self.bot.get_parameter("CHANNEL_BRIEFING")))
+            if not channelBriefing:
+                raise Exception(f"Le paramètre CHANNEL_BRIEFING renvoi un channel qui n'existe pas")
             if not isinstance(channelBriefing, discord.ForumChannel):
                 raise Exception(f"Le channel {channelBriefing.name} n'est pas un forum")
 
@@ -386,4 +398,71 @@ class EventManager:
         cairosvg.svg2png(url=temp_file.name, write_to=temp_file_png.name, scale=2.0)
 
         return temp_file_png
+
+    def create_briefing(self, event: Event.Event):        
+        template_path = os.path.join('Data', self.bot.get_parameter('DIRECTORY_TEMPLATES'), event.briefing_template_name, "template.svg")
+        if not os.path.exists(template_path):
+            raise Exception('Templates non trouvé')
+        
+        with open(template_path, "r", encoding="utf-8") as f:
+            svg_content = f.read()
+
+        root = etree.fromstring(svg_content.encode("utf-8"))
+
+        # Parcourir dynamiquement les champs de l'événement et remplir les textes correspondants
+        for text_element in root.findall(".//{http://www.w3.org/2000/svg}text"):
+            data_id = text_element.attrib.get("id")
+            if data_id and hasattr(event, data_id):
+                # Récupérer dynamiquement la valeur de la propriété correspondante
+                text_value = self.format_value(getattr(event, data_id))
+                text_element.text = self.adjust_text_to_width(text_value, 600)
+
+        # Enregistrer l'image finale
+        os.makedirs(f'Data\{self.bot.get_parameter('DIRECTORY_EVENT_TEMPLATE')}', exist_ok=True)
+        name_file = event.briefing_file_name if event.briefing_file_name != '' else str(uuid.uuid4()) + '.png'
+        output_path = os.path.join('Data', self.bot.get_parameter('DIRECTORY_EVENT_TEMPLATE'), name_file)
+        updated_svg = etree.tostring(root).decode("utf-8")
+        cairosvg.svg2png(bytestring=updated_svg, write_to=output_path)
+        return name_file
+
+    def format_value(self, value):
+        """Formater dynamiquement les valeurs selon leur type."""
+        if isinstance(value, datetime):
+            return value.strftime("%d/%m/%Y %H:%M")
+        elif isinstance(value, time):
+            return value.strftime("%H:%M")
+        elif isinstance(value, bool):
+            return "Oui" if value else "Non"
+        elif isinstance(value, dict) or isinstance(value, list):
+            return json.dumps(value, ensure_ascii=False, indent=2)
+        elif isinstance(value, EventType.EventType):
+            return value.name
+        elif value is None:
+            return ""
+        return str(value)
+
+    def adjust_text_to_width(self,text, max_width):
+        """Ajuster dynamiquement la longueur des textes pour qu'ils restent dans les limites spécifiées."""
+        with Drawing() as draw:
+            draw.font = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+            draw.font_size = 20
+
+            with Image(width=1000, height=100, background=Color("white")) as img:
+                words = text.split()
+                current_line = ""
+                lines = []
+
+                for word in words:
+                    test_line = f"{current_line} {word}".strip()
+                    metrics = draw.get_font_metrics(img, test_line)
+                    if metrics.text_width > max_width:
+                        lines.append(current_line)
+                        current_line = word
+                    else:
+                        current_line = test_line
+
+                if current_line:
+                    lines.append(current_line)
+
+                return "\n".join(lines)
 
