@@ -73,6 +73,8 @@ class EventManager:
                     for day in calendar.day_name:  # Renvoie les jours sous forme de noms ('Monday', 'Tuesday', ...)
                         nameParam = 'CHANNEL_' + day.upper()
                         channelTest: discord.TextChannel = self.bot.get_channel(int(self.bot.get_parameter(nameParam)))
+                        if not channelTest:
+                            continue
                         try:
                             message = None
                             message = await channelTest.fetch_message(event.discord_id)
@@ -247,13 +249,18 @@ class EventManager:
                     event.attribution_discord_id = None
 
             if(event.attribution_discord_id is None):
-                if (event.briefing_Discord_Id != None):
+                if (event.briefing_Discord_Id is not None):
                     for thread in channelBriefing.threads:
                         try:
                             try:
                                 messageBriefing = await thread.fetch_message(event.briefing_Discord_Id)
                             except discord.NotFound as ne:
                                 continue
+                            except discord.Forbidden as n:
+                                Log.PrintError(n)
+                            except discord.HTTPException as e:
+                                Log.PrintError(e)
+                                    
                             message = await messageBriefing.reply(file=file_attrib)
                             event.attribution_discord_id = message.id
                             break
@@ -297,6 +304,9 @@ class EventManager:
 #------------------------------
     def get_channel(self, event: Event.Event):
         nameParam = 'CHANNEL_' + event.start.strftime('%A').upper()
+        if event.type.name.upper() == 'ENTRAINEMENT COMPÉTITION':
+            nameParam = 'CHANNEL_TRAINING'
+
         try:
             channel_id = int(self.bot.get_parameter(nameParam))
             channel = self.bot.get_channel(channel_id)
@@ -415,10 +425,25 @@ class EventManager:
             if data_id and hasattr(event, data_id):
                 # Récupérer dynamiquement la valeur de la propriété correspondante
                 text_value = self.format_value(getattr(event, data_id))
-                text_element.text = self.adjust_text_to_width(text_value, 600)
+                # Si c'est un commentaire, récupérer les contraintes du SVG
+                if data_id == "commentaire":
+                    max_width = float(text_element.attrib.get("data-end", "600"))  # Largeur max en pixels
+                    max_height = float(text_element.attrib.get("data-yend", "200"))  # Hauteur max en pixels
+                    font_size = float(text_element.attrib.get("font-size", "20"))  # Taille de police
+                    line_height = font_size * 1.2  # Facteur pour espacer les lignes
+
+                    # Créer une image temporaire pour mesurer le texte
+                    with Image(width=1000, height=100, background=Color("white")) as img:
+                        with Drawing() as draw:
+                            draw.font = text_element.attrib.get("font-family", "Arial")  # Récupérer la police
+                            draw.font_size = font_size
+
+                            # Ajuster le texte en fonction des contraintes
+                            text_value = self.adjust_text_to_width(draw, img, text_value, max_width, max_height, font_size, line_height)
+
 
         # Enregistrer l'image finale
-        os.makedirs(f'Data\{self.bot.get_parameter('DIRECTORY_EVENT_TEMPLATE')}', exist_ok=True)
+        os.makedirs(f'Data\\{self.bot.get_parameter('DIRECTORY_EVENT_TEMPLATE')}', exist_ok=True)
         name_file = event.briefing_file_name if event.briefing_file_name != '' else str(uuid.uuid4()) + '.png'
         output_path = os.path.join('Data', self.bot.get_parameter('DIRECTORY_EVENT_TEMPLATE'), name_file)
         updated_svg = etree.tostring(root).decode("utf-8")
@@ -441,28 +466,30 @@ class EventManager:
             return ""
         return str(value)
 
-    def adjust_text_to_width(self,text, max_width):
-        """Ajuster dynamiquement la longueur des textes pour qu'ils restent dans les limites spécifiées."""
-        with Drawing() as draw:
-            draw.font = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
-            draw.font_size = 20
+    def adjust_text_to_width(self, draw, img, text, max_width, max_height, font_size, line_height):
+        """Découpe dynamiquement le texte en respectant la largeur et la hauteur max."""
+        words = text.split()
+        current_line = ""
+        lines = []
+        y_offset = 0  # Suivi de la hauteur utilisée
 
-            with Image(width=1000, height=100, background=Color("white")) as img:
-                words = text.split()
-                current_line = ""
-                lines = []
+        for word in words:
+            test_line = f"{current_line} {word}".strip()
+            metrics = draw.get_font_metrics(img, test_line)
 
-                for word in words:
-                    test_line = f"{current_line} {word}".strip()
-                    metrics = draw.get_font_metrics(img, test_line)
-                    if metrics.text_width > max_width:
-                        lines.append(current_line)
-                        current_line = word
-                    else:
-                        current_line = test_line
+            if metrics.text_width > max_width:
+                # Vérifier si on dépasse la hauteur maximale
+                if (y_offset + line_height) > max_height:
+                    break  # Arrêt si on dépasse la hauteur max
 
-                if current_line:
-                    lines.append(current_line)
+                lines.append(current_line)
+                y_offset += line_height
+                current_line = word
+            else:
+                current_line = test_line
 
-                return "\n".join(lines)
+        # Ajouter la dernière ligne si elle existe et ne dépasse pas la hauteur max
+        if current_line and (y_offset + line_height) <= max_height:
+            lines.append(current_line)
 
+        return "\n".join(lines)
