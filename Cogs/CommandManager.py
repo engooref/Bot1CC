@@ -3,7 +3,7 @@ from discord import app_commands
 from discord.ext import commands
 import os
 import BotManager, Utils.Log as Log
-from ORM import Role, User, ConditionField, Parameter, TicketBots
+from ORM import Role, Channel, User, ConditionField, Parameter, TicketBots
 from Utils.Git import github
 from Utils import Log
 
@@ -11,8 +11,15 @@ class CommandManager(commands.Cog):
     def __init__(self, bot: BotManager.BotManager):
         self.bot = bot
 
-    async def purge_roles(self, interaction: discord.Interaction):
-        """Supprime les rôles qui n'existent plus sur Discord depuis la base de données."""
+    @app_commands.command(name="sync_roles", description="Supprime les rôles inexistantes de la BDD")
+    async def role_bdd_pur(self, interaction: discord.Interaction):
+        """Commande slash réservée à l'owner."""
+        print(f"📌 Commande /sync_roles exécutée par {interaction.user}")
+        await interaction.response.defer()  # Réponse différée si l'opération prend du temps
+
+        if interaction.user.id != os.getenv('ENGOO_ID'):
+            await interaction.response.send_message("❌ Tu n'as pas la permission d'utiliser cette commande.", ephemeral=True)
+            return
 
         try:
             # Récupérer tous les rôles stockés en base
@@ -49,15 +56,42 @@ class CommandManager(commands.Cog):
             await interaction.response.send_message(f"❌ Erreur SQL : {e}", ephemeral=True)
             Log.PrintError(e)
 
-    @app_commands.command(name="role_bdd_pur", description="Supprime les rôles obsolètes")
-    async def role_bdd_pur(self, interaction: discord.Interaction):
-        """Commande slash réservée à l'owner."""
-        print(f"📌 Commande /purgeroles exécutée par {interaction.user}")
+    @app_commands.command(name="sync_channels", description="Supprime les channels inexistants de la BDD")
+    async def sync_channels(self, interaction: discord.Interaction):
+        print(f"📌 Commande /sync_channels exécutée par {interaction.user}")
+        await interaction.response.defer()  # Réponse différée si l'opération prend du temps
         if interaction.user.id != os.getenv('ENGOO_ID'):
             await interaction.response.send_message("❌ Tu n'as pas la permission d'utiliser cette commande.", ephemeral=True)
             return
+        
+        # Récupérer la liste des channels Discord actuels
+        guild = interaction.guild
+        channels_excludes = list()
 
-        await self.purge_roles(interaction)
+        for category in self.bot.exclude_category:  
+            try:
+                cat: discord.CategoryChannel = discord.utils.get(self.bot.guild.categories, name=category)
+                channels_excludes.extend(channel.id for channel in cat.channels)
+            except:
+                pass
+
+        discord_channels = {channel.id for channel in guild.channels if channel.id not in channels_excludes}
+
+        # Ouvrir une session avec la base de données
+        try:
+            # Récupérer tous les channels stockés en base
+            db_channels = await self.bot.database_manager.select_all(Channel.Channel)
+
+            deleted_count = 0
+            for db_channel in db_channels:
+                if db_channel.discord_id not in discord_channels:
+                    await self.bot.database_manager.delete_entity(db_channel)
+                    deleted_count += 1
+            
+            # Appliquer les suppressions
+            await interaction.followup.send(f"✅ {deleted_count} channels supprimés de la base de données.")
+        except Exception as e:
+            await interaction.followup.send(f"❌ Erreur : {e}")
 
 
     # Commande pour créer une issue de développement

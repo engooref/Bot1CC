@@ -152,6 +152,7 @@ class Ticket():
 
     async def ticket_command(self):
         try:
+            self.bot.exclude_category.append('assistance')
             category: discord.CategoryChannel = discord.utils.get(self.bot.guild.categories, name='assistance')
             if not category:
                 self.bot.add_traces(f"Création de la catégorie 'assistance'")
@@ -209,6 +210,7 @@ class Ticket():
                 self.bot.add_traces(f"Création du canal 'recap-tickets' dans la catégorie '{category.name}'")     
                 channel = await self.bot.guild.create_text_channel('recap-tickets', category=category, overwrites=overwrites)
 
+            
         except Exception as e:
             Log.PrintError(e)
 

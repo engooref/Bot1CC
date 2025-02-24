@@ -23,6 +23,7 @@ class BotManager(commands.Bot):
         self.parameter: dict[str, Parameter.Parameter] = {}
 
         self.has_started = False
+        self.exclude_category =  ['Cimetière des canaux']
 
         # Initialisation des Cogs
         self.event_manager: EventManager = EventManager(self)
@@ -39,7 +40,7 @@ class BotManager(commands.Bot):
 
             self.has_started = True
 
-            await self.tree.sync()
+            await self.tree.sync(guild=self.guild)
             cmds = await self.tree.fetch_commands()
             print(f"Commandes enregistrées : {[cmd.name for cmd in cmds]}")
 
@@ -54,6 +55,9 @@ class BotManager(commands.Bot):
             # Récupération ou ajout de l'utilisateur utilisé pour le Bot
             self.userTrace = await self.database_manager.insert_and_get_user(self.guild.me)
 
+            await self.ticket.ticket_command()
+            await self.operation.ensure_channel_and_category()
+
             Log.PrintLog('Récupération Roles')
             await self.database_manager.insert_and_get_new_roles(self.guild.roles)
             Log.PrintLog('Fin Récupération Roles')
@@ -64,9 +68,7 @@ class BotManager(commands.Bot):
 
             self.parameter = await self.database_manager.select_all(Parameter.Parameter)
 
-            await self.ticket.ticket_command()
-            await self.operation.ensure_channel_and_category()
-
+            
             # Démarrage des tâches asyncio pour le scheduler
             self.loop.create_task(self.scheduler_manager.scheduler_weekly.run_scheduler())
             self.loop.create_task(self.scheduler_manager.scheduler_today.check_events())

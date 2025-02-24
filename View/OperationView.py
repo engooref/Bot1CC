@@ -121,6 +121,7 @@ class Operation():
         """Vérifie ou crée la catégorie et les canaux nécessaires."""
         try:
             guild = self.bot.guild
+            self.bot.exclude_category.append(category_name)
             category = discord.utils.get(guild.categories, name=category_name)
             if not category:
                 await self.bot.add_traces(f"Création de la catégorie '{category_name}'")

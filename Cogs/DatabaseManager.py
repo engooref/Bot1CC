@@ -78,9 +78,18 @@ class DatabaseManager:
             channels_bdd = await select_all(Channel.Channel)
             new_channels_bdd = []
 
+            channels_excludes = list()
+
+            for category in self.bot.exclude_category:  
+                try:
+                    cat: discord.CategoryChannel = discord.utils.get(self.bot.guild.categories, name=category)
+                    channels_excludes.extend(channel.id for channel in cat.channels)
+                except:
+                    pass
+
+            
             for channel in channels:
-                if isinstance(channel, (discord.VoiceChannel, discord.CategoryChannel)) or (
-                    channel.category and channel.category.name.lower() == "operation"):
+                if isinstance(channel, (discord.VoiceChannel, discord.CategoryChannel)) or (channel.id in channels_excludes):
                     continue
 
                 channel_bdd = next((key for key, obj in channels_bdd.items() if obj.discord_id == channel.id), None)
