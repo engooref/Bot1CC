@@ -303,12 +303,19 @@ class EventManager:
 #Fonctions Utilitaires
 #------------------------------
     def get_channel(self, event: Event.Event):
-        nameParam = 'CHANNEL_' + event.start.strftime('%A').upper()
+        channel_id = None
         if event.type.name.upper() == 'ENTRAINEMENT COMPÉTITION':
             nameParam = 'CHANNEL_TRAINING'
+            try:
+                channel_id = int(self.bot.get_parameter(nameParam))
+            except:
+                pass
+
+        if channel_id is None:
+            nameParam = 'CHANNEL_' + event.start.strftime('%A').upper()
+            channel_id = int(self.bot.get_parameter(nameParam))
 
         try:
-            channel_id = int(self.bot.get_parameter(nameParam))
             channel = self.bot.get_channel(channel_id)
             if not channel:
                 raise ValueError(f"Channel non trouvé pour le paramètre : {nameParam}")
