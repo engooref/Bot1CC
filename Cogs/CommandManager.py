@@ -11,8 +11,8 @@ class CommandManager(commands.Cog):
     def __init__(self, bot: BotManager.BotManager):
         self.bot = bot
 
-    @app_commands.command(name="sync_roles", description="Supprime les rôles inexistantes de la BDD")
-    async def role_bdd_pur(self, interaction: discord.Interaction):
+    @app_commands.command(name="sync_roles_test", description="Supprime les rôles inexistantes de la BDD")
+    async def sync_roles(self, interaction: discord.Interaction, t:str = ''):
         """Commande slash réservée à l'owner."""
         print(f"📌 Commande /sync_roles exécutée par {interaction.user}")
         await interaction.response.defer()  # Réponse différée si l'opération prend du temps
@@ -56,7 +56,7 @@ class CommandManager(commands.Cog):
             await interaction.response.send_message(f"❌ Erreur SQL : {e}", ephemeral=True)
             Log.PrintError(e)
 
-    @app_commands.command(name="sync_channels", description="Supprime les channels inexistants de la BDD")
+    @app_commands.command(name="sync_channels_test", description="Supprime les channels inexistants de la BDD")
     async def sync_channels(self, interaction: discord.Interaction):
         print(f"📌 Commande /sync_channels exécutée par {interaction.user}")
         await interaction.response.defer()  # Réponse différée si l'opération prend du temps

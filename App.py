@@ -3,6 +3,8 @@ import BotManager, Utils.Log as Log, Quart, pymysql
 import asyncio, discord, os
 from ORM import initialize_sql
 from Cogs import CommandManager
+import signal
+import sys
 
  
 pymysql.install_as_MySQLdb()
@@ -14,9 +16,10 @@ class App():
         Log.PrintLog("Lancement de l'App")
         self.bot = None
         self.quart_app = None
-        
+        self.control_file = 'run.lock'
         # Lancer l'initialisation asynchrone
         asyncio.run(self.Param())
+
 
     async def Param(self):
         """Initialisation des composants asynchrones : bot et serveur Quart"""
@@ -39,11 +42,11 @@ class App():
     async def LaunchBot(self):
         try:
             # Nom du fichier de contrôle
-            control_file = 'run.lock'
+            
 
             # Crée le fichier si besoin pour démarrer le processus
-            if not os.path.exists(control_file):
-                with open(control_file, 'w') as f:
+            if not os.path.exists(self.control_file):
+                with open(self.control_file, 'w') as f:
                     pass
 
             Log.PrintLog("Lancement SQLAlchemy et BDD")
@@ -63,7 +66,7 @@ class App():
             asyncio.create_task(quart_task)
 
             try:
-                while  os.path.exists(control_file):
+                while  os.path.exists(self.control_file):
                     await asyncio.sleep(5)   
             finally:
                 await self.shutdown()
@@ -74,19 +77,29 @@ class App():
 
         finally:
             # Nettoyage si nécessaire, suppression du fichier par exemple.
-            if os.path.exists(control_file):
-                os.remove(control_file)
+            if os.path.exists(self.control_file):
+                os.remove(self.control_file)
 
 
     async def shutdown(self):
         """Arrêter proprement l'application"""
         Log.PrintLog("Arrêt de l'application")
+        if os.path.exists(self.control_file):
+            os.remove(self.control_file)
+        
+        sys.exit(0)
         await self.bot.close()  # Arrête le bot Discord
         await self.quart_app.shutdown()  # Arrête le serveur Quart
+
+
+
 
 app = None
 try:
     app = App()
+    # Capturer SIGTERM et SIGINT (arrêt par Supervisor)
+    signal.signal(signal.SIGTERM, app.shutdown)
+    signal.signal(signal.SIGINT, app.shutdown)
     asyncio.run(app.LaunchBot())
 except Exception as e:
     Log.PrintError(e)
