@@ -4,6 +4,7 @@ from Utils import Log
 import BotManager
 from ORM import ConditionField, SCLocations, SCLocationsType
 import xml.etree.ElementTree as ET
+import base64
 
 category_name: str = "Opérations"
 folder_path = "./temp_op"
@@ -14,7 +15,10 @@ class Operation():
         self.bot: BotManager.BotManager = bot
 
         self.role_path = f"{folder_path}/roles.json"
+        self.game_path = f"{folder_path}/games.json"
+        
         self.role_emojis = {}
+        self.list_games = {}
 
         self.message_role = None
 
@@ -29,16 +33,30 @@ class Operation():
 
     async def watch_file_for_changes(self, interval=1):
         """Surveille les modifications du fichier JSON."""
-        last_modified_time = os.path.getmtime(self.role_path)
+        last_modified_time_role = os.path.getmtime(self.role_path)
+        last_modified_time_games = os.path.getmtime(self.game_path)
         while True:
             await asyncio.sleep(interval)
             try:
                 current_modified_time = os.path.getmtime(self.role_path)
-                if current_modified_time != last_modified_time:
-                    last_modified_time = current_modified_time
+                if current_modified_time != last_modified_time_role:
+                    last_modified_time_role = current_modified_time
                     await self.update_roles()
+
+                current_modified_time = os.path.getmtime(self.game_path)
+                if current_modified_time != last_modified_time_games:
+                    last_modified_time_games = current_modified_time
+                    await self.update_games()
+
             except Exception as e:
                 Log.PrintError(f"Erreur lors de la surveillance du fichier: {e}")
+
+    async def update_games(self):
+        try:
+            with open(self.game_path, "r", encoding="utf-8") as file:
+                self.list_games = json.load(file)
+        except FileNotFoundError:
+            Log.PrintError("Fichier non trouvé !")
 
     async def update_roles(self):
         """Met à jour les rôles et emojis à partir du fichier JSON."""
@@ -161,6 +179,7 @@ class Operation():
             else:
                 await channel.send(embed=embed, view=view)
             await self.update_roles()
+            await self.update_games()
             asyncio.create_task(self.watch_file_for_changes())
 
         except Exception as e:
@@ -187,7 +206,7 @@ class Operation():
                     print(e)
 
 
-            operation = Operation.OperationForm(self.bot, self.role_emojis)
+            operation = Operation.OperationForm(self.bot, self.role_emojis, self.list_games)
             await operation.initialize()
            
             await dm_channel.send(f"Bonjour {interaction.user.mention}, Veuillez remplir le formulaire suivant pour votre opération:")
@@ -203,10 +222,11 @@ class Operation():
             )
             
     class UserModal(Modal):
-        def __init__(self, view, title, update_func, label_text, placeholder_search = "", placeholder_price = "", placeholder_prev = ""):
+        def __init__(self, view, title, update_func, label_text, placeholder_search = "", placeholder_price = "", placeholder_prev = "", games = False):
             super().__init__(title=title)
             self.update_func = update_func
             self.view = view
+            self.prev_input = None
             self.search_input = TextInput(
                 label=label_text, 
                 placeholder="Entrez un texte ici...",
@@ -217,7 +237,7 @@ class Operation():
             )
             self.add_item(self.search_input)
 
-            if (title == "Détails"):
+            if (title == "Détails" and not games):
                 self.prev_input = TextInput(
                     label="Equipement à prévoir", 
                     placeholder="Entrez un texte ici...",
@@ -238,7 +258,7 @@ class Operation():
         async def on_submit(self, interaction: discord.Interaction):
             try:
                 # Met à jour les options basées sur l'entrée de recherche
-                if not (self.title == "Détails"):
+                if not (self.title == "Détails") or not self.prev_input:
                     await self.update_func(self.search_input.value)
                 else:
                     await self.update_func(self.search_input.value, self.price_input.value, self.prev_input.value)
@@ -247,15 +267,16 @@ class Operation():
                 Log.PrintError(e)
 
     class OperationForm():
-        def __init__(self, bot, role_emojis):
+        def __init__(self, bot, role_emojis, list_games):
             self.bot: BotManager.BotManager = bot
-            self.val = {'location': '0.0.0'}
+            self.val = {'location': '0.0.0', 'games' : ''}
             self.role_emojis = role_emojis
             self.stars_bdd: list[SCLocations.SCLocations] = []
             self.stars = []
             self.current_stars = []
             self.current_planets = [discord.SelectOption(label="Aucun", value="aucun")]
             self.current_moons = [discord.SelectOption(label="Aucun", value="aucun")]
+            self.list_games = list_games
 
         async def initialize(self):
             try:
@@ -319,7 +340,7 @@ class Operation():
 
             view_heure = View(timeout=None)
             option_hours = [
-		            discord.SelectOption(label="Immediat", value="0", default=True),
+		        discord.SelectOption(label="Immediat", value="0", default=True),
                 discord.SelectOption(label="Dans 15 minutes", value="15"),
                 discord.SelectOption(label="Dans 30 minutes", value="30"),
                 discord.SelectOption(label="Dans 45 minutes", value="45"),
@@ -339,7 +360,6 @@ class Operation():
             heure_select.callback = self.heure_select_callback
             view_heure.add_item(heure_select)
 
-
             await channel.send("- Type d'opération: ", view=view_select_type)
             await channel.send("- Début de l'opération dans:", view=view_heure)
             self.location_message: discord.Message = await channel.send("- Localisation: ", view=await self.update_location())
@@ -347,49 +367,59 @@ class Operation():
             self.validate_message: discord.Message = await channel.send("- Poster ?", view=self.view_validate)
 
         async def update_location(self):
-            location = self.val["location"].split(".")
-
             view_select_location = View(timeout=None)
-            self.select_star = Select(
-                placeholder="Choisissez une étoile",
-                options=[discord.SelectOption(label=star.label, value=star.value, default=(star.value == location[0])) for star in self.current_stars],
-                custom_id="select_star_loc"
-            )
+            if  ('type' not in self.val) or (next((k for k, v in self.role_emojis.items() if v == int(self.val['type'])), None) != '🎮'):
+                
+                location = self.val["location"].split(".")
 
-            # Ajout du second select (désactivé au début)
-            self.select_planet = Select(
-                placeholder="Choisissez une planète",
-                options=[discord.SelectOption(label=planet.label, value=planet.value, default=(planet.value == location[1])) for planet in self.current_planets],
-                custom_id="select_planet_loc",
-                disabled=location[0] == "0"
-            )
+                self.select_star = Select(
+                    placeholder="Choisissez une étoile",
+                    options=[discord.SelectOption(label=star.label, value=star.value, default=(star.value == location[0])) for star in self.current_stars],
+                    custom_id="select_star_loc"
+                )
 
-            # Ajout du troisième select (désactivé au début)
-            self.select_moon = Select(
-                placeholder="Choisissez une lune",
-                options=[discord.SelectOption(label=moon.label, value=moon.value, default=(moon.value == location[2])) for moon in self.current_moons],
-                custom_id="select_moon_loc",
-                disabled=location[1] == "0" 
-            )
+                # Ajout du second select (désactivé au début)
+                self.select_planet = Select(
+                    placeholder="Choisissez une planète",
+                    options=[discord.SelectOption(label=planet.label, value=planet.value, default=(planet.value == location[1])) for planet in self.current_planets],
+                    custom_id="select_planet_loc",
+                    disabled=location[0] == "0"
+                )
 
-            self.select_star.callback = self.on_star_select
-            self.select_planet.callback = self.on_planet_select
-            self.select_moon.callback = self.on_moon_select
+                # Ajout du troisième select (désactivé au début)
+                self.select_moon = Select(
+                    placeholder="Choisissez une lune",
+                    options=[discord.SelectOption(label=moon.label, value=moon.value, default=(moon.value == location[2])) for moon in self.current_moons],
+                    custom_id="select_moon_loc",
+                    disabled=location[1] == "0" 
+                )
 
-            # Ajouter les selects à la vue
-            view_select_location.add_item(self.select_star)
-            view_select_location.add_item(self.select_planet)
-            view_select_location.add_item(self.select_moon)
+                self.select_star.callback = self.on_star_select
+                self.select_planet.callback = self.on_planet_select
+                self.select_moon.callback = self.on_moon_select
 
-            search_button = Button(
-                custom_id="search_btn", 
-                label="Recherche", 
-                style=discord.ButtonStyle.primary
-            )
+                # Ajouter les selects à la vue
+                view_select_location.add_item(self.select_star)
+                view_select_location.add_item(self.select_planet)
+                view_select_location.add_item(self.select_moon)
 
-            search_button.callback = self.on_search_btn
-            view_select_location.add_item(search_button)
+                search_button = Button(
+                    custom_id="search_btn", 
+                    label="Recherche", 
+                    style=discord.ButtonStyle.primary
+                )
 
+                search_button.callback = self.on_search_btn
+                view_select_location.add_item(search_button)
+            else:
+                
+                self.select_game = Select(
+                    custom_id = 'select_game_id',
+                    placeholder="Selectionner un jeu",
+                    options=[discord.SelectOption(label=k, value=v, default=(v == self.val['games'])) for k, v in self.list_games.items()]
+                )
+                self.select_game.callback = self.select_game_callback
+                view_select_location.add_item(self.select_game)
             return view_select_location
 
         
@@ -454,7 +484,8 @@ class Operation():
                     "Entrez une Description:", 
                     self.val["description"] if "description" in self.val else "", 
                     self.val["price"] if "price" in self.val else "",
-                    self.val["prev"] if "prev" in self.val else "")
+                    self.val["prev"] if "prev" in self.val else "",
+                    ('type' in self.val) and int(self.val['type']) == self.role_emojis['🎮'])
             await interaction.response.send_modal(modal)
 
         # Menu de sélection pour le type d'opération
@@ -463,6 +494,20 @@ class Operation():
                 await interaction.response.defer()
                 selected_value = interaction.data['values'][0]
                 self.val["type"] = selected_value
+                if self.location_message:
+                    await self.location_message.edit(content='Localisation : ' if int(self.val['type']) != self.role_emojis['🎮'] else 'Jeux :', view=await self.update_location())
+                await self.confirm_operation(interaction)
+                
+                
+            except Exception as e:
+                Log.PrintError(e)
+
+        # Menu de sélection pour le type d'opération
+        async def select_game_callback(self, interaction: discord.Interaction):
+            try:
+                await interaction.response.defer()
+                selected_value = interaction.data['values'][0]
+                self.val["games"] = selected_value
                 await self.confirm_operation(interaction)
             except Exception as e:
                 Log.PrintError(e)
@@ -479,9 +524,13 @@ class Operation():
         async def validate_button_callback(self, interaction: discord.Interaction):
             try:
                 global folder_path
+                
                 #await interaction.response.defer()
                 role = self.bot.guild.get_role(int(self.val["type"]))
                 
+                name_file_svg = f"{interaction.user.name}_{role.name}.svg"
+                name_file_png = f"{interaction.user.name}_{role.name}.png"
+
                 tree = ET.parse(f'{folder_path}/{role.name}.svg')
                 root = tree.getroot()
                 
@@ -495,26 +544,65 @@ class Operation():
                 description = self.val["description"] if "description" in self.val else ""
 
                 entete = f"{formatted_time} OPÉRATION {role.name.upper()[role.name.upper().find('-') + 1:]} - RESPONSABLE: {interaction.user.display_name}"
-                
 
-                localisation = ''
-                for location in self.val["location"].split("."):
-                    if location != "0":
-                        object: SCLocations.SCLocations = await self.bot.database_manager.select_entity_by_id(SCLocations.SCLocations, int(location))
-                        localisation += (" >> " if localisation != '' else "") + object.name
-        
+                if int(self.val['type']) == self.role_emojis['🎮']: 
 
-                self.write_svg("Localisation", localisation, root)
+                    # Récupérer la largeur et hauteur du SVG
+                    svg_width = root.get("width")
+                    svg_height = root.get("height")
+
+                    # Vérifier si width et height existent, sinon prendre la vue (`viewBox`)
+                    if not svg_width or not svg_height:
+                        viewbox = root.get("viewBox")
+                        if viewbox:
+                            _, _, svg_width, svg_height = viewbox.split()
+                        else:
+                            raise ValueError("Impossible de récupérer les dimensions du SVG")
+
+
+                    # Convertir l'image en base64
+                    with open(f'{folder_path}/gaming/{self.val['games']}.png', "rb") as img_file:
+                        new_image_base64 = base64.b64encode(img_file.read()).decode('utf-8')
+
+                    # Création de la balise <image> pour l'arrière-plan
+                    new_image = ET.Element("image", {
+                        "id": "background-image",
+                        "width": svg_width,
+                        "height": svg_height,
+                        "x": "0",
+                        "y": "0",
+                        "{http://www.w3.org/1999/xlink}href": f"data:image/png;base64,{new_image_base64}",
+                        "preserveAspectRatio": "xMidYMid slice"  # Assure que l'image couvre tout
+                    })
+
+                    # Ajouter l'image au début du SVG pour qu'elle soit en arrière-plan
+                    root.insert(0, new_image)
+
+                else:
+                                 
+                    localisation = ''
+                    for location in self.val["location"].split("."):
+                        if location != "0":
+                            object: SCLocations.SCLocations = await self.bot.database_manager.select_entity_by_id(SCLocations.SCLocations, int(location))
+                            localisation += (" >> " if localisation != '' else "") + object.name
+
+                    self.write_svg("Localisation", localisation, root)
+            
                 self.write_svg("info", entete, root)
                 self.write_svg("Date", formatted_date, root)
-                self.write_svg("Materiel", f"Equipement : {self.val['prev']}", root)
+                if int(self.val['type']) != self.role_emojis['🎮']: 
+                    self.write_svg("Materiel", f"Equipement : {self.val['prev']}", root)
 
-                if self.val['price'] != "":
-                    text_element = self.write_svg("Prime", f"Prime : {self.val['price']}", root)
-                    if text_element is not None:
-                        text_element.set('x', str(self.calculate_text_position(text_element, root.attrib.get("width", None))))
+                    if self.val['price'] != "":
+                        text_element = self.write_svg("Prime", f"Prime : {self.val['price']}", root)
+                        if text_element is not None:
+                            text_element.set('x', str(self.calculate_text_position(text_element, root.attrib.get("width", None))))
+                    else:
+                        self.write_svg("Prime", "", root)
                 else:
+                    self.write_svg("Localisation", next(k for k, v in self.list_games.items() if v == self.val['games'] ), root)
                     self.write_svg("Prime", "", root)
+                    self.write_svg("Materiel", "", root)
 
                 # Récupérer le texte "Description"
                 description_text = root.find(".//*[@id='Description']")  # Trouver l'élément par son id
@@ -538,17 +626,12 @@ class Operation():
                         })
                         tspan.text = line
 
-
                 
-                name_file_svg = f"{interaction.user.name}_{role.name}.svg"
-                name_file_png = f"{interaction.user.name}_{role.name}.png"
-
                 if not os.path.exists(folder_path):
                     # Créer le dossier
                     os.makedirs(folder_path)
 
                 tree.write(f"{folder_path}/{name_file_svg}")
-
 
                 cairosvg.svg2png(url=f"{folder_path}/{name_file_svg}", write_to=f"{folder_path}/{name_file_png}")
 
@@ -573,11 +656,13 @@ class Operation():
                             await message_delete.delete()
                         await message.delete()
                         break
-
+                
             except Exception as e:
                 Log.PrintError(e)
                 await interaction.message.reply(f"erreur lors de la validation: {e}")
-
+            finally:
+                if os.path.exists({folder_path}/{name_file_png}):
+                    os.remove({folder_path}/{name_file_png})
 
         def calculate_text_position(self, text_element, svg_width, char_width=5):
             text_width = len(text_element.text) * char_width
@@ -655,7 +740,7 @@ class Operation():
                     ("type" not in self.val) 
                     or ("price" not in self.val) 
                     or ("description" not in self.val) 
-                    or (self.val["location"].split('.')[0] == "0")
+                    or ((self.val["location"].split('.')[0] == "0") and ( not (("type" in self.val) and (int(self.val["type"]) == self.role_emojis['🎮']) and (self.val['games']))))
                 )
 
                 self.view_validate = View(timeout=None)
@@ -677,7 +762,9 @@ class Operation():
                 cancel_button.callback = self.cancel_button_callback
                 self.view_validate.add_item(validate_button)
                 self.view_validate.add_item(cancel_button)
-                await self.validate_message.edit(content="- Poster ?", view=self.view_validate)
+                if self.validate_message:
+                    await self.validate_message.edit(content="- Poster ?", view=self.view_validate)
+                    
             except Exception as e:
                 Log.PrintError(e)
 
@@ -737,7 +824,7 @@ class Operation():
             message_content = "- Localisation: " + (f"\n```\n{error}```" if error else "")
             await self.location_message.edit(content=message_content, view=await self.update_location())
         
-        async def update_detail(self, description, price, prev):
+        async def update_detail(self, description, price = '', prev = ''):
             self.val["description"] = description
             self.val["price"] = price
             self.val["prev"] = prev
