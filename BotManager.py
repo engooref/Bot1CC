@@ -177,10 +177,18 @@ class BotManager(commands.Bot):
 
                     custom_id = interaction.data['custom_id']
                         
-                    if "_" in custom_id and not custom_id.endswith('btn') and not custom_id.endswith('_loc') and not custom_id.startswith('closeTicket'):
-                        await interaction.response.defer()
+                    if "_" in custom_id \
+                    and not custom_id.endswith('btn') \
+                    and not custom_id.endswith('_loc') \
+                    and not custom_id.startswith('closeTicket'):
+                        try:
+                            await interaction.response.defer()
+                        except:
+                            pass
+
                         if custom_id.startswith("select_"):
                             return
+                        
                         response_type = custom_id.split('_')[0]  # Exemple: 'accept', 'decline', 'tentative'
                         event_id = int(custom_id.split('_')[1])
 

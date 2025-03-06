@@ -174,7 +174,8 @@ class EventManager:
         except Exception as e:
             Log.PrintError(f"update_event - {e}")
         finally:
-            self.bot.scheduler_manager.scheduler_today.update_event(event)
+            if not event.appel_msg_discord:
+                self.bot.scheduler_manager.scheduler_today.update_event(event)
 
     async def supp_event(self, event: Event.Event):
         try:
