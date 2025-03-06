@@ -248,8 +248,8 @@ class EventManager:
                 else:
                     event.attribution_discord_id = None
 
-            if(event.attribution_discord_id is None):
-                if (event.briefing_Discord_Id is not None):
+            if event.attribution_discord_id:
+                if event.briefing_Discord_Id:
                     for thread in channelBriefing.threads:
                         try:
                             try:
