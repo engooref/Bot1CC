@@ -6,7 +6,7 @@ from Cogs.UserManager import UserManager
 from ORM import User, Event, ConditionField, Response, Role, Parameter, TicketBots
 from Utils import Log
 import locale, discord, os
-from View.OperationView import Operation
+from View.OperationView import Operation, category_name
 from View.TicketView import Ticket
 
 class BotManager(commands.Bot):
@@ -224,20 +224,31 @@ class BotManager(commands.Bot):
 
     async def on_raw_reaction_add(self, payload):
         try:
-            if payload.user_id == self.user.id:
+            if (payload.user_id == self.user.id):
                 return
+
+            emoji = self.guild.get_emoji(1213915551210930306)
+            if emoji is None:
+                emoji = "👍"
 
             channel = self.get_channel(payload.channel_id)
-            user = channel.guild.get_member(payload.user_id)
-            emoji = payload.emoji
             message = await channel.fetch_message(payload.message_id)
-
-            if not message or message != self.operation.message_role or emoji.name not in self.operation.role_emojis:
+            user = channel.guild.get_member(payload.user_id)
+            
+            if channel.category.name != category_name:
                 return
+            
+            if emoji != payload.emoji.name:
+                emoji = payload.emoji
+                if not message or message != self.operation.message_role or emoji.name not in self.operation.role_emojis:
+                    return
 
-            role = message.guild.get_role(self.operation.role_emojis[emoji.name])
-            await user.add_roles(role)
-            Log.PrintLog(f'Ajout du rôle "{role}" à {user}')
+                role = message.guild.get_role(self.operation.role_emojis[emoji.name])
+                await user.add_roles(role)
+                Log.PrintLog(f'Ajout du rôle "{role}" à {user}')
+            elif message.thread:
+                await message.thread.add_user(user)
+                Log.PrintLog(f'Ajout de {user} dans le thread {message.thread.name}')
 
         except Exception as e:
             Log.PrintError(f"on_raw_reaction_add - {e}")
@@ -247,17 +258,25 @@ class BotManager(commands.Bot):
             if self.user.id == payload.user_id:
                 return
             
+            emoji = self.guild.get_emoji(1213915551210930306)
+            if emoji is None:
+                emoji = "👍"
+
             channel = self.get_channel(payload.channel_id)
             user = channel.guild.get_member(payload.user_id)
-            emoji = payload.emoji
             message = await channel.fetch_message(payload.message_id)
 
-            if not message or message != self.operation.message_role or emoji.name not in self.operation.role_emojis:
-                return
+            if emoji != payload.emoji.name:
+                emoji = payload.emoji 
+                if not message or message != self.operation.message_role or emoji.name not in self.operation.role_emojis:
+                    return
 
-            role = message.guild.get_role(self.operation.role_emojis[emoji.name])
-            await user.remove_roles(role)
-            Log.PrintLog(f'Retrait du rôle "{role}" à {user}')
+                role = message.guild.get_role(self.operation.role_emojis[emoji.name])
+                await user.remove_roles(role)
+                Log.PrintLog(f'Retrait du rôle "{role}" à {user}')
+            elif message.thread:
+                await message.thread.remove_user(user)
+                Log.PrintLog(f'Retrait de {user} dans le thread {message.thread.name}')            
 
         except Exception as e:
             Log.PrintError(f"on_raw_reaction_remove - {e}")

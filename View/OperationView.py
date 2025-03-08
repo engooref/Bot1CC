@@ -222,7 +222,7 @@ class Operation():
             )
             
     class UserModal(Modal):
-        def __init__(self, view, title, update_func, label_text, placeholder_search = "", placeholder_price = "", placeholder_prev = "", games = False):
+        def __init__(self, view, title, update_func, label_text, placeholder : dict = {}, games = False):
             super().__init__(title=title)
             self.update_func = update_func
             self.view = view
@@ -230,7 +230,7 @@ class Operation():
             self.search_input = TextInput(
                 label=label_text, 
                 placeholder="Entrez un texte ici...",
-                default = "" if placeholder_search == "" else placeholder_search,
+                default = "" if 'placeholder_search' not in placeholder else placeholder['placeholder_search'],
                 style= discord.TextStyle.long if (title == "Détails") else discord.TextStyle.short,
                 max_length= 200 if (title == "Détails") else 4000,
                 required=True
@@ -241,7 +241,7 @@ class Operation():
                 self.prev_input = TextInput(
                     label="Equipement à prévoir", 
                     placeholder="Entrez un texte ici...",
-                    default = "" if placeholder_prev == "" else placeholder_prev,
+                    default = "" if 'placeholder_search' not in placeholder else placeholder['placeholder_prev'],
                     required=True
                 )
                 self.add_item(self.prev_input)
@@ -249,11 +249,19 @@ class Operation():
                 self.price_input = TextInput(
                     label="Récompense proposée", 
                     placeholder="Entrez la Récompense ici...",
-                    default = "" if placeholder_price == "" else placeholder_price,
+                    default = "" if 'placeholder_price' not in placeholder else placeholder['placeholder_price'],
                     required=False
                 )
                 self.add_item(self.price_input)
 
+            self.url_input = TextInput(
+                    label="Url pour l'opération", 
+                    placeholder="Entrez l'url pour l'opération (Regolith ou autre)",
+                    default = "" if 'placeholder_url' not in placeholder else placeholder['placeholder_url'],
+                    required=False
+                )
+            
+            self.add_item(self.url_input)
 
         async def on_submit(self, interaction: discord.Interaction):
             try:
@@ -261,10 +269,11 @@ class Operation():
                 if not (self.title == "Détails") or not self.prev_input:
                     await self.update_func(self.search_input.value)
                 else:
-                    await self.update_func(self.search_input.value, self.price_input.value, self.prev_input.value)
+                    await self.update_func(self.search_input.value, self.price_input.value, self.prev_input.value, self.url_input.value)
                 await interaction.response.defer()
             except Exception as e:
                 Log.PrintError(e)
+
 
     class OperationForm():
         def __init__(self, bot, role_emojis, list_games):
@@ -482,9 +491,10 @@ class Operation():
                     "Détails", 
                     self.update_detail, 
                     "Entrez une Description:", 
-                    self.val["description"] if "description" in self.val else "", 
-                    self.val["price"] if "price" in self.val else "",
-                    self.val["prev"] if "prev" in self.val else "",
+                    {'placeholder_search' : self.val["description"] if "description" in self.val else "", 
+                     'placeholder_prev' :self.val["price"] if "price" in self.val else "",
+                     'placeholder_price' :self.val["prev"] if "prev" in self.val else "",
+                     'palceholder_url' : self.val['url'] if "url" in self.val else ""},
                     ('type' in self.val) and int(self.val['type']) == self.role_emojis['🎮'])
             await interaction.response.send_modal(modal)
 
@@ -524,6 +534,7 @@ class Operation():
         async def validate_button_callback(self, interaction: discord.Interaction):
             try:
                 global folder_path
+                await interaction.response.defer
                 
                 #await interaction.response.defer()
                 role = self.bot.guild.get_role(int(self.val["type"]))
@@ -644,7 +655,18 @@ class Operation():
                 channel = discord.utils.get(category.channels, name=(role.name.replace(' ', '-')).lower())
 
                 message = await channel.send(content=f"{role.mention}\nPour valider votre présence interagissez avec l'emoji {emoji}", file=discord.File(f"{folder_path}/{name_file_png}"))
-                await message.add_reaction(emoji)
+                await message.add_reaction(emoji)            
+                
+                thread = await message.create_thread(name=f"Discussion - {role.name.upper()[role.name.upper().find('-') + 1:]}", auto_archive_duration=1440)
+
+                # 🔹 3. Ajouter un message d’introduction dans le fil
+                await thread.send("👋 **Bienvenue dans le fil de discussion de cette opération !**\n"
+                                "📌 Discutez des stratégies, rôles et détails ici.\n"
+                                f"👀 Seuls ceux qui réagissent avec {emoji} auront accès."
+                                "⚠️ *Ce fil sera automatiquement archivé après **24 heures** d'inactivité.*")
+                
+                if self.val['url']:
+                    await thread.send(f'Une URL a été partagé: {self.val['url']}')
 
                 dm_channel = await interaction.user.create_dm()
                 async for message in dm_channel.history(limit=100):  # Limiter pour des performances optimales
@@ -824,10 +846,11 @@ class Operation():
             message_content = "- Localisation: " + (f"\n```\n{error}```" if error else "")
             await self.location_message.edit(content=message_content, view=await self.update_location())
         
-        async def update_detail(self, description, price = '', prev = ''):
+        async def update_detail(self, description, price = '', prev = '', url = ''):
             self.val["description"] = description
             self.val["price"] = price
             self.val["prev"] = prev
+            self.val['url'] = url
             await self.confirm_operation(None)
 
 

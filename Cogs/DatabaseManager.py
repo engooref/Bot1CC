@@ -22,13 +22,14 @@ class DatabaseManager:
                 all_roles_discord = author.roles
                 all_roles = await self.insert_and_get_new_roles(all_roles_discord)
 
+                user_roles = [role for role in all_roles.values() if role.discord_id in {r.id for r in all_roles_discord}]
                 user = await insert_or_update_data(User.User(
                     None,
                     author.display_name,
                     author.id,
                     author.avatar.key if author.avatar else None,
                     ' ',
-                    list(all_roles.values()),
+                    user_roles,
                     0,
                     0
                 ))
@@ -58,7 +59,7 @@ class DatabaseManager:
 
                 role_bdd = next((key for key, obj in roles_bdd.items() if obj.discord_id == role.id), None)
                 if role_bdd is None:
-                    new_roles_bdd.append(Role.Role(role.name, role.id))
+                    new_roles_bdd.append(Role.Role(role.name, role.id, role.hoist))
                     await self.bot.add_traces(f'Ajout du role: {role.name}')
 
             if new_roles_bdd:
