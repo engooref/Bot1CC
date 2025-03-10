@@ -7,3 +7,5 @@ class TicketType(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     name = Column(String(255), nullable=False)
     role_auth = Column(BigInteger, nullable=False)
+    
+    relations_a_exclure = {}

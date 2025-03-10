@@ -1,4 +1,4 @@
-from sqlalchemy import  Column, Integer, String, BigInteger, UniqueConstraint, JSON
+from sqlalchemy import  Column, Integer, String, BigInteger, UniqueConstraint, JSON, ForeignKey
 from ORM import Base
 from sqlalchemy.orm import relationship
 from ORM.Association import user_role_association, user_events # Assurez-vous d'importer user_role_association depuis le bon emplacement
@@ -19,6 +19,7 @@ class User(Base):
     exp_pourcentage = Column(Integer, default=0)
     exp_level = Column(Integer, default=0)
 
+
     # Many-to-Many relationship with Role
     rolesDiscord = relationship('Role', secondary=user_role_association)
 
@@ -28,9 +29,12 @@ class User(Base):
     # One-to-Many relationship with Response
     responses = relationship('Response')
 
-    events = relationship('Event', secondary=user_events, back_populates='users', overlaps="users")
+    events = relationship('Event', secondary=user_events, back_populates='users', overlaps="users", )
     events_orig = relationship('Event', back_populates='user_orig', overlaps="user_orig")
 
+    rh_profile = relationship('RHMember', back_populates='user',cascade="all, delete-orphan", single_parent=True)
+
+    relations_a_exclure = {'events', 'events_orig'}
     def __init__(self, email, username, discordId, avatar, accessToken, roles: list, expPour, expLvl, traces=[]):
         self.email = email
         self.roles = []

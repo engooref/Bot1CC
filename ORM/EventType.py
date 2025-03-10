@@ -11,6 +11,8 @@ class EventType(Base):
 
     events = relationship('Event', back_populates='type')
 
+    relations_a_exclure = {}
+    
     def __init__(self, name, color):
         self.name = name
         self.color = color

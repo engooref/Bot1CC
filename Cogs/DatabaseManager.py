@@ -1,8 +1,7 @@
 from ORM import *
-from ORM import User, Role, Channel, Traces, SCLocations, SCLocationsType
+from ORM import User, Role, Channel, Traces, RHMember
 from Utils import Log
 import discord, BotManager
-from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List
 from ORM.ConditionField import ConditionField
 
@@ -20,19 +19,24 @@ class DatabaseManager:
 
             if user is None:
                 all_roles_discord = author.roles
-                all_roles = await self.insert_and_get_new_roles(all_roles_discord)
+                all_roles : List[Role.Role] = await self.insert_and_get_new_roles(all_roles_discord, True)
 
-                user_roles = [role for role in all_roles.values() if role.discord_id in {r.id for r in all_roles_discord}]
-                user = await insert_or_update_data(User.User(
-                    None,
-                    author.display_name,
-                    author.id,
-                    author.avatar.key if author.avatar else None,
-                    ' ',
-                    user_roles,
-                    0,
-                    0
-                ))
+                user_roles = [role for role in all_roles if role.discord_id in {r.id for r in all_roles_discord}]
+                
+                # Ensuite, on crée le User en associant le RHMember
+                user = User.User(
+                    email=None,
+                    username=author.display_name,
+                    discordId=author.id,
+                    avatar=author.avatar.key if author.avatar else None,
+                    accessToken=' ',
+                    roles=user_roles,       # ou user_roles
+                    expPour=0,
+                    expLvl=0
+                )
+
+                user = await insert_or_update_data(user)
+
                 await self.bot.add_traces(f"Ajout de l'utilisateur: {author.display_name}")
 
             return user
@@ -44,7 +48,7 @@ class DatabaseManager:
         """Retourne un utilisateur à partir de son discord_id."""
         return await select_by_field(User.User, ConditionField('discord_id', '==', discord_id), True)
 
-    async def insert_and_get_new_roles(self, roles: List[discord.Role]):
+    async def insert_and_get_new_roles(self, roles: List[discord.Role], in_list=False):
         """Insère de nouveaux rôles en base et retourne tous les rôles."""
         try:
             if len(roles) == 0:
@@ -65,7 +69,7 @@ class DatabaseManager:
             if new_roles_bdd:
                 await insert_multi_ligne(new_roles_bdd)
 
-            return await select_all(Role.Role)
+            return await select_all(Role.Role, in_list)
         except Exception as e:
             Log.PrintError(f"insert_and_get_new_roles - {e}")
             raise
@@ -120,9 +124,9 @@ class DatabaseManager:
         else:
             return await select_by_field(model, conditions, one_result, order_by_desc)
 
-    async def select_entity_by_id(self, model, entity_id):
+    async def select_entity_by_id(self, model, entity_id, other_exclu=list()):
         """Sélectionne une entité par son ID."""
-        return await select_by_id(model, entity_id)
+        return await select_by_id(model, entity_id, other_exclu)
 
     async def select_all(self, model, in_list=False):
         """Sélectionne toutes les entités d'un modèle."""

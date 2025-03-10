@@ -67,14 +67,14 @@ class SchedulerManager:
         async def check_events(self):
             while True:
                 today_events = await self.get_events_for_today()
-
-                for event in today_events:
-                    time_until_event = event.start - datetime.now()
-                    
-                    if timedelta(minutes=0) < time_until_event <= timedelta(minutes=15):
-                        await self.send_event_reminder(event)
-                    else:
-                        await self.schedule_event_reminder(event)
+                if today_events:
+                    for event in today_events:
+                        time_until_event = event.start - datetime.now()
+                        
+                        if timedelta(minutes=0) < time_until_event <= timedelta(minutes=15):
+                            await self.send_event_reminder(event)
+                        else:
+                            await self.schedule_event_reminder(event)
 
                 await asyncio.sleep(60)
 

@@ -9,5 +9,6 @@ class SCLocationsType(Base):
     name = Column(String(255), nullable=False)
     locations = relationship("SCLocations", back_populates="type")
 
+    relations_a_exclure = {}
     def __init__(self, name):
         self.name = name

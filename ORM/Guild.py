@@ -9,6 +9,8 @@ class Guild(Base):
     name = Column(String(255), nullable=False)
     roles = relationship('Role', back_populates='guild', lazy='dynamic')
 
+    relations_a_exclure = {}
+    
     def __init__(self, name, discordId):
         self.name = name
         self.discord_id = discordId

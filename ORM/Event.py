@@ -39,6 +39,8 @@ class Event(Base):
     user_orig_id = Column(Integer, ForeignKey('user.id'), nullable=False)
     user_orig = relationship('User', back_populates='events_orig', overlaps="events_orig")
         
+    relations_a_exclure = {}
+    
     @property
     def start_date(self):
         """Renvoie la date au format JJ/MM/AAAA."""

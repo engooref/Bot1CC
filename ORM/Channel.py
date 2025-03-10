@@ -7,6 +7,8 @@ class Channel(Base):
     discord_id = Column(BigInteger, nullable=False)
     name = Column(String(255), nullable=False)
     
+    relations_a_exclure = {}
+    
     def __init__(self, name, discordId):
         self.name = name
         self.discord_id = discordId

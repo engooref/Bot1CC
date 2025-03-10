@@ -20,6 +20,7 @@ class TicketBots(Base):
 
     type = relationship('TicketType')
 
+    relations_a_exclure = {}
     def __init__(self, type, user_id, open):
         self.type = type
         self.user_id = user_id

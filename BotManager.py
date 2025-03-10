@@ -36,14 +36,13 @@ class BotManager(commands.Bot):
     async def on_ready(self):
         try:
             if self.has_started:
-                return  # Empêche une exécution multiple
+                return  # Empêche une exécution multiple.
 
             self.has_started = True
 
             await self.tree.sync(guild=self.guild)
             cmds = await self.tree.fetch_commands()
             print(f"Commandes enregistrées : {[cmd.name for cmd in cmds]}")
-
 
             # Récupération du serveur Discord
             self.guild: discord.Guild = self.get_guild(self.guildId)
@@ -108,7 +107,7 @@ class BotManager(commands.Bot):
     async def on_guild_role_create(self, role):
         try:
             Log.PrintLog(f"Création du rôle : {role.name}")
-            new_role = Role.Role(role.name, role.id)
+            new_role = Role.Role(role.name, role.id, role.hoist)
             await self.database_manager.insert_entity(new_role)
         except Exception as e:
             Log.PrintError(f"on_guild_role_create - {e}")

@@ -20,13 +20,8 @@ class Parameter(Base):
     
     value_text = Column(String(255), nullable=True)
     
-    def __init__(self, name, type, user=None, channel=None, role=[]):
-        self.name = name
-        self.type = type
-        self.user = user
-        self.channel = channel
-        self.role = role
-        
+    relations_a_exclure = {}
+    
     def getValue(self):
         if self.type.type_param == 'Text':
             return self.value_text
@@ -36,7 +31,9 @@ class Parameter(Base):
         
         elif self.type.type_param == 'User':
             return self.user.discord_id
-               
+        
+        elif self.type.type_param == 'Role':
+            return [role.discord_id for role in self.roles]
         else:
             return ''
         

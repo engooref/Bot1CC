@@ -19,6 +19,8 @@ class Response(Base):
     # Relation avec la table User
     user = relationship("User", back_populates="responses")  # Associer Response à User
 
+    relations_a_exclure = {}
+    
     def __init__(self, user_id, event_id, type_rep, team = None, roles = [], commentaire = None, vaisseau = None, role_vaisseau = None):
         self.users_id = user_id
         self.event_id = event_id

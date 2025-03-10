@@ -72,7 +72,7 @@ async def select_all(model, in_list=False):
             return {str(entity): entity for entity in entities} if not in_list else entities
         except Exception as e:
             Log.PrintLog(f'Error selecting data: {e}')
-            return list()
+            return dict() if not in_list else list()
 
 async def select_by_field(model, field: ConditionField, one_result=False, order_by_desc=False):
     async with AsyncSessionMaker() as session:
@@ -80,7 +80,8 @@ async def select_by_field(model, field: ConditionField, one_result=False, order_
             query = select(model)
 
             for relation in get_relations(model):
-                 query = query.options(selectinload(relation))
+                if relation not in model.relations_a_exclure:
+                    query = query.options(selectinload(relation))
 
             # Gérer les relations imbriquées
             if '.' in field.name:
@@ -126,7 +127,8 @@ async def select_by_fields(model, fields: List[ConditionField], one_result=False
             query = select(model)
 
             for relation in get_relations(model):
-                query = query.options(joinedload(relation))
+                if relation not in model.relations_a_exclure:
+                    query = query.options(joinedload(relation))
 
             for field in fields:
                 # Gérer les relations imbriquées
@@ -167,12 +169,13 @@ async def select_by_fields(model, fields: List[ConditionField], one_result=False
             Log.PrintLog(f'Error selecting data: {e}')
             return None
 
-async def select_by_id(model, id):
+async def select_by_id(model, id, other_exclu=list()):
     async with AsyncSessionMaker() as session:
         try:
             query = select(model).filter(model.id == id)
             for relation in get_relations(model):
-                query = query.options(joinedload(relation))
+                if (relation.key not in model.relations_a_exclure) and (relation.key not in other_exclu):
+                    query = query.options(joinedload(relation))
 
             result = await session.execute(query)
             return result.scalars().first()

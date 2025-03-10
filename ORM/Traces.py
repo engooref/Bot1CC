@@ -15,6 +15,7 @@ class Traces(Base):
     time = Column(DateTime, nullable=False)
     parameter = Column(LONGTEXT, nullable=True)
     
+    relations_a_exclure = {}
     def __init__(self, userId, message, parameter = None):
         self.user_id = userId
         self.message = message

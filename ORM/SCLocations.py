@@ -15,7 +15,7 @@ class SCLocations(Base):
     # Relation avec le parent (si la location est une planète, elle a un parent, l'étoile)
     parent = relationship('SCLocations', backref='children', remote_side=[id])
 
-
+    relations_a_exclure = {}
     def __init__(self, name, designation, type, parent = None):
         self.name = name
         self.type = type

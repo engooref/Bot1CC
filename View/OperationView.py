@@ -534,7 +534,7 @@ class Operation():
         async def validate_button_callback(self, interaction: discord.Interaction):
             try:
                 global folder_path
-                await interaction.response.defer
+                await interaction.response.defer()
                 
                 #await interaction.response.defer()
                 role = self.bot.guild.get_role(int(self.val["type"]))
