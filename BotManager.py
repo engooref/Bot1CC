@@ -121,6 +121,20 @@ class BotManager(commands.Bot):
         except Exception as e:
             Log.PrintError(f"on_guild_role_delete - {e}")
 
+    async def on_guild_role_update(self, before, after):
+        try:
+            role: Role.Role = await self.database_manager.select_entity(Role.Role, ConditionField('discord_id', '==', after.id), True)
+            if role:
+                role.name = after.name
+                role.is_grade = after.hoist
+                await self.database_manager.insert_entity(role)
+                Log.PrintLog(f'Modification du role {after.id} : {before.name} -> {after.name}')
+                
+        except Exception as e:
+            Log.PrintError(f"on_guild_role_update - {e}")
+
+
+
     async def on_member_update(self, before, after):
         try:
             # Récupération Utilisateur
