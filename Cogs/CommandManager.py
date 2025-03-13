@@ -397,36 +397,6 @@ class CommandManager(commands.Cog):
             Log.PrintError(e)
             await interaction.response.send_message(f'Erreur: {e}', ephemeral=True)
 
-    @app_commands.command(name="send_voice", description="Créer une fichier pour parler")
-    async def send_voice(interaction: discord.Interaction, text: str):
-        # Vérifie que l'utilisateur est bien dans un canal vocal
-        if not interaction.user.voice or not interaction.user.voice.channel:
-            await interaction.response.send_message("Vous devez être connecté à un canal vocal pour utiliser cette commande.", ephemeral=True)
-            return
-
-        await interaction.response.send_message("Conversion du texte en audio en cours, merci de patienter...", ephemeral=True)
-        
-        # Générer le fichier audio avec gTTS (langue française)
-        tts = gTTS(text=text, lang="fr")
-        filename = "tts_output.mp3"
-        tts.save(filename)
-        
-        # Connexion au canal vocal de l'utilisateur
-        voice_channel = interaction.user.voice.channel
-        voice_client = await voice_channel.connect()
-        
-        # Créer la source audio via FFmpeg (assurez-vous que FFmpeg est installé et accessible)
-        audio_source = discord.FFmpegPCMAudio(filename)
-        voice_client.play(audio_source)
-        
-        # Attendre la fin de la lecture de l'audio
-        while voice_client.is_playing():
-            await asyncio.sleep(1)
-        
-        # Se déconnecter du canal vocal et supprimer le fichier audio temporaire
-        await voice_client.disconnect()
-        os.remove(filename)
-
 # Fonction obligatoire pour charger le Cog
 async def setup(bot):
     await bot.add_cog(CommandManager(bot))

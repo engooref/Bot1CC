@@ -8,11 +8,12 @@ from Utils import Log
 import locale, discord, os
 from View.OperationView import Operation, category_name
 from View.TicketView import Ticket
+import logging
 
 class BotManager(commands.Bot):
     def __init__(self, intents, guildId):
         super().__init__(command_prefix='!', intents=intents)
-
+        logging.basicConfig(level=logging.INFO)
         locale.setlocale(locale.LC_TIME, 'fr_FR.UTF-8')
 
         # Initialisation des variables
@@ -32,6 +33,8 @@ class BotManager(commands.Bot):
         self.operation: Operation = Operation(self)
         self.scheduler_manager: SchedulerManager = SchedulerManager(self)
         self.ticket: Ticket = Ticket(self)
+
+        self.voice_processes = {}
 
     async def on_ready(self):
         try:
@@ -77,6 +80,12 @@ class BotManager(commands.Bot):
         except Exception as e:
             Log.PrintError(f"on_ready - {e}")
             self.loop.stop()
+
+    async def on_disconnect(self):
+        """Événement déclenché quand le bot principal se déconnecte."""
+        for channel_id, (process, queue, token) in list(self.voice_processes.items()):
+            await queue.put(("disconnect", None))
+        self.voice_processes.clear()
 
     async def on_message(self, message):
         if message.author == self.user:
