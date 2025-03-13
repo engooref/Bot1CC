@@ -100,7 +100,12 @@ class EventManager:
                 if not isinstance(channelBriefing, discord.ForumChannel):
                     raise Exception(f"Le channel {channelBriefing.name} n'est pas un forum")
                         
-                
+                file_briefing_name = f'./Data/{self.bot.get_parameter("DIRECTORY_EVENT_TEMPLATE")}/{event.briefing_file_name}'
+                with open(file_briefing_name, 'rb') as file:
+                    file_briefing = discord.File(file, filename=file_briefing_name)
+
+                os.remove(file_briefing_name)
+
                 if(event.briefing_Discord_Id != None):                        
                     for thread in channelBriefing.threads:
                         try:
@@ -110,14 +115,14 @@ class EventManager:
                         if message is None:
                             continue
                         await message.delete()
-                        message = await thread.send(f"{self.urlSite}/files/get?typeFile=2&nameFile={event.briefing_file_name}")
+                        message = await thread.send(file=file_briefing)
                         event.briefing_Discord_Id = message.id
                         break 
                     else:
                         topic = await channelBriefing.create_thread(
                             name= event.name,  # Titre du topic
                             applied_tags= [channelBriefing.get_tag(int(os.getenv('EVENT_TAG'))),],
-                            content=f"{self.urlSite}/files/get?typeFile=2&nameFile={event.briefing_file_name}"
+                            file=file_briefing
                         )
                         event.briefing_Discord_Id = topic.message.id
 
@@ -126,7 +131,7 @@ class EventManager:
                     topic = await channelBriefing.create_thread(
                         name= event.name,  # Titre du topic
                         applied_tags= [channelBriefing.get_tag(int(os.getenv('EVENT_TAG'))),],
-                        content=f"{self.urlSite}/files/get?typeFile=2&nameFile={event.briefing_file_name}"
+                        file=file_briefing
                     )
 
                     event.briefing_Discord_Id = topic.message.id
@@ -230,8 +235,11 @@ class EventManager:
                 ])
 
             file_attrib = self.create_svg_table(data=data, title=event.name)
-            with open(file_attrib.name, 'rb') as file:
-                file_attrib = discord.File(file, filename=file_attrib.name)
+            name_file = file_attrib.name
+            with open(name_file, 'rb') as file:
+                file_attrib = discord.File(file, filename=name_file)
+
+            os.remove(name_file)
 
             if event.attribution_discord_id:
                 for thread in channelBriefing.threads:
@@ -257,14 +265,14 @@ class EventManager:
                                 messageBriefing = await thread.fetch_message(event.briefing_Discord_Id)
                             except discord.NotFound as ne:
                                 continue
-                            except discord.Forbidden as n:
-                                Log.PrintError(n)
                             except discord.HTTPException as e:
                                 Log.PrintError(e)
                                     
                             message = await messageBriefing.reply(file=file_attrib)
                             event.attribution_discord_id = message.id
                             break
+                        except discord.Forbidden as n:
+                            Log.PrintError(n)
                         except Exception as e:
                             Log.PrintLog('async_attribution_event_flask - {e}')
 
@@ -278,8 +286,6 @@ class EventManager:
 
         except Exception as e:
             Log.PrintError(f"attribution_event - {e}")
-
-    
 
     def search_user_attribution(self, searchUser: str):
         members = self.bot.guild.members

@@ -217,7 +217,7 @@ class Operation():
 
         except Exception as e:
             Log.PrintError(f"open_ticket - {e}")
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 f"Erreur lors de la création de l'opération : {e}", ephemeral=True
             )
             
@@ -532,15 +532,14 @@ class Operation():
                 
         # Callback pour le bouton Valider
         async def validate_button_callback(self, interaction: discord.Interaction):
-            try:
-                global folder_path
-                await interaction.response.defer()
+            await interaction.response.defer()
+            global folder_path
+            name_file_svg = f"{interaction.user.name}_{role.name}.svg"
+            name_file_png = f"{interaction.user.name}_{role.name}.png"
                 
-                #await interaction.response.defer()
+            try:
                 role = self.bot.guild.get_role(int(self.val["type"]))
                 
-                name_file_svg = f"{interaction.user.name}_{role.name}.svg"
-                name_file_png = f"{interaction.user.name}_{role.name}.png"
 
                 tree = ET.parse(f'{folder_path}/{role.name}.svg')
                 root = tree.getroot()
@@ -662,7 +661,6 @@ class Operation():
                 # 🔹 3. Ajouter un message d’introduction dans le fil
                 await thread.send("👋 **Bienvenue dans le fil de discussion de cette opération !**\n"
                                 "📌 Discutez des stratégies, rôles et détails ici.\n"
-                                f"👀 Seuls ceux qui réagissent avec {emoji} auront accès."
                                 "⚠️ *Ce fil sera automatiquement archivé après **24 heures** d'inactivité.*")
                 
                 if self.val['url']:
@@ -679,12 +677,16 @@ class Operation():
                         await message.delete()
                         break
                 
+
             except Exception as e:
                 Log.PrintError(e)
-                await interaction.message.reply(f"erreur lors de la validation: {e}")
-            finally:
-                if os.path.exists({folder_path}/{name_file_png}):
-                    os.remove({folder_path}/{name_file_png})
+                await interaction.followup.send(f"erreur lors de la validation: {e}")
+            
+            if os.path.exists({folder_path}/{name_file_png}):
+                os.remove({folder_path}/{name_file_png})
+
+            if os.path.exists({folder_path}/{name_file_svg}):
+                os.remove({folder_path}/{name_file_svg})
 
         def calculate_text_position(self, text_element, svg_width, char_width=5):
             text_width = len(text_element.text) * char_width
