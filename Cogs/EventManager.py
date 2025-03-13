@@ -180,7 +180,7 @@ class EventManager:
             Log.PrintError(f"update_event - {e}")
         finally:
             if not event.appel_msg_discord:
-                self.bot.scheduler_manager.scheduler_today.update_event(event)
+                self.bot.scheduler_manager.scheduler_event.update_event(event)
 
     async def supp_event(self, event: Event.Event):
         try:

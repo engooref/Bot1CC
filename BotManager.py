@@ -72,8 +72,9 @@ class BotManager(commands.Bot):
 
             
             # Démarrage des tâches asyncio pour le scheduler
-            self.loop.create_task(self.scheduler_manager.scheduler_weekly.run_scheduler())
-            self.loop.create_task(self.scheduler_manager.scheduler_today.check_events())
+            self.loop.create_task(self.scheduler_manager.scheduler_appEvent.run_scheduler())
+            self.loop.create_task(self.scheduler_manager.scheduler_event.check_events())
+            self.loop.create_task(self.scheduler_manager.scheduler_lockThread.run_scheduler())
 
             Log.PrintLog(f"Bot {self.user.display_name} est prêt.")
 

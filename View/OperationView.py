@@ -534,11 +534,11 @@ class Operation():
         async def validate_button_callback(self, interaction: discord.Interaction):
             await interaction.response.defer()
             global folder_path
+            role = self.bot.guild.get_role(int(self.val["type"]))
             name_file_svg = f"{interaction.user.name}_{role.name}.svg"
             name_file_png = f"{interaction.user.name}_{role.name}.png"
                 
             try:
-                role = self.bot.guild.get_role(int(self.val["type"]))
                 
 
                 tree = ET.parse(f'{folder_path}/{role.name}.svg')

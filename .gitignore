@@ -2,7 +2,8 @@
 ORM/__pycache__/
 __pycache__/
 Log/
-config
 run.lock
 temp_op/
-config__
+Data/
+venv/
+Config/
