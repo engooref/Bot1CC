@@ -2,7 +2,7 @@ from time import sleep
 import BotManager, Utils.Log as Log, Quart, pymysql
 import asyncio, discord, os
 from ORM import initialize_sql
-from Cogs import CommandManager
+from Cogs import CommandManager, VoiceManager
 import signal
 import sys
 
@@ -35,6 +35,7 @@ class App():
         self.bot = BotManager.BotManager(intents, os.getenv('GUILD_ID'))
         self.bot.remove_command('help')
         await self.bot.load_extension('Cogs.CommandManager')
+        await self.bot.load_extension('Cogs.VoiceManager')
 
         # Créer et configurer le serveur Quart
         self.quart_app = Quart.AppQuart(self.bot)
@@ -87,22 +88,22 @@ class App():
         if os.path.exists(self.control_file):
             os.remove(self.control_file)
         
-        sys.exit(0)
         await self.bot.close()  # Arrête le bot Discord
         await self.quart_app.shutdown()  # Arrête le serveur Quart
+        sys.exit(0)
 
 
 
-
-app = None
-try:
-    app = App()
-    # Capturer SIGTERM et SIGINT (arrêt par Supervisor)
-    signal.signal(signal.SIGTERM, app.shutdown)
-    signal.signal(signal.SIGINT, app.shutdown)
-    asyncio.run(app.LaunchBot())
-except Exception as e:
-    Log.PrintError(e)
-        
+if __name__ == "__main__":
+    app = None
+    try:
+        app = App()
+        # Capturer SIGTERM et SIGINT (arrêt par Supervisor)
+        signal.signal(signal.SIGTERM, app.shutdown)
+        signal.signal(signal.SIGINT, app.shutdown)
+        asyncio.run(app.LaunchBot())
+    except Exception as e:
+        Log.PrintError(e)
+            
 
 
