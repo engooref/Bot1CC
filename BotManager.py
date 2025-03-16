@@ -13,9 +13,8 @@ import logging
 class BotManager(commands.Bot):
     def __init__(self, intents, guildId):
         super().__init__(command_prefix='!', intents=intents)
-        logging.basicConfig(level=logging.INFO)
         locale.setlocale(locale.LC_TIME, 'fr_FR.UTF-8')
-
+        
         # Initialisation des variables
         self.guildId = int(guildId)
         self.guild = None
@@ -45,7 +44,7 @@ class BotManager(commands.Bot):
 
             await self.tree.sync(guild=self.guild)
             cmds = await self.tree.fetch_commands()
-            print(f"Commandes enregistrées : {[cmd.name for cmd in cmds]}")
+            Log.PrintLog(f"Commandes enregistrées : {[cmd.name for cmd in cmds]}")
 
             # Récupération du serveur Discord
             self.guild: discord.Guild = self.get_guild(self.guildId)
@@ -57,7 +56,10 @@ class BotManager(commands.Bot):
             # Récupération ou ajout de l'utilisateur utilisé pour le Bot
             self.userTrace = await self.database_manager.insert_and_get_user(self.guild.me)
 
+            Log.PrintLog('Création des Tickets')
             await self.ticket.ticket_command()
+
+            Log.PrintLog('Création des Opérations')
             await self.operation.ensure_channel_and_category()
 
             Log.PrintLog('Récupération Roles')

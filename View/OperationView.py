@@ -682,11 +682,11 @@ class Operation():
                 Log.PrintError(e)
                 await interaction.followup.send(f"erreur lors de la validation: {e}")
             
-            if os.path.exists({folder_path}/{name_file_png}):
-                os.remove({folder_path}/{name_file_png})
+            if os.path.exists(f"{folder_path}/{name_file_png}"):
+                os.remove(f"{folder_path}/{name_file_png}")
 
-            if os.path.exists({folder_path}/{name_file_svg}):
-                os.remove({folder_path}/{name_file_svg})
+            if os.path.exists(f"{folder_path}/{name_file_svg}"):
+                os.remove(f"{folder_path}/{name_file_svg}")
 
         def calculate_text_position(self, text_element, svg_width, char_width=5):
             text_width = len(text_element.text) * char_width

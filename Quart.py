@@ -3,13 +3,17 @@ import asyncio
 import Utils.Log as Log
 import BotManager
 from ORM import Event, User
+from quart.logging import default_handler
+from logging import getLogger
 
 class AppQuart:
     def __init__(self, bot : BotManager.BotManager):
         """Initialisation de l'application Quart et définition des routes."""
         self.app = Quart(__name__)
+        getLogger(self.app.name).removeHandler(default_handler)        
         self.bot: BotManager.BotManager = bot
         self.shutdown_token = "2165194652162198460321985"
+        
         self.setup_routes()
 
     def setup_routes(self):
@@ -80,8 +84,9 @@ class AppQuart:
     async def start(self):
         """Démarrer le serveur Quart."""
         Log.PrintLog("Démarrage du serveur Quart")
-        await self.app.run_task(host='0.0.0.0', port=5000)
-
+        await self.app.run_task(host='localhost', port=5000)
+        Log.PrintLog(f"Serveur Quart Opérationnel : http://{self.app.config.get("HOST")}:{self.app.config.get("PORT")}")
+        
     async def shutdown(self):
         """Arrêter le serveur Quart."""
         Log.PrintLog("Arrêt du serveur Quart")

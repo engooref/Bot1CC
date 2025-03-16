@@ -91,7 +91,7 @@ class EventManager:
             event.discord_id = message.id
             await self.update_event(event)
             
-            if(event.briefing_template_name != ''):
+            if event.briefing_template_name:
                 
                 event.briefing_file_name = self.create_briefing(event)
                 channelBriefing = self.bot.get_channel(int(self.bot.get_parameter("CHANNEL_BRIEFING")))
@@ -106,7 +106,7 @@ class EventManager:
 
                 os.remove(file_briefing_name)
 
-                if(event.briefing_Discord_Id != None):                        
+                if event.briefing_Discord_Id:                        
                     for thread in channelBriefing.threads:
                         try:
                             message = await thread.fetch_message(event.briefing_Discord_Id)
@@ -441,20 +441,38 @@ class EventManager:
                 text_value = self.format_value(getattr(event, data_id))
                 # Si c'est un commentaire, récupérer les contraintes du SVG
                 if data_id == "commentaire":
-                    max_width = float(text_element.attrib.get("data-end", "600"))  # Largeur max en pixels
-                    max_height = float(text_element.attrib.get("data-yend", "200"))  # Hauteur max en pixels
+                    max_width = float(text_element.attrib.get("data-end", "600")) - float(text_element.attrib.get("x"))  # Largeur max en pixels
+                    max_height = float(text_element.attrib.get("data-yend", "200")) - float(text_element.attrib.get("y"))  # Hauteur max en pixels
                     font_size = float(text_element.attrib.get("font-size", "20"))  # Taille de police
                     line_height = font_size * 1.2  # Facteur pour espacer les lignes
 
                     # Créer une image temporaire pour mesurer le texte
                     with Image(width=1000, height=100, background=Color("white")) as img:
                         with Drawing() as draw:
-                            draw.font = text_element.attrib.get("font-family", "Arial")  # Récupérer la police
-                            draw.font_size = font_size
-
                             # Ajuster le texte en fonction des contraintes
-                            text_value = self.adjust_text_to_width(draw, img, text_value, max_width, max_height, font_size, line_height)
+                            text_value = self.adjust_text_to_width(draw, img, text_value, max_width, max_height, line_height)
 
+                 # Si text_value est une liste, créer des <tspan> pour chaque ligne
+                if isinstance(text_value, list):
+                    # Effacer le contenu textuel actuel
+                    text_element.text = None
+                    # On récupère la position y initiale
+                    y_parent = float(text_element.attrib.get("y", "0"))
+                    for i, ligne in enumerate(text_value):
+                        # Créer un nouvel élément <tspan>
+                        tspan = etree.Element("{http://www.w3.org/2000/svg}tspan")
+                        tspan.text = ligne
+                        # On définit l'attribut x identique à celui du parent
+                        tspan.attrib["x"] = text_element.attrib.get("x", "0")
+                        # Pour la première ligne, conserver le même y; pour les suivantes, incrémenter avec line_height
+                        if i == 0:
+                            tspan.attrib["y"] = text_element.attrib.get("y", "0")
+                        else:
+                            tspan.attrib["y"] = str(y_parent + i * line_height)
+                        text_element.append(tspan)
+                else:
+                    # Si text_value est une chaîne unique, l'assigner directement
+                    text_element.text = text_value
 
         # Enregistrer l'image finale
         os.makedirs(f'Data\\{self.bot.get_parameter('DIRECTORY_EVENT_TEMPLATE')}', exist_ok=True)
@@ -466,9 +484,7 @@ class EventManager:
 
     def format_value(self, value):
         """Formater dynamiquement les valeurs selon leur type."""
-        if isinstance(value, datetime):
-            return value.strftime("%d/%m/%Y %H:%M")
-        elif isinstance(value, time):
+        if isinstance(value, time) or isinstance(value, datetime):
             return value.strftime("%H:%M")
         elif isinstance(value, bool):
             return "Oui" if value else "Non"
@@ -480,30 +496,34 @@ class EventManager:
             return ""
         return str(value)
 
-    def adjust_text_to_width(self, draw, img, text, max_width, max_height, font_size, line_height):
-        """Découpe dynamiquement le texte en respectant la largeur et la hauteur max."""
-        words = text.split()
-        current_line = ""
+    def adjust_text_to_width(self, draw, img, text, max_width, max_height, line_height):
+        """Découpe dynamiquement le texte en respectant la largeur et la hauteur max,
+        en tenant compte des retours à la ligne explicites (caractères \n)."""
         lines = []
-        y_offset = 0  # Suivi de la hauteur utilisée
+        y_offset = 0
 
-        for word in words:
-            test_line = f"{current_line} {word}".strip()
-            metrics = draw.get_font_metrics(img, test_line)
-
-            if metrics.text_width > max_width:
-                # Vérifier si on dépasse la hauteur maximale
-                if (y_offset + line_height) > max_height:
-                    break  # Arrêt si on dépasse la hauteur max
-
+        # On découpe le texte en paragraphes à l'aide des retours à la ligne
+        paragraphs = text.splitlines()
+        for para in paragraphs:
+            # On traite chaque paragraphe séparément
+            words = para.split()
+            current_line = ""
+            for word in words:
+                test_line = f"{current_line} {word}".strip()
+                metrics = draw.get_font_metrics(img, test_line)
+                if metrics.text_width > max_width:
+                    # Si on dépasse la largeur, on ajoute la ligne courante (si elle existe)
+                    if current_line and (y_offset + line_height) <= max_height:
+                        lines.append(current_line)
+                        y_offset += line_height
+                    # On démarre une nouvelle ligne avec le mot actuel
+                    current_line = word
+                else:
+                    current_line = test_line
+            # Ajouter la dernière ligne du paragraphe si elle existe et respecte la hauteur max
+            if current_line and (y_offset + line_height) <= max_height:
                 lines.append(current_line)
                 y_offset += line_height
-                current_line = word
-            else:
-                current_line = test_line
 
-        # Ajouter la dernière ligne si elle existe et ne dépasse pas la hauteur max
-        if current_line and (y_offset + line_height) <= max_height:
-            lines.append(current_line)
+        return lines
 
-        return "\n".join(lines)

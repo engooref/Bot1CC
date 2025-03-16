@@ -6,9 +6,9 @@ import multiprocessing
 import os, json
 from typing import Literal
 from gtts import gTTS
-import logging, traceback
+import traceback
 from Utils.SharedPriorityQueue import SharedPriorityQueue
-
+from Utils import Log
 
 def blocking_get(q):
     return q.get()
@@ -26,37 +26,32 @@ async def handle_commands(queue, voice_client, process_id, channel_id, client, s
         # Récupère un élément prioritaire dans la queue
         priority_item = await async_get(queue, loop)
         priority, (command, data) = priority_item
-        logging.info(f"{process_id} : [📩] Commande reçue (priorité {priority}) : {command}")
+        Log.PrintLog(f"{process_id} : [📩] Commande reçue (priorité {priority}) : {command}")
 
         if command == "play":
             if data:
-                if isinstance(data, tuple) and len(data) >= 2:
-                    data, url = data[:2]
-                else:
-                    url = None
-
                 # Si data est fourni, on démarre la lecture d'un nouveau fichier audio
-                logging.info(f"{process_id} : Lecture du fichier ({data})")
+                Log.PrintLog(f"{process_id} : Lecture du fichier ({data})")
                 current_source = url if url else data  # Met à jour l'élément en cours
                 source = discord.FFmpegPCMAudio(data)
                 voice_client.play(source)
             else:
                 # Si data est None, on considère que c'est une demande de reprise
                 if voice_client.is_paused():
-                    logging.info(f"{process_id} : Reprise de la lecture")
+                    Log.PrintLog(f"{process_id} : Reprise de la lecture")
                     voice_client.resume()
                 else:
-                    logging.info(f"{process_id} : Rien à reprendre")
+                    Log.PrintLog(f"{process_id} : Rien à reprendre")
         
         elif command == "stop":
             # La commande stop (priorité élevée) met en pause la lecture
-            logging.info(f"{process_id} : Pause de la lecture")
+            Log.PrintLog(f"{process_id} : Pause de la lecture")
             if voice_client.is_playing():
                 voice_client.pause()
                 
         
         elif command == "disconnect":
-            logging.info(f"{process_id} : Déconnexion du canal ({channel_id})")
+            Log.PrintLog(f"{process_id} : Déconnexion du canal ({channel_id})")
             await voice_client.disconnect()
             # Ici, on peut décider de fermer le client si besoin, par exemple :
             await client.close()
@@ -65,16 +60,13 @@ async def handle_commands(queue, voice_client, process_id, channel_id, client, s
         elif command == "status":
             # Optionnel : envoyer le status actuel (par exemple, current_source et état de voice_client)
             status = f"Actuellement en lecture : {current_source}" if current_source and voice_client.is_playing() else "Aucune lecture en cours."
-            logging.info(f"{process_id} : Status -> {status}")
+            Log.PrintLog(f"{process_id} : Status -> {status}")
             shared_dict['status'] = status
             # Ici, on pourrait éventuellement stocker ce status pour le renvoyer via une autre commande
 
 def voice_worker(guild_id, channel_id, token, queue, shared_dict):
     """Processus gérant une connexion vocale indépendante."""
     
-    logging.basicConfig(
-        level=logging.INFO,
-    )
     intents = discord.Intents.none()
     intents.voice_states = True
     intents.guilds = True
@@ -82,26 +74,26 @@ def voice_worker(guild_id, channel_id, token, queue, shared_dict):
 
     @client.event
     async def on_ready():
-        logging.info(f"[✅] Processus vocal actif")
+        Log.PrintLog(f"[✅] Processus vocal actif")
 
         try:
             process_id = multiprocessing.current_process().pid
-            logging.info(f"{process_id} : [✅] Processus vocal actif pour {guild_id} sur {channel_id}")
+            Log.PrintLog(f"{process_id} : [✅] Processus vocal actif pour {guild_id} sur {channel_id}")
 
             guild = client.get_guild(guild_id)
             channel = guild.get_channel(channel_id)
 
             if not channel:
-                logging.info(f"{process_id} : [❌] Canal introuvable ({channel_id}) !")
+                Log.PrintLog(f"{process_id} : [❌] Canal introuvable ({channel_id}) !")
                 return
 
             voice_client = await channel.connect()
-            logging.info(f"{process_id} : [🔊] Connecté à {channel.name}")
+            Log.PrintLog(f"{process_id} : [🔊] Connecté à {channel.name}")
 
             # Lancer l'écoute des commandes en tâche parallèle
             asyncio.create_task(handle_commands(queue, voice_client, process_id, channel_id, client, shared_dict))
         except Exception as e:
-            logging.error(f"Erreur -> {e}")
+            Log.PrintError(f"Erreur -> {e}")
 
     client.run(token)
 
@@ -128,16 +120,13 @@ class VoiceManager(app_commands.Group):
     @app_commands.describe(
         action="Action à exécuter : add, remove, list, play, stop, clear, connect_all, disconnect_all",
         text="Texte à convertir en audio (si action=add)",
-        youtube_url="URL de la vidéo YouTube (si action=add)",
-        filename_str="Chemin d'un fichier audio existant (si action=add)",
         index="Index de l'élément à supprimer (si action=remove)"
     )
     async def send_voice(self, interaction: discord.Interaction, 
                          action: Literal["add", "remove", "list", "play", "stop", "clear", "connect_all", "disconnect_all"], 
                          text: str = None, 
-                         youtube_url: str = None, 
-                         filename_str: str = None, 
-                         index: int = None):
+                         index: int = None,
+                         attachment: discord.Attachment = None):
         """Commande pour gérer les actions vocales du bot."""
         try:
             guild = interaction.guild
@@ -185,7 +174,7 @@ class VoiceManager(app_commands.Group):
 
                     await interaction.followup.send("✅ Déconnecté de tous les salons vocaux.", ephemeral=True)
                 except Exception as e:
-                    logging.error(traceback.format_exc())
+                    Log.PrintError(traceback.format_exc())
                     await interaction.followup.send(f"❌ Erreur lors de la déconnexion : {e}", ephemeral=True)
                 return
             
@@ -196,21 +185,31 @@ class VoiceManager(app_commands.Group):
 
            # Pour les autres actions, on diffuse la commande à tous les bots esclaves connectés
             if action == "add":
-                if text:
+                # Priorité : si un fichier est attaché, on le prend en charge en priorité.
+                if attachment is not None:
+                    # On télécharge le fichier temporairement
+                    file_extension = attachment.filename.split('.')[-1]
+                    temp_filename = f"temp_{attachment.filename}"
+                    
+                    if file_extension == 'txt':
+                        temp_filename = f"temp_{attachment.filename.split('.')[0]}.mp3"
+                        content_bytes = await attachment.read()
+                        content = content_bytes.decode('utf-8')
+                        tts = gTTS(text=content, lang="fr")
+                        tts.save(temp_filename)
+                    else:
+                        await attachment.save(fp=temp_filename)
+
+                    for chan_id, (process, queue, token) in self.bot.voice_processes.items():
+                        queue.put((2, ("play", temp_filename)))
+                elif text:
                     filename = f"tts_{len(self.bot.voice_processes)}.mp3"
                     tts = gTTS(text=text, lang="fr")
                     tts.save(filename)
                     for chan_id, (process, queue, token) in self.bot.voice_processes.items():
                         queue.put((2, ("play", filename)))
-                elif youtube_url:
-                    audio_url = await self.get_youtube_audio_url(youtube_url)
-                    for chan_id, (process, queue, token) in self.bot.voice_processes.items():
-                        queue.put((2, ("play", (audio_url, youtube_url))))
-                elif filename_str and os.path.exists(filename_str):
-                    for chan_id, (process, queue, token) in self.bot.voice_processes.items():
-                        queue.put((2, ("play", filename_str)))
                 else:
-                    await interaction.followup.send("❌ Spécifiez un texte, un fichier ou une URL YouTube.", ephemeral=True)
+                    await interaction.followup.send("❌ Spécifiez un texte ou un fichier ", ephemeral=True)
                     return
                 await interaction.followup.send("✅ Commande 'add' diffusée à tous les bots.", ephemeral=True)
 
@@ -251,13 +250,6 @@ class VoiceManager(app_commands.Group):
 
         except Exception as e:
             await interaction.followup.send(f"❌ Erreur : {e}", ephemeral=True)
-
-    async def get_youtube_audio_url(self, youtube_url):
-        """Retourne l'URL du flux audio YouTube."""
-        ydl_opts = {'format': 'bestaudio/best', 'quiet': True}
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(youtube_url, download=False)
-            return info["url"]
 
 # Fonction obligatoire pour charger le Cog
 async def setup(bot):

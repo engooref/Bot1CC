@@ -1,5 +1,5 @@
 from datetime import datetime
-import os, zipfile, threading, traceback
+import os, zipfile, threading, traceback, logging
 
 # Chemin absolu du fichier en cours d'exécution
 current_file = os.path.abspath(__file__)
@@ -44,6 +44,8 @@ def archive_old_logs():
 # Création d'un thread pour exécuter la fonction archive_old_logs
 archiving_thread = threading.Thread(target=archive_old_logs)
 
+logging.basicConfig(level=logging.INFO)
+
 # Fonction pour obtenir le nom du fichier de log basé sur la date
 def get_log_filename():
     date_str = datetime.now().strftime('%Y-%m-%d')
@@ -56,16 +58,24 @@ def Start():
     with open(get_log_filename(), 'a') as f:
         f.write(f"\n---------------------------------------------------\n\n")
 
-def PrintLog(strLog):
-    # Démarrer le thread
+def Archivage():
     global is_thread_archivage_running
     if not is_thread_archivage_running:
         archiving_thread.start()
 
-    print(strLog)
+def PrintLog(strLog):
+    # Démarrer le thread
+    Archivage()
+
+    logging.info(strLog)
     with open(get_log_filename(), 'a', encoding="utf-8") as f:
         f.write(f"{datetime.now()} - {strLog} \n")
 
 def PrintError(strLog):
-    PrintLog(strLog)
-    PrintLog(traceback.format_exc ())
+    Archivage()
+    strtrace = traceback.format_exc()
+    logging.error(strLog)
+    logging.error(strtrace)
+    with open(get_log_filename(), 'a', encoding="utf-8") as f:
+        f.write(f"{datetime.now()} - {strLog} \n")
+        f.write(f"{datetime.now()} - {strtrace} \n")
