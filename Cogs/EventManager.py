@@ -89,7 +89,7 @@ class EventManager:
                 message = await channel.send(embed=embedEvent, view=view)
 
             event.discord_id = message.id
-            await self.update_event(event)
+            
             
             if event.briefing_template_name:
                 
@@ -135,6 +135,7 @@ class EventManager:
                     )
 
                     event.briefing_Discord_Id = topic.message.id
+            await self.update_event(event)
         except Exception as e:
             Log.PrintError(f"set_event - {e}")
 
