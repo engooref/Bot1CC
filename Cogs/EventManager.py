@@ -64,7 +64,7 @@ class EventManager:
             embedEvent.add_field(name="Tentative (0)", value="Aucun\n", inline=True)
 
             
-            view = InviteView.InviteView(event.id, event.role_dispo)
+            view = InviteView.InviteView(event.id, event.role_dispo != '[]')
             if event.discord_id:
                 try:
                     message = await channel.fetch_message(event.discord_id)
