@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, ForeignKey
+from sqlalchemy import Column, Integer, String, ForeignKey, JSON
 from sqlalchemy.orm import relationship
 from ORM import Base, Association, ResponseRoles, ResponseTeam
 
@@ -13,6 +13,7 @@ class Response(Base):
     commentaire = Column(String(255), nullable=True)
     vaisseau = Column(String(255), nullable=True)
     role_vaisseau = Column(String(255), nullable=True)
+    role_demand = Column(String(255), nullable=False, default={})
 
     team = relationship("ResponseTeam")
     roles = relationship("ResponseRoles", secondary=Association.response_roles_association_table)

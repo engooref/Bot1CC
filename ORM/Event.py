@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, ForeignKey, Boolean, String, DateTime, Time, Text, BigInteger
+from sqlalchemy import Column, Integer, ForeignKey, Boolean, String, DateTime, Time, Text, BigInteger, JSON
 from sqlalchemy.orm import relationship
 from ORM import Base, EventType
 from ORM.Association import user_events
@@ -31,7 +31,7 @@ class Event(Base):
     description = Column(Text, nullable=True, default="")
     appel_msg_discord = Column(Boolean, nullable=False, default=False)
     briefing_template_name = Column(String(255), nullable=True)
-
+    role_dispo = Column(String(255), nullable=False)
 
     type = relationship('EventType')
     responses = relationship('Response', cascade="all, delete-orphan")

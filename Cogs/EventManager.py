@@ -63,11 +63,12 @@ class EventManager:
             embedEvent.add_field(name="Declined (0)", value="Aucun\n", inline=True)
             embedEvent.add_field(name="Tentative (0)", value="Aucun\n", inline=True)
 
-            view = InviteView.InviteView(event.id)
+            
+            view = InviteView.InviteView(event.id, event.role_dispo)
             if event.discord_id:
                 try:
                     message = await channel.fetch_message(event.discord_id)
-                    await message.edit(embed=embedEvent)
+                    await message.edit(embed=embedEvent, view=view)
                 except discord.NotFound as e:
                     # Boucle sur tous les jours de la semaine
                     for day in calendar.day_name:  # Renvoie les jours sous forme de noms ('Monday', 'Tuesday', ...)
