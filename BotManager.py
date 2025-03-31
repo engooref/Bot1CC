@@ -3,12 +3,12 @@ from Cogs.EventManager import EventManager
 from Cogs.DatabaseManager import DatabaseManager
 from Cogs.SchedulerManager import SchedulerManager
 from Cogs.UserManager import UserManager
-from ORM import User, Event, ConditionField, Response, Role, Parameter, TicketBots
+from ORM import User, Event, ConditionField, Response, Role, Parameter, RHMember
 from Utils import Log
 import locale, discord, os
 from View.OperationView import Operation, category_name
 from View.TicketView import Ticket
-import logging
+import datetime
 
 class BotManager(commands.Bot):
     def __init__(self, intents, guildId):
@@ -147,37 +147,74 @@ class BotManager(commands.Bot):
 
 
 
-    async def on_member_update(self, before, after):
+    async def on_member_update(self, before: discord.Member, after: discord.Member):
         try:
             # Récupération Utilisateur
             user: User.User = await self.database_manager.get_user_by_discordid(after.id)
-            if user is None:
-                return
 
             # Check des rôles
             new_roles = set(after.roles) - set(before.roles)
             removed_roles = set(before.roles) - set(after.roles)
 
+            if (user is None) :
+                if (self.role_member not in new_roles):
+                    return
+                else:
+                    user: User.User = await self.database_manager.insert_and_get_user(after)
+
             if new_roles or removed_roles:
 
+                if self.role_member in removed_roles:
+                    await self.user_manager.delete_user(user)
+                    return
+                
                 await self.database_manager.insert_and_get_new_roles(list(new_roles))
 
+                change_grade = False
+                
                 for new_role in new_roles:
-                    role = await self.database_manager.select_entity(
+                    role: Role.Role = await self.database_manager.select_entity(
                         Role.Role, ConditionField('discord_id', '==', new_role.id), one_result=True
                     )
                     if role and (role not in user.rolesDiscord):
+                        change_grade = change_grade or role.is_grade 
                         user.rolesDiscord.append(role)
 
+                    
                 for removed_role in removed_roles:
-                    role = await self.database_manager.select_entity(
+                    role: Role.Role = await self.database_manager.select_entity(
                         Role.Role, ConditionField('discord_id', '==', removed_role.id), one_result=True
                     )
                     if role and (role in user.rolesDiscord):
+                        change_grade = change_grade or role.is_grade 
                         user.rolesDiscord.remove(role)
+
 
                 await self.add_traces(f'Modification des rôles de {user.username}', user)
                 await self.database_manager.insert_entity(user)
+                if self.role_member in new_roles or change_grade:
+                    try:
+                        userRoles: list[Role.Role] = user.rolesDiscord 
+                        memberRH = await self.database_manager.select_entity(RHMember.RHMember, ConditionField('user_id', '==', user.id), True)
+                        
+                        if not memberRH:
+                            
+                            memberRH = RHMember.RHMember(user)
+
+                        for role in userRoles: 
+                            if role.is_grade and (role.discord_id != self.role_member.id):
+                                memberRH.grade = role
+                                break
+                        else:
+                            memberRH.grade = next(role for role in userRoles if self.role_member.id == role.discord_id)
+
+                        if not change_grade:
+                            memberRH.date_entree = datetime.datetime.now()
+
+                        await self.database_manager.insert_entity(memberRH)
+                    except Exception as e:
+                        Log.PrintError(f"Erreur lors de la récuperatin/création du profil RH de l'utilisateur : {user.username} -> {e}")
+                        raise
 
             # Check des surnoms
             if before.display_name != after.display_name:

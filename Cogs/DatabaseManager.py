@@ -141,3 +141,6 @@ class DatabaseManager:
     async def delete_entity(self, entity):
         """Supprime une entité de la base."""
         await delete(entity)
+
+    async def refresh_entity(self, entity):
+        return await refresh_entity(entity)

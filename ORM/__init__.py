@@ -198,6 +198,12 @@ async def delete(objects):
                 await session.rollback()
                 Log.PrintLog(f'Error deleting data: {e}')
 
+async def refresh_entity(model):
+    async with AsyncSessionMaker() as session:
+        # Récupérer l'utilisateur depuis la base
+        entity = await session.refresh(model)
+        return entity
+    
 # Fonctions auxiliaires
 def get_relations(model):
     mapper = inspect(model)
