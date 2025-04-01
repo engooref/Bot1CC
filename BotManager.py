@@ -245,7 +245,7 @@ class BotManager(commands.Bot):
                         event = await self.database_manager.select_entity_by_id(Event.Event, event_id)
                         
                         if (
-                            event.role_dispo 
+                            event.role_dispo != '[]'
                             and (((response_type == 'role') and (response.type_rep == 'accepted')) 
                             or response_type == 'accepted') 
                             and response

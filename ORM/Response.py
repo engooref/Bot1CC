@@ -13,7 +13,7 @@ class Response(Base):
     commentaire = Column(String(255), nullable=True)
     vaisseau = Column(String(255), nullable=True)
     role_vaisseau = Column(String(255), nullable=True)
-    role_demand = Column(String(255), nullable=False, default={})
+    role_demand = Column(String(255), nullable=False, default="[]")
 
     team = relationship("ResponseTeam")
     roles = relationship("ResponseRoles", secondary=Association.response_roles_association_table)
