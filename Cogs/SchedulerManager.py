@@ -59,6 +59,8 @@ class SchedulerManager:
 
                 for event in events:
                     await self.bot.event_manager.set_event(event)
+                    await self.bot.database_manager.insert_entity(event)
+
             except Exception as e:
                 Log.PrintError(f"send_event_week - {e}")
 

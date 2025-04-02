@@ -265,16 +265,41 @@ class BotManager(commands.Bot):
                             ConditionField("event_id", "==", event_id)
                         ]
 
-                        response = await self.database_manager.select_entity(Response.Response, conditionList, True)
-                        if response:
-                            response.type_rep = response_type  # Met à jour la réponse
-                        else:
-                            response = Response.Response(user.id, event_id, response_type)
+                        response: Response.Response = await self.database_manager.select_entity(Response.Response, conditionList, True)
+                        
+                        if response_type != 'role':
+                            
+                            if response:
+                                response.type_rep = response_type  # Met à jour la réponse
+                            else:
+                                response = Response.Response(user.id, event_id, response_type)
 
-                        await self.database_manager.insert_entity(response)
+                            await self.database_manager.insert_entity(response)
 
                         # Mise à jour de l'affichage de l'événement
                         event = await self.database_manager.select_entity_by_id(Event.Event, event_id)
+                        
+                        if (
+                            event.role_dispo != '[]'
+                            and (((response_type == 'role') and (response.type_rep == 'accepted')) 
+                            or response_type == 'accepted') 
+                            and response
+                        ) :
+                            message_content = (
+                                "Afin de mieux répartir les équipes, merci de sélectionner le ou les rôles"
+                                f"que vous souhaitez obtenir lors de l'événement {event.name}.\n"
+                                "**Attention** : ces rôles ne seront pas définitifs."
+                            )
+
+                            all_roles = [{"value" : "Pas de préférence", "select" : "Pas de préférence" in ast.literal_eval(response.role_demand)}]
+                            for role in ast.literal_eval(event.role_dispo):
+                                role_js = dict()
+                                role_js["value"] = role
+                                role_js["select"] = role in ast.literal_eval(response.role_demand)
+                                all_roles.append(role_js)
+
+                            await interaction.followup.send(content=message_content, view=EventView(all_roles, response.id, self), ephemeral=True)
+                        
                         await self.event_manager.update_event(event)
 
                     if custom_id.startswith('closeTicket'):
@@ -357,4 +382,4 @@ class BotManager(commands.Bot):
 
     async def update_param(self):
         self.parameter = await self.database_manager.select_all(Parameter.Parameter)
-        self.scheduler_manager.scheduler_weekly.reset_scheduler()
+        self.scheduler_manager.scheduler_appEvent.reset_scheduler()
