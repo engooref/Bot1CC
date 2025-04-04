@@ -11,7 +11,7 @@ class RHMember(Base):
     user_id = Column(Integer, ForeignKey('user.id'), nullable=True, unique=True)
     status = Column(String(255), default='Actif', nullable=False)
     last_promotion = Column(DateTime, default=datetime.now, nullable=True)
-    grade_id = Column(Integer, ForeignKey('role.id'), nullable=False)
+    grade_id = Column(Integer, ForeignKey('role.id'), nullable=True)
     date_entree = Column(DateTime, nullable=False, default=datetime(1970, 1, 1, 0, 0, 0))
     date_demand = Column(DateTime, nullable=False, default=datetime(1970, 1, 1, 0, 0, 0))
 

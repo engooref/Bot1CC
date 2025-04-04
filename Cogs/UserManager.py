@@ -37,8 +37,11 @@ class UserManager:
                 memberRH.grade = role
                 break
         else:
-            memberRH.grade = next(role for role in user.rolesDiscord if self.bot.role_member.id == role.discord_id)
-
+            try:
+                memberRH.grade = next(role for role in user.rolesDiscord if self.bot.role_member.id == role.discord_id)
+            except:
+                memberRH.grade = None
+                
         if is_new:
             memberRH.date_entree = datetime.datetime.now()
 
