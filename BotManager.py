@@ -3,7 +3,7 @@ from Cogs.EventManager import EventManager
 from Cogs.DatabaseManager import DatabaseManager
 from Cogs.SchedulerManager import SchedulerManager
 from Cogs.UserManager import UserManager
-from ORM import User, Event, ConditionField, Response, Role, Parameter
+from ORM import User, Event, ConditionField, Response, Role, Parameter, Channel
 from Utils import Log
 import locale, discord, os
 from View.OperationView import Operation, category_name
@@ -147,7 +147,32 @@ class BotManager(commands.Bot):
         except Exception as e:
             Log.PrintError(f"on_guild_role_update - {e}")
 
+    async def on_guild_channel_create(self, channel: discord.guild.abc.GuildChannel):
+        try:
+            await self.database_manager.insert_and_get_new_channels([channel,])
+        except Exception as e:
+            Log.PrintError(f"on_guild_channel_create - {e}")
 
+    async def on_guild_channel_delete(self, channel: discord.guild.abc.GuildChannel):
+        try:
+            channel_bdd = await self.database_manager.select_entity(Channel.Channel, ConditionField('discord_id', '==', channel.id))
+            if channel_bdd:
+                await self.database_manager.insert_entity(channel_bdd)
+        except Exception as e:
+            Log.PrintError(f"on_guild_channel_delete - {e}")
+
+    async def on_guild_channel_update(self, before: discord.guild.abc.GuildChannel, after: discord.guild.abc.GuildChannel):
+        try:
+           if before.name == after.name:
+               return
+           
+           channel_bdd = await self.database_manager.select_entity(Channel.Channel, ConditionField('discord_id', '==', after.id))
+           if channel_bdd:
+               channel_bdd.name = after.name
+               await self.database_manager.insert_entity(channel_bdd)
+
+        except Exception as e:
+            Log.PrintError(f"on_guild_channel_update - {e}")
 
     async def on_member_update(self, before, after):
         try:
