@@ -18,10 +18,10 @@ class CommandManager(commands.Cog):
     @app_commands.command(name="purge_all", description="Purge la BDD")
     async def purge_all(self, interaction: discord.Interaction):
         """Commande slash réservée à l'owner."""
-        Log.PrintLog(f"📌 Commande /purge_all exécutée par {interaction.user}")
+        Log.PrintLog(f"📌 Commande /purge_all exécutée par {interaction.user.name}")
         await interaction.response.defer()  # Réponse différée si l'opération prend du temps
         if interaction.user.id != int(os.getenv('ENGOO_ID')):
-            await interaction.response.send_message("❌ Tu n'as pas la permission d'utiliser cette commande.", ephemeral=True)
+            await interaction.followup.send("❌ Tu n'as pas la permission d'utiliser cette commande.", ephemeral=True)
             return
 
         error_str = ''

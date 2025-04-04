@@ -10,7 +10,7 @@ from View.OperationView import Operation, category_name
 from View.TicketView import Ticket
 from View.EventView import EventView
 from View.EngaView import send_message_channels_enga
-import ast
+import ast, datetime
 
 class BotManager(commands.Bot):
     def __init__(self, intents, guildId):
@@ -237,11 +237,38 @@ class BotManager(commands.Bot):
                 user.username = after.display_name
                 await self.database_manager.insert_entity(user)
 
-                events = await self.database_manager.select_entity(
-                    Event.Event, ConditionField('users_id', '==', user.id), order_by_desc=False
+                # Date d'aujourd'hui
+                today = datetime.date.today()
+
+                # Premier jour du mois en cours
+                start_of_month = today.replace(day=1)
+
+                # Pour obtenir le dernier jour du mois, on calcule le premier jour du mois suivant puis on soustrait un jour.
+                if today.month == 12:
+                    # Si c'est décembre, le mois suivant est janvier de l'année suivante
+                    first_day_next_month = today.replace(year=today.year + 1, month=1, day=1)
+                else:
+                    first_day_next_month = today.replace(month=today.month + 1, day=1)
+
+                end_of_month = first_day_next_month - datetime.timedelta(days=1)
+
+                
+                events: list[Event.Event] = await self.database_manager.select_entity(
+                    Event.Event, ConditionField('start', 'between', (start_of_month, end_of_month))
                 )
+
                 for event in events:
-                    await self.event_manager.update_event(event)
+                    responses = await self.database_manager.select_entity(
+                        Response.Response,
+                        [
+                            ConditionField('users_id', '==', user.id),
+                            ConditionField('event_id', '==', event.id)            
+                        ],
+                        one_result=True
+                    )
+
+                    if responses:
+                        await self.event_manager.update_event(event)
 
         except Exception as e:
             Log.PrintError(f"on_member_update - {e}")

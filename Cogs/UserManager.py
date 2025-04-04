@@ -23,7 +23,7 @@ class UserManager:
     async def init_member_rh(self, user_discord_id: int, is_new : bool = False):
         user : User.User = await self.bot.database_manager.select_entity(User.User, ConditionField('discord_id', '==', user_discord_id), True)
         
-        if user:
+        if not user:
             return None
         
                          
@@ -33,7 +33,7 @@ class UserManager:
             memberRH = RHMember.RHMember(user)
 
         for role in user.rolesDiscord: 
-            if role.is_grade and (role.discord_id != self.role_member.id):
+            if role.is_grade and (role.discord_id != self.bot.role_member.id):
                 memberRH.grade = role
                 break
         else:

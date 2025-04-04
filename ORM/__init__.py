@@ -42,9 +42,9 @@ async def insert_or_update_data(instance):
     async with AsyncSessionMaker() as session:
         async with session.begin():
             try:
-                session.add(instance)
+                # Fusionne (merge) l'instance dans la session.
+                instance = await session.merge(instance)
                 await session.commit()
-
                 return instance
             except Exception as e:
                 await session.rollback()
