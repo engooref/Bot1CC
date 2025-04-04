@@ -54,7 +54,7 @@ class EngaView(discord.ui.View):
             await channel_rh.send(embed=embed)
         except Exception as e:
             Log.PrintError(f'Erreur lors de la confirmation de la candidature: {e}')
-            await interaction.followup.send(f'Erreur lors de la confirmation de la candidature: {e}') 
+            await interaction.followup.send(f'Erreur lors de la confirmation de la candidature: {e}', ephemeral=True) 
 
 
     def __init__(self, bot):
