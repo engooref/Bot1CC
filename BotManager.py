@@ -3,7 +3,7 @@ from Cogs.EventManager import EventManager
 from Cogs.DatabaseManager import DatabaseManager
 from Cogs.SchedulerManager import SchedulerManager
 from Cogs.UserManager import UserManager
-from ORM import User, Event, ConditionField, Response, Role, Parameter, RHMember
+from ORM import User, Event, ConditionField, Response, Role, Parameter, Channel, RHMember
 from Utils import Log
 import locale, discord, os
 from View.OperationView import Operation, category_name
@@ -146,8 +146,37 @@ class BotManager(commands.Bot):
             Log.PrintError(f"on_guild_role_update - {e}")
 
 
+    async def on_guild_channel_create(self, channel: discord.guild.abc.GuildChannel):
+        try:
+            await self.database_manager.insert_and_get_new_channels([channel,])
+        except Exception as e:
+            Log.PrintError(f"on_guild_channel_create - {e}")
 
-    async def on_member_update(self, before: discord.Member, after: discord.Member):
+    async def on_guild_channel_delete(self, channel: discord.guild.abc.GuildChannel):
+        try:
+            channel_bdd = await self.database_manager.select_entity(Channel.Channel, ConditionField('discord_id', '==', channel.id), True)
+            if channel_bdd:
+                await self.database_manager.insert_entity(channel_bdd)
+                Log.PrintLog(f'Suppression du canal: {channel.name}')
+        except Exception as e:
+            Log.PrintError(f"on_guild_channel_delete - {e}")
+
+    async def on_guild_channel_update(self, before: discord.guild.abc.GuildChannel, after: discord.guild.abc.GuildChannel):
+        try:
+           if before.name == after.name:
+               return
+           
+           channel_bdd = await self.database_manager.select_entity(Channel.Channel, ConditionField('discord_id', '==', after.id), True)
+           if channel_bdd:
+                channel_bdd.name = after.name
+                await self.database_manager.insert_entity(channel_bdd)
+                Log.PrintLog(f'Modification du canal: {before.name} -> {after.name}')
+
+
+        except Exception as e:
+            Log.PrintError(f"on_guild_channel_update - {e}")
+
+    async def on_member_update(self, before, after):
         try:
             # Récupération Utilisateur
             user: User.User = await self.database_manager.get_user_by_discordid(after.id)
@@ -230,7 +259,6 @@ class BotManager(commands.Bot):
         except Exception as e:
             Log.PrintError(f"on_member_update - {e}")
 
-     
     async def on_interaction(self, interaction: discord.Interaction):
         # Vérifier si l'interaction est dans une guilde spécifique
         if interaction.guild and interaction.guild.id == self.guildId:

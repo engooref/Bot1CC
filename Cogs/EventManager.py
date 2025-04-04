@@ -313,12 +313,15 @@ class EventManager:
 #------------------------------
     def get_channel(self, event: Event.Event):
         channel_id = None
-        if event.type.name.upper() == 'ENTRAINEMENT COMPÉTITION':
-            nameParam = 'CHANNEL_TRAINING'
-            try:
-                channel_id = int(self.bot.get_parameter(nameParam))
-            except:
-                pass
+        try:
+            if event.type.name.upper() == 'ENTRAINEMENT COMPÉTITION':
+                nameParam = 'CHANNEL_TRAINING'
+            elif event.type.name.upper() == 'GROS EVENT':
+                nameParam = 'CHANNEL_GROS_EVENT'
+                
+            channel_id = int(self.bot.get_parameter(nameParam))
+        except:
+            pass
 
         if channel_id is None:
             nameParam = 'CHANNEL_' + event.start.strftime('%A').upper()
