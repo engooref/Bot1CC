@@ -155,9 +155,10 @@ class BotManager(commands.Bot):
 
     async def on_guild_channel_delete(self, channel: discord.guild.abc.GuildChannel):
         try:
-            channel_bdd = await self.database_manager.select_entity(Channel.Channel, ConditionField('discord_id', '==', channel.id))
+            channel_bdd = await self.database_manager.select_entity(Channel.Channel, ConditionField('discord_id', '==', channel.id), True)
             if channel_bdd:
                 await self.database_manager.insert_entity(channel_bdd)
+                Log.PrintLog(f'Suppression du canal: {channel.name}')
         except Exception as e:
             Log.PrintError(f"on_guild_channel_delete - {e}")
 
@@ -166,10 +167,12 @@ class BotManager(commands.Bot):
            if before.name == after.name:
                return
            
-           channel_bdd = await self.database_manager.select_entity(Channel.Channel, ConditionField('discord_id', '==', after.id))
+           channel_bdd = await self.database_manager.select_entity(Channel.Channel, ConditionField('discord_id', '==', after.id), True)
            if channel_bdd:
-               channel_bdd.name = after.name
-               await self.database_manager.insert_entity(channel_bdd)
+                channel_bdd.name = after.name
+                await self.database_manager.insert_entity(channel_bdd)
+                Log.PrintLog(f'Modification du canal: {before.name} -> {after.name}')
+
 
         except Exception as e:
             Log.PrintError(f"on_guild_channel_update - {e}")
