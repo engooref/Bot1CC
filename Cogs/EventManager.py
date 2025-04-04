@@ -323,7 +323,7 @@ class EventManager:
         except:
             pass
 
-        if channel_id is None:
+        if not channel_id:
             nameParam = 'CHANNEL_' + event.start.strftime('%A').upper()
             channel_id = int(self.bot.get_parameter(nameParam))
 

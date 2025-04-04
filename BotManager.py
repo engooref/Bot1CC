@@ -8,7 +8,9 @@ from Utils import Log
 import locale, discord, os
 from View.OperationView import Operation, category_name
 from View.TicketView import Ticket
-import datetime
+from View.EventView import EventView
+from View.EngaView import send_message_channels_enga
+import ast
 
 class BotManager(commands.Bot):
     def __init__(self, intents, guildId):
@@ -77,6 +79,8 @@ class BotManager(commands.Bot):
             self.loop.create_task(self.scheduler_manager.scheduler_appEvent.run_scheduler())
             self.loop.create_task(self.scheduler_manager.scheduler_event.check_events())
             self.loop.create_task(self.scheduler_manager.scheduler_lockThread.run_scheduler())
+
+            await send_message_channels_enga(self)
 
             Log.PrintLog(f"Bot {self.user.display_name} est prêt.")
 
@@ -223,24 +227,7 @@ class BotManager(commands.Bot):
                 await self.database_manager.insert_entity(user)
                 if self.role_member in new_roles or change_grade:
                     try:
-                        userRoles: list[Role.Role] = user.rolesDiscord 
-                        memberRH = await self.database_manager.select_entity(RHMember.RHMember, ConditionField('user_id', '==', user.id), True)
-                        
-                        if not memberRH:
-                            
-                            memberRH = RHMember.RHMember(user)
-
-                        for role in userRoles: 
-                            if role.is_grade and (role.discord_id != self.role_member.id):
-                                memberRH.grade = role
-                                break
-                        else:
-                            memberRH.grade = next(role for role in userRoles if self.role_member.id == role.discord_id)
-
-                        if not change_grade:
-                            memberRH.date_entree = datetime.datetime.now()
-
-                        await self.database_manager.insert_entity(memberRH)
+                        await self.user_manager.init_member_rh(user.discord_id, not change_grade)
                     except Exception as e:
                         Log.PrintError(f"Erreur lors de la récuperatin/création du profil RH de l'utilisateur : {user.username} -> {e}")
                         raise
@@ -315,7 +302,7 @@ class BotManager(commands.Bot):
                         ) :
                             message_content = (
                                 "Afin de mieux répartir les équipes, merci de sélectionner le ou les rôles"
-                                f"que vous souhaitez obtenir lors de l'événement {event.name}.\n"
+                                f" que vous souhaitez obtenir lors de l'événement {event.name}.\n"
                                 "**Attention** : ces rôles ne seront pas définitifs."
                             )
 

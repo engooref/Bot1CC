@@ -13,6 +13,7 @@ class RHMember(Base):
     last_promotion = Column(DateTime, default=datetime.now, nullable=True)
     grade_id = Column(Integer, ForeignKey('role.id'), nullable=False)
     date_entree = Column(DateTime, nullable=False, default=datetime(1970, 1, 1, 0, 0, 0))
+    date_demand = Column(DateTime, nullable=False, default=datetime(1970, 1, 1, 0, 0, 0))
 
     # Relations
     user_id = mapped_column(ForeignKey("user.id"))
