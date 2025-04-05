@@ -10,9 +10,10 @@ class UserManager:
         try:
 
             Log.PrintLog(f"Suppression des informations de l'utilisateur : {user.username}")        
-            await self.bot.database_manager.delete_entity(user.rh_profile)
             user.reset()
             await self.bot.database_manager.insert_entity(user)
+            await self.bot.database_manager.delete_entity(user.rh_profile)
+            
             Log.PrintLog(f"Suppression Effectuée")
             
         except Exception as e:
@@ -21,7 +22,8 @@ class UserManager:
 
 
     async def init_member_rh(self, user_discord_id: int, is_new : bool = False):
-        user : User.User = await self.bot.database_manager.select_entity(User.User, ConditionField('discord_id', '==', user_discord_id), True)
+        user = self.bot.guild.get_member(user_discord_id)
+        user : User.User = await self.bot.database_manager.insert_and_get_user(user)
         
         if not user:
             return None

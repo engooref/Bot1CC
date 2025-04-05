@@ -15,14 +15,15 @@ class DatabaseManager:
             if author is None:
                 raise ValueError("Utilisateur non renseigné")
 
-            user = await select_by_field(User.User, ConditionField('discord_id', '==', author.id), True)
+            user: User.User = await select_by_field(User.User, ConditionField('discord_id', '==', author.id), True)
 
+            
+            all_roles_discord = author.roles
+            all_roles : List[Role.Role] = await self.insert_and_get_new_roles(all_roles_discord, True)
+
+            user_roles = [role for role in all_roles if role.discord_id in {r.id for r in all_roles_discord}]
+            
             if user is None:
-                all_roles_discord = author.roles
-                all_roles : List[Role.Role] = await self.insert_and_get_new_roles(all_roles_discord, True)
-
-                user_roles = [role for role in all_roles if role.discord_id in {r.id for r in all_roles_discord}]
-                
                 # Ensuite, on crée le User en associant le RHMember
                 user = User.User(
                     email=None,
@@ -34,12 +35,19 @@ class DatabaseManager:
                     expPour=0,
                     expLvl=0
                 )
-
-                user = await insert_or_update_data(user)
-
                 await self.bot.add_traces(f"Ajout de l'utilisateur: {author.display_name}")
+            else:
+                user.username = author.display_name
+                user.discord_id = author.id
+                user.avatar=author.avatar.key if author.avatar else None
+                user.access_token=' '
+                user.rolesDiscord=user_roles
+                user.exp_level=0,
+                user.exp_pourcentage=0
+                await self.bot.add_traces(f"Modification de l'utilisateur: {author.display_name}")
+            user = await insert_or_update_data(user)
 
-            return user
+            return await select_by_id(User.User, user.id)
         except Exception as e:
             Log.PrintError(f"insert_and_get_user - {e}")
             raise

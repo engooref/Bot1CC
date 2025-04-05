@@ -56,6 +56,7 @@ class User(Base):
         self.exp_pourcentage = 0
         self.exp_level = 0
         self.rolesDiscord.clear()
+
         self.username = re.sub(r'\[[^\]]*\]', '', self.username)
 
 
