@@ -72,13 +72,11 @@ class BotManager(commands.Bot):
             await self.database_manager.insert_and_get_new_channels(self.guild.channels)
             Log.PrintLog('Fin Récupération Channels')
 
-            self.parameter = await self.database_manager.select_all(Parameter.Parameter)
+            self.parameter = {str(parameter): parameter for parameter in await self.database_manager.select_all(Parameter.Parameter)}
 
-            
             # Démarrage des tâches asyncio pour le scheduler
             self.loop.create_task(self.scheduler_manager.scheduler_appEvent.run_scheduler())
             self.loop.create_task(self.scheduler_manager.scheduler_event.check_events())
-            self.loop.create_task(self.scheduler_manager.scheduler_lockThread.run_scheduler())
 
             await send_message_channels_enga(self)
 
@@ -423,5 +421,5 @@ class BotManager(commands.Bot):
             raise Exception(f"Le paramètre {nameParam} n'existe pas !")
 
     async def update_param(self):
-        self.parameter = await self.database_manager.select_all(Parameter.Parameter)
+        self.parameter = {str(parameter): parameter for parameter in await self.database_manager.select_all(Parameter.Parameter)}
         self.scheduler_manager.scheduler_appEvent.reset_scheduler()
