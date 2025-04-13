@@ -13,7 +13,10 @@ class UserManager:
             user.reset()
             await self.bot.database_manager.insert_entity(user)
             await self.bot.database_manager.delete_entity(user.rh_profile)
-            
+
+            if not (len(user.traces) or len(user.responses) or len(user.rolesDiscord)):
+                await self.bot.database_manager.delete_entity(user)
+
             Log.PrintLog(f"Suppression Effectuée")
             
         except Exception as e:
@@ -22,16 +25,16 @@ class UserManager:
 
 
     async def init_member_rh(self, user_discord_id: int, is_new : bool = False):
+        
         user = self.bot.guild.get_member(user_discord_id)
+        
         user : User.User = await self.bot.database_manager.insert_and_get_user(user)
         
         if not user:
             return None
-        
                          
         memberRH = await self.bot.database_manager.select_entity(RHMember.RHMember, ConditionField('user_id', '==', user.id), True)
         if not memberRH:
-            
             memberRH = RHMember.RHMember(user)
 
         for role in user.rolesDiscord: 
@@ -48,4 +51,4 @@ class UserManager:
             memberRH.date_entree = datetime.datetime.now()
 
         await self.bot.database_manager.insert_entity(memberRH)
-        return memberRH.id
+        return await self.bot.database_manager.select_entity(RHMember.RHMember, ConditionField('user_id', '==', user.id), True)

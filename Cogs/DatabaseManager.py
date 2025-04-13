@@ -42,7 +42,7 @@ class DatabaseManager:
             
             await insert_or_update_data(user)
 
-            return await select_by_id(User.User, user.id)
+            return await self.select_entity(User.User, ConditionField('discord_id', '==', author.id), True)
         except Exception as e:
             Log.PrintError(f"insert_and_get_user - {e}")
             raise

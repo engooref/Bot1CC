@@ -14,14 +14,13 @@ class EngaView(discord.ui.View):
             if self.bot.role_member.id in discord_roles:
                 return
             
-            memberId = await self.bot.user_manager.init_member_rh(interaction.user.id)
-            
-            member_rh : RHMember.RHMember = await self.bot.database_manager.select_entity_by_id(RHMember.RHMember, memberId)
-
+            member_rh = await self.bot.user_manager.init_member_rh(interaction.user.id)
+        
             if (member_rh.date_demand != datetime.datetime(1970, 1, 1, 0, 0, 0)):
                 return 
             
             member_rh.date_demand = datetime.datetime.now()
+            member_rh.status = 'Candidatures'
 
             await self.bot.database_manager.insert_entity(member_rh)
             await interaction.followup.send(content=f"Bravo, tu viens de franchir la première étape de ta candidature !\n On va jeter un coup d'œil à ton dossier et on te tient au courant.\n Reste sur le qui-vive 😉.", ephemeral=True)        
@@ -53,6 +52,7 @@ class EngaView(discord.ui.View):
             # Envoi de l'embed en réponse à l'interaction
             await channel_rh.send(embed=embed)
         except Exception as e:
+            Log.PrintLog(interaction.user.id)
             Log.PrintError(f'Erreur lors de la confirmation de la candidature: {e}')
             await interaction.followup.send(f'Erreur lors de la confirmation de la candidature: {e}', ephemeral=True) 
 
@@ -73,7 +73,7 @@ async def send_message_channels_enga(bot):
         "Rien de plus simple :\n\n"
         "1) Déposez votre candidature sur notre page RSI (onglet Join us now): https://robertsspaceindustries.com/orgs/1CC\n"
         '  ⚠️ La lecture du règlement dans l\'onglet "Charter" sur RSI est très fortement conseillée ... \n\n'
-        '2) Cliquez ensuite sur le bouton pour confirmer votre candidature.\n\n'
+        '2) Cliquez ensuite sur le bouton ci-dessous pour confirmer votre candidature.\n\n'
         '3) Un officier prendra très rapidement contact avec vous pour finaliser la démarche.\n\n'
         'Au plaisir de vous accueillir très bientôt dans le Corps !'
     )

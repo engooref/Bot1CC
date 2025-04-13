@@ -176,10 +176,10 @@ async def select_by_id(model, id, other_exclu=list()):
             if instance is None:
                 return None
             
-            # Si tu as besoin d’eager loading pour certaines relations, tu peux le faire dans une seconde étape
             for relation in get_relations(model):
                 if (relation.key not in model.relations_a_exclure) and (relation.key not in other_exclu):
-                    query = query.options(joinedload(relation))
+                    # Utilise run_sync pour forcer le chargement de la relation
+                    await session.run_sync(lambda s: s.refresh(instance, attribute_names=[relation.key]))
 
             return instance
         except Exception as e:

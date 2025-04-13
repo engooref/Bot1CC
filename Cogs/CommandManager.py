@@ -272,10 +272,10 @@ class CommandManager(commands.Cog):
 
         if error_str:
             Log.PrintError(e)
-            await interaction.response.send_message(f'Erreur dans la purge : \n{error_str}', ephemeral=True)
+            await interaction.followup.send(f'Erreur dans la purge : \n{error_str}', ephemeral=True)
         else:
             Log.PrintLog('Purge terminée')
-            await interaction.response.send_message('Purge de la BDD terminée', ephemeral=True)
+            await interaction.followup.send('Purge de la BDD terminée', ephemeral=True)
 
     async def supp_role(self, role: Role.Role, role_def: Role.Role) :
         if not role:
