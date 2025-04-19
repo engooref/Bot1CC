@@ -20,7 +20,6 @@ class SchedulerManager:
     def __init__(self, bot):
         self.scheduler_appEvent: SchedulerManager.SchedulerAppEvent = SchedulerManager.SchedulerAppEvent(bot)
         self.scheduler_event: SchedulerManager.SchedulerEvent = SchedulerManager.SchedulerEvent(bot)
-        self.scheduler_lockThread : SchedulerManager.SchedulerLockThreads = SchedulerManager.SchedulerLockThreads(bot)
 
     class SchedulerAppEvent:
         def __init__(self, bot):
@@ -163,43 +162,3 @@ class SchedulerManager:
                 asyncio.create_task(self.send_event_reminder(event))
             else:
                 asyncio.create_task(self.schedule_event_reminder(event))
-
-    class SchedulerLockThreads:
-        def __init__(self, bot):
-            self.bot = bot
-            # Par exemple, CATEGORY_ID et HOURS_EVENT sont définis dans vos variables d'environnement.
-            Log.PrintLog(f"Création de schedule pour verrouiller les threads dans la catégorie: {category_name}")
-            self.start_scheduler()
-
-        def start_scheduler(self):
-            # Programme l'exécution quotidienne à l'heure indiquée.
-            schedule.every().day.at("12:00").do(self.schedule_lock)
-
-        def schedule_lock(self):
-            # Comme schedule attend une fonction synchrone, on crée ici une tâche asynchrone.
-            asyncio.create_task(self.lock_old_threads())
-
-        async def run_scheduler(self):
-            # Boucle d'exécution continue pour le scheduler.
-            while True:
-                schedule.run_pending()
-                await asyncio.sleep(1)
-
-        async def lock_old_threads(self):
-            try:
-                Log.PrintLog("Démarrage du contrôle des threads à verrouiller")
-               
-                category: discord.CategoryChannel = discord.utils.get(self.bot.guild.categories, name=category_name) 
-                # Itère sur tous les channels de la catégorie
-                for channel in category.channels:
-                    # Récupère les threads du channel
-                    for thread in channel.threads:
-                        # Vérifie si le thread a plus d'un jour d'ancienneté (en utilisant l'heure UTC)
-                        if (datetime.now() - thread.created_at) > timedelta(days=1):
-                            # On verrouille le thread en l'archivant et en le rendant inaccessible
-                            await thread.edit(archived=True, locked=True)
-                            Log.PrintLog(f"Thread '{thread.name}' verrouillé")
-            except Exception as e:
-                Log.PrintError(f"lock_old_threads - {e}")
-        
-        

@@ -1,3 +1,4 @@
+from asyncio import Condition
 from discord.ext import commands
 from Cogs.EventManager import EventManager
 from Cogs.DatabaseManager import DatabaseManager
@@ -72,13 +73,11 @@ class BotManager(commands.Bot):
             await self.database_manager.insert_and_get_new_channels(self.guild.channels)
             Log.PrintLog('Fin Récupération Channels')
 
-            self.parameter = await self.database_manager.select_all(Parameter.Parameter)
+            self.parameter = {str(parameter): parameter for parameter in await self.database_manager.select_all(Parameter.Parameter)}
 
-            
             # Démarrage des tâches asyncio pour le scheduler
             self.loop.create_task(self.scheduler_manager.scheduler_appEvent.run_scheduler())
             self.loop.create_task(self.scheduler_manager.scheduler_event.check_events())
-            self.loop.create_task(self.scheduler_manager.scheduler_lockThread.run_scheduler())
 
             await send_message_channels_enga(self)
 
@@ -273,6 +272,19 @@ class BotManager(commands.Bot):
         except Exception as e:
             Log.PrintError(f"on_member_update - {e}")
 
+    async def on_member_remove(self, member: discord.Member):
+        try:
+            user: User.User = await self.database_manager.select_entity(User.User, ConditionField('discord_id', '==', member.id), True)
+            if not user:
+                return
+            
+            await self.user_manager.delete_user(user)
+        except Exception as e:
+            Log.PrintError(f"on_member_remove - {e}")
+
+    async def on_raw_member_remove(self, payload: discord.RawMemberRemoveEvent):
+        await self.on_member_remove(payload.user)
+
     async def on_interaction(self, interaction: discord.Interaction):
         # Vérifier si l'interaction est dans une guilde spécifique
         if interaction.guild and interaction.guild.id == self.guildId:
@@ -349,6 +361,7 @@ class BotManager(commands.Bot):
                         await interaction.response.send_modal(Ticket.CloseTicketModal(close_button_id, interaction.channel, self))
 
             except Exception as e:
+                Log.PrintLog(response.role_demand)
                 Log.PrintError(f"on_interaction - {e}")
 
     async def on_raw_reaction_add(self, payload):
@@ -423,5 +436,5 @@ class BotManager(commands.Bot):
             raise Exception(f"Le paramètre {nameParam} n'existe pas !")
 
     async def update_param(self):
-        self.parameter = await self.database_manager.select_all(Parameter.Parameter)
+        self.parameter = {str(parameter): parameter for parameter in await self.database_manager.select_all(Parameter.Parameter)}
         self.scheduler_manager.scheduler_appEvent.reset_scheduler()

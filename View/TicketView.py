@@ -77,7 +77,7 @@ class Ticket():
             self.options = []
 
         async def initialize(self):
-            self.options = await self.bot.database_manager.select_all(TicketType.TicketType, True)
+            self.options = await self.bot.database_manager.select_all(TicketType.TicketType)
             
             select = Select(
                 placeholder="Selectionnez le service",
@@ -200,7 +200,7 @@ class Ticket():
                     self.bot.role_member: discord.PermissionOverwrite(view_channel=False) # Bloque la lecture et l'écriture pour tout le monde
                 }
         
-                ticketType = await self.bot.database_manager.select_all(TicketType.TicketType, True)
+                ticketType = await self.bot.database_manager.select_all(TicketType.TicketType)
                 for type in ticketType:
                     role_type = self.bot.guild.get_role(type.role_auth)
                     if role_type:

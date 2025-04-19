@@ -1,3 +1,4 @@
+from asyncio import Condition
 from ORM import *
 from ORM import User, Role, Channel, Traces, RHMember
 from Utils import Log
@@ -17,12 +18,8 @@ class DatabaseManager:
 
             user: User.User = await select_by_field(User.User, ConditionField('discord_id', '==', author.id), True)
 
-            
-            all_roles_discord = author.roles
-            all_roles : List[Role.Role] = await self.insert_and_get_new_roles(all_roles_discord, True)
+            user_roles : List[Role.Role] = await self.insert_and_get_new_roles(author.roles)
 
-            user_roles = [role for role in all_roles if role.discord_id in {r.id for r in all_roles_discord}]
-            
             if user is None:
                 # Ensuite, on crée le User en associant le RHMember
                 user = User.User(
@@ -40,14 +37,12 @@ class DatabaseManager:
                 user.username = author.display_name
                 user.discord_id = author.id
                 user.avatar=author.avatar.key if author.avatar else None
-                user.access_token=' '
                 user.rolesDiscord=user_roles
-                user.exp_level=0,
-                user.exp_pourcentage=0
                 await self.bot.add_traces(f"Modification de l'utilisateur: {author.display_name}")
-            user = await insert_or_update_data(user)
+            
+            await insert_or_update_data(user)
 
-            return await select_by_id(User.User, user.id)
+            return await self.select_entity(User.User, ConditionField('discord_id', '==', author.id), True)
         except Exception as e:
             Log.PrintError(f"insert_and_get_user - {e}")
             raise
@@ -56,28 +51,31 @@ class DatabaseManager:
         """Retourne un utilisateur à partir de son discord_id."""
         return await select_by_field(User.User, ConditionField('discord_id', '==', discord_id), True)
 
-    async def insert_and_get_new_roles(self, roles: List[discord.Role], in_list=False):
+    async def insert_and_get_new_roles(self, roles: List[discord.Role]):
         """Insère de nouveaux rôles en base et retourne tous les rôles."""
         try:
-            if len(roles) == 0:
-                return {}
+            if not len(roles):
+                return list()
 
-            roles_bdd = await select_all(Role.Role)
-            new_roles_bdd = []
+            roles_bdd: list[Role.Role] = await select_all(Role.Role)
 
-            for role in roles:
+            # On crée un ensemble contenant tous les discord_id existants dans roles_bdd
+            discord_ids_existants = {obj.discord_id for obj in roles_bdd}
+
+            new_roles_bdd = list() 
+
+            for role in (role for role in roles if role.id not in discord_ids_existants):
                 if role.name in ["@everyone", self.bot.user.name]:
                     continue
-
-                role_bdd = next((key for key, obj in roles_bdd.items() if obj.discord_id == role.id), None)
-                if role_bdd is None:
-                    new_roles_bdd.append(Role.Role(role.name, role.id, role.hoist))
-                    await self.bot.add_traces(f'Ajout du role: {role.name}')
+                
+                new_roles_bdd.append(Role.Role(role.name, role.id, role.hoist))
+                await self.bot.add_traces(f'Ajout du role: {role.name}')
 
             if new_roles_bdd:
                 await insert_multi_ligne(new_roles_bdd)
 
-            return await select_all(Role.Role, in_list)
+            return await self.select_entity(Role.Role, ConditionField('discord_id', 'in', [role.id for role in roles]))
+        
         except Exception as e:
             Log.PrintError(f"insert_and_get_new_roles - {e}")
             raise
@@ -86,9 +84,12 @@ class DatabaseManager:
         """Insère de nouveaux canaux en base et retourne tous les canaux."""
         try:
             if len(channels) == 0:
-                return {}
+                return dict()
 
-            channels_bdd = await select_all(Channel.Channel)
+            channels_bdd: list[Channel.Channel] = await select_all(Channel.Channel)
+            # On crée un ensemble contenant tous les discord_id existants dans roles_bdd
+            discord_ids_existants = {obj.discord_id for obj in channels_bdd}
+
             new_channels_bdd = []
 
             channels_excludes = list()
@@ -101,19 +102,17 @@ class DatabaseManager:
                     pass
 
             
-            for channel in channels:
+            for channel in (channel for channel in channels if channel.id not in discord_ids_existants):
                 if isinstance(channel, (discord.VoiceChannel, discord.CategoryChannel)) or (channel.id in channels_excludes):
                     continue
 
-                channel_bdd = next((key for key, obj in channels_bdd.items() if obj.discord_id == channel.id), None)
-                if channel_bdd is None:
-                    new_channels_bdd.append(Channel.Channel(channel.name, channel.id))
-                    await self.bot.add_traces(f'Ajout du channel: {channel.name}')
+                new_channels_bdd.append(Channel.Channel(channel.name, channel.id))
+                await self.bot.add_traces(f'Ajout du channel: {channel.name}')
 
             if new_channels_bdd:
                 await insert_multi_ligne(new_channels_bdd)
 
-            return await select_all(Channel.Channel)
+            return await self.select_entity(Channel.Channel, ConditionField('discord_id', 'in', [channel.id for channel in channels]))
         except Exception as e:
             Log.PrintError(f"insert_and_get_new_channels - {e}")
             raise
@@ -136,9 +135,9 @@ class DatabaseManager:
         """Sélectionne une entité par son ID."""
         return await select_by_id(model, entity_id, other_exclu)
 
-    async def select_all(self, model, in_list=False):
+    async def select_all(self, model):
         """Sélectionne toutes les entités d'un modèle."""
-        return await select_all(model, in_list)
+        return await select_all(model)
 
     async def add_traces(self, message: str, user: User.User, parameter=None):
         """Ajoute une trace en base."""

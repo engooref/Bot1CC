@@ -61,18 +61,18 @@ async def insert_multi_ligne(instances):
                 await session.rollback()
                 Log.PrintLog(f'Error inserting data: {e}')
 
-async def select_all(model, in_list=False):
+async def select_all(model):
     async with AsyncSessionMaker() as session:
         try:
             query = select(model)
             for relation in get_relations(model):
                 query = query.options(selectinload(relation))
             result = await session.execute(query)
-            entities = result.scalars().all()
-            return {str(entity): entity for entity in entities} if not in_list else entities
+            return result.scalars().all()
+            
         except Exception as e:
             Log.PrintLog(f'Error selecting data: {e}')
-            return dict() if not in_list else list()
+            return list()
 
 async def select_by_field(model, field: ConditionField, one_result=False, order_by_desc=False):
     async with AsyncSessionMaker() as session:
@@ -172,13 +172,16 @@ async def select_by_fields(model, fields: List[ConditionField], one_result=False
 async def select_by_id(model, id, other_exclu=list()):
     async with AsyncSessionMaker() as session:
         try:
-            query = select(model).filter(model.id == id)
+            instance = await session.get(model, id)
+            if instance is None:
+                return None
+            
             for relation in get_relations(model):
                 if (relation.key not in model.relations_a_exclure) and (relation.key not in other_exclu):
-                    query = query.options(joinedload(relation))
+                    # Utilise run_sync pour forcer le chargement de la relation
+                    await session.run_sync(lambda s: s.refresh(instance, attribute_names=[relation.key]))
 
-            result = await session.execute(query)
-            return result.scalars().first()
+            return instance
         except Exception as e:
             Log.PrintLog(f'Error selecting data: {e}')
             return None

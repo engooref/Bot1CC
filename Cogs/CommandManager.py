@@ -27,7 +27,7 @@ class CommandManager(commands.Cog):
         error_str = ''
         #Tri des Users
         try:
-            all_users: list[User.User] = await self.bot.database_manager.select_all(User.User, True)
+            all_users: list[User.User] = await self.bot.database_manager.select_all(User.User)
 
             # Regrouper les utilisateurs par discord_id
             users_by_discord = defaultdict(list)
@@ -93,7 +93,7 @@ class CommandManager(commands.Cog):
                     Log.PrintLog(f"Ajout des rôles discord")
                     roles = [role for role in self.bot.guild.roles if (role.id in role_to_add) and (role.name not in ["@everyone", self.bot.user.name])]
                     if roles:
-                        await self.bot.database_manager.insert_and_get_new_roles(roles, True)
+                        await self.bot.database_manager.insert_and_get_new_roles(roles)
                         roles_bdd = await self.bot.database_manager.select_entity(Role.Role, ConditionField('discord_id', 'in', [role.id for role in roles]))
                         canonical_user.rolesDiscord.extend(roles_bdd)
 
@@ -115,7 +115,7 @@ class CommandManager(commands.Cog):
         #Tri des Roles
         try:
             # Récupérer tous les rôles stockés en base
-            stored_roles: list[Role.Role] = await self.bot.database_manager.select_all(Role.Role, True)
+            stored_roles: list[Role.Role] = await self.bot.database_manager.select_all(Role.Role)
 
 
             # Regrouper les utilisateurs par discord_id
@@ -189,7 +189,7 @@ class CommandManager(commands.Cog):
         try:
             
             # Récupérer tous les channels stockés en base
-            stored_channels: list[Channel.Channel] = await self.bot.database_manager.select_all(Channel.Channel, True)
+            stored_channels: list[Channel.Channel] = await self.bot.database_manager.select_all(Channel.Channel)
 
             # Regrouper les channels par discord_id
             channels_by_discord = defaultdict(list)
@@ -239,7 +239,7 @@ class CommandManager(commands.Cog):
 
         #Purge des types event
         try:
-            all_type_events: list[EventType.EventType] = await self.bot.database_manager.select_all(EventType.EventType, True)
+            all_type_events: list[EventType.EventType] = await self.bot.database_manager.select_all(EventType.EventType)
             type_events_by_name = defaultdict(list)
             for te in all_type_events:
                 type_events_by_name[te.name].append(te)
@@ -272,10 +272,10 @@ class CommandManager(commands.Cog):
 
         if error_str:
             Log.PrintError(e)
-            await interaction.response.send_message(f'Erreur dans la purge : \n{error_str}', ephemeral=True)
+            await interaction.followup.send(f'Erreur dans la purge : \n{error_str}', ephemeral=True)
         else:
             Log.PrintLog('Purge terminée')
-            await interaction.response.send_message('Purge de la BDD terminée', ephemeral=True)
+            await interaction.followup.send('Purge de la BDD terminée', ephemeral=True)
 
     async def supp_role(self, role: Role.Role, role_def: Role.Role) :
         if not role:
