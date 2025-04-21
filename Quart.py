@@ -44,6 +44,10 @@ class AppQuart:
                 if 'token' in data:
                     token = data['token']
 
+                idCand: int = -1
+                if 'idCand' in data:
+                    idCand = int(data['idCand'])
+
                 result = None
                 
                 if path == 'setEvent':
@@ -55,7 +59,9 @@ class AppQuart:
                 elif path == 'searchUserAttribution':
                     result = self.bot.event_manager.search_user_attribution(search)   
                 elif path == 'setAttributionEvent':
-                    await self.bot.event_manager.attribution_event(event)    
+                    await self.bot.event_manager.attribution_event(event)
+                elif path == 'acceptCandidatures':
+                    result = await self.bot.user_manager.accept_candidature(idCand)    
                 elif path == 'shutdown':
                     if token == self.shutdown_token:
                         Log.PrintLog("Arrêt du serveur Quart demandé")

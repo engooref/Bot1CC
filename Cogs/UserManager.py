@@ -1,6 +1,7 @@
 import BotManager, datetime
 from ORM import User, RHMember, ConditionField
 from Utils import Log
+import discord
 
 class UserManager:
     def __init__(self, bot):
@@ -52,3 +53,31 @@ class UserManager:
 
         await self.bot.database_manager.insert_entity(memberRH)
         return await self.bot.database_manager.select_entity(RHMember.RHMember, ConditionField('user_id', '==', user.id), True)
+    
+    async def  accept_candidature(self, idCand: int):
+        try:
+            if idCand == -1:
+                raise Exception('Id Candidat non renseigné')
+            
+            member : RHMember.RHMember = await self.bot.database_manager.select_entity_by_id(RHMember.RHMember, idCand)
+
+            if not member:
+                raise Exception('Membre RH non trouvé')
+            
+            user: discord.Member = self.bot.guild.get_member(int(member.user.discord_id))
+
+            if not user:
+                raise Exception('GuildMember non trouvé')
+            
+            role_recrue = self.bot.guild.get_role(int(self.bot.get_parameter('ROLE_RECRUE')[0]))
+            
+            if not role_recrue:
+                raise Exception('Role Recrue non trouvé')
+            
+            await user.add_roles(*[role_recrue, self.bot.role_member], reason="Acceptation Candidatures")
+
+
+            return {'success': True}
+        except Exception as e:
+            Log.PrintError(e)
+            return {'success': False, 'error': e}
