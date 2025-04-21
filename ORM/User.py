@@ -15,7 +15,6 @@ class User(Base):
     username = Column(String(255), nullable=False)
     discord_id = Column(BigInteger, nullable=False)
     avatar = Column(String(255), nullable=False)
-    access_token = Column(String(255), nullable=True)
     exp_pourcentage = Column(Integer, default=0)
     exp_level = Column(Integer, default=0)
 
@@ -35,12 +34,11 @@ class User(Base):
     rh_profile = relationship('RHMember', back_populates='user',cascade="all, delete-orphan", single_parent=True, uselist=False)
 
     relations_a_exclure = {'events', 'events_orig'}
-    def __init__(self, username, discordId, avatar, accessToken, roles: list, expPour, expLvl, traces=[]):
+    def __init__(self, username, discordId, avatar, roles: list, expPour, expLvl, traces=[]):
         self.roles = []
         self.username = username
         self.discord_id = discordId
         self.avatar =  avatar
-        self.access_token = accessToken
         self.rolesDiscord = roles  
         self.traces = traces      
         self.exp_pourcentage = expPour
@@ -49,7 +47,6 @@ class User(Base):
     def reset(self):
         self.roles = []
         self.avatar =  ''
-        self.access_token = None      
         self.exp_pourcentage = 0
         self.exp_level = 0
         self.rolesDiscord.clear()
