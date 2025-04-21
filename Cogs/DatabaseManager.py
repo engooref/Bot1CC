@@ -23,7 +23,6 @@ class DatabaseManager:
             if user is None:
                 # Ensuite, on crée le User en associant le RHMember
                 user = User.User(
-                    email=None,
                     username=author.display_name,
                     discordId=author.id,
                     avatar=author.avatar.key if author.avatar else None,

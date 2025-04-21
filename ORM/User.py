@@ -7,11 +7,10 @@ import re
 class User(Base):
     __tablename__ = 'user'
     __table_args__ = (
-        UniqueConstraint('email', name='UNIQ_IDENTIFIER_EMAIL'),
+        UniqueConstraint('discord_id', name='UNIQ_IDENTIFIER_ID'),
     )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    email = Column(String(180), nullable=True)
     roles = Column(JSON)  # Store roles as a JSON string
     username = Column(String(255), nullable=False)
     discord_id = Column(BigInteger, nullable=False)
@@ -36,8 +35,7 @@ class User(Base):
     rh_profile = relationship('RHMember', back_populates='user',cascade="all, delete-orphan", single_parent=True, uselist=False)
 
     relations_a_exclure = {'events', 'events_orig'}
-    def __init__(self, email, username, discordId, avatar, accessToken, roles: list, expPour, expLvl, traces=[]):
-        self.email = email
+    def __init__(self, username, discordId, avatar, accessToken, roles: list, expPour, expLvl, traces=[]):
         self.roles = []
         self.username = username
         self.discord_id = discordId
@@ -49,7 +47,6 @@ class User(Base):
         self.exp_level = expLvl
 
     def reset(self):
-        self.email = None
         self.roles = []
         self.avatar =  ''
         self.access_token = None      
