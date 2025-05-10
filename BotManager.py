@@ -345,7 +345,7 @@ class BotManager(commands.Bot):
                                 "**Attention** : ces rôles ne seront pas définitifs."
                             )
 
-                            all_roles = [{"value" : "Pas de préférence", "select" : "Pas de préférence" in ast.literal_eval(response.role_demand)}]
+                            all_roles = [{"value" : "Pas de préférence", "select" : "Pas de préférence" if (response.role_demand) and ("Pas de préférence" in ast.literal_eval(response.role_demand)) else ""}]
                             for role in ast.literal_eval(event.role_dispo):
                                 role_js = dict()
                                 role_js["value"] = role

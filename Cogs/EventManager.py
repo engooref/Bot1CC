@@ -301,7 +301,7 @@ class EventManager:
         if matching_members:
             for member in matching_members:
                 memberDict = {
-                    'avatar' : member.avatar.url,
+                    'avatar' : member.avatar.url if member.avatar else '',
                     'name' : member.display_name,
                     'id' : member.id
                 }

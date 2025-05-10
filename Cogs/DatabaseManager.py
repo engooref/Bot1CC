@@ -26,11 +26,12 @@ class DatabaseManager:
                     username=author.display_name,
                     discordId=author.id,
                     avatar=author.avatar.key if author.avatar else None,
-                    accessToken=' ',
                     roles=user_roles,       # ou user_roles
                     expPour=0,
                     expLvl=0
                 )
+
+                
                 await self.bot.add_traces(f"Ajout de l'utilisateur: {author.display_name}")
             else:
                 user.username = author.display_name
