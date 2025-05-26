@@ -1,0 +1,604 @@
+// src/managers/EventManager.js
+import fs from 'fs';
+import { promises as fsp } from 'fs';
+
+import path from 'path';
+import { URL } from 'url';
+import sharp from 'sharp';
+import { 
+  EmbedBuilder, 
+  AttachmentBuilder, 
+  ForumChannel,
+  TextChannel,
+  ColorResolvable,
+  ChannelType,
+  Message,
+  GuildMember,
+  ButtonInteraction,
+} from 'discord.js';
+import { file as tmpFile } from 'tmp-promise';
+
+import BotManager from '../BotManager.js';
+import {Event} from '../entities/Event.js';
+import { Response } from '../entities/Response.js';
+import { randomUUID } from 'crypto';
+import { InviteView } from '../view/InviteView.js';
+import { EventView } from '../view/EventView.js';
+import { EntityManager } from '@mikro-orm/core';
+import { SafeMethod } from '../exception/Safe.js';
+import logger from '../logger.js';
+import { nanoid } from 'nanoid';
+import { SVGManager } from '../utils/SVGManager.js';
+
+
+export default class EventManager {
+  private bot: BotManager;
+  private urlSite : string;
+  public fem!: EntityManager ;
+
+  constructor(bot: BotManager) {
+    this.bot     = bot;
+    this.urlSite = process.env.URL_SITE!;
+
+  }
+
+  get em(): EntityManager {
+    if (!this.fem)
+      this.fem = this.bot.dbMgr.getEm();
+    
+    return this.fem;
+  }
+
+  /** Crée ou met à jour le message d’un événement */
+  @SafeMethod
+  async setEvent(event: Event) {
+    try {
+      const channel = this.getChannel(event);
+      // 1) URL Google Calendar
+      const startISO = event.start.toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z');
+      const calUrl = new URL('https://calendar.google.com/calendar/render');
+      calUrl.searchParams.set('action', 'TEMPLATE');
+      calUrl.searchParams.set('text', event.name);
+      calUrl.searchParams.set('dates', `${startISO}/${startISO}`);
+
+      // 2) Embed principal
+      const embed = new EmbedBuilder()
+        .setTitle(event.name)
+        .addFields(
+          { name: 'Regroupement', value: `\`\`\`${this.formatDateTime(event.start)}\`\`\``, inline: false },
+          { name: 'Lancement',    value: `\`\`\`${this.formatTime(event.lancServ)}\`\`\``, inline: false },
+          { name: 'Spawn',        value: event.spawn || '—', inline: false },
+          { name: 'Type event',   value: (event.type?.name ?? 'Aucun'), inline: false },
+          { name: 'Description',  value: event.description || '—', inline: false },
+          { name: 'Lien',         value: `[Ajouter au calendrier Google](${calUrl})`, inline: false },
+          { name: `Accepted (0)`,  value: 'Aucun', inline: true },
+          { name: `Declined (0)`,  value: 'Aucun', inline: true },
+          { name: `Tentative (0)`, value: 'Aucun', inline: true },
+        );
+
+      if (event.type?.color) {
+        embed.setColor(event.type?.color as ColorResolvable);
+      }
+      // 3) Image d’event
+      if (event.picture) {
+        const picUrl = new URL(`/files/get`, this.urlSite);
+        picUrl.searchParams.set('typeFile', '3');
+        picUrl.searchParams.set('nameFile', event.picture);
+        embed.setImage(picUrl.toString());
+      }
+
+      const view = new InviteView(this.bot, event.id, event.roleDispo != '[]');
+      let msg: Message | null = null;
+      if (event.discordId) {
+        try {
+          msg = await channel.messages.fetch(event.discordId);
+        } catch {
+          msg = null;
+        }
+      }
+
+      const sent = await view.sendOrEdit(channel, msg, { embeds: [embed] });
+      event.discordId = sent.id;
+      
+      // 5) Briefing (fichier + forum)
+      if (event.briefingTemplateName) {
+        await this._handleBriefing(event);
+      }
+
+      // 6) Sauvegarde en base
+      await this.em.persistAndFlush(event);
+      await this.updateEvent(event);
+    } catch (err) {
+      logger.error('setEvent error', err);
+    }
+  }
+
+  /** Met à jour le décompte Accepted/Declined/Tentative */
+  @SafeMethod
+  async updateEvent(event: Event) {
+    try {
+      const channel = this.getChannel(event);
+      const message = await channel.messages.fetch(event.discordId!);
+      const embed   = EmbedBuilder.from(message.embeds[0]);
+
+      const lists: { accepted: string[]; declined: string[]; tentative: string[] } = {
+        accepted: [],
+        declined: [],
+        tentative: [],
+      };
+
+      for (const resp of event.responses) {
+        if (!resp.users) continue;
+        const member = await this.bot.guild.members.fetch(resp.users.discordId).catch(() => null);
+        if (!member) continue;
+
+        if (resp.typeRep === 'accepted')   lists.accepted.push(member.displayName);
+        if (resp.typeRep === 'declined')   lists.declined.push(member.displayName);
+        if (resp.typeRep === 'tentative')  lists.tentative.push(member.displayName);
+      }
+
+      // 2) Mettre à jour les champs dans l’embed
+      embed.data.fields = embed.data.fields!.map(f => {
+        if (f.name.startsWith('Accepted'))   return { name: `Accepted (${lists.accepted.length})`,   value: lists.accepted.join('\n')||'Aucun', inline: f.inline };
+        if (f.name.startsWith('Declined'))   return { name: `Declined (${lists.declined.length})`,   value: lists.declined.join('\n')||'Aucun', inline: f.inline };
+        if (f.name.startsWith('Tentative'))  return { name: `Tentative (${lists.tentative.length})`, value: lists.tentative.join('\n')||'Aucun', inline: f.inline };
+        return f;
+      });
+
+      await message.edit({ embeds: [embed] });
+    } catch (err) {
+      logger.error('updateEvent error', err);
+    } finally {
+      if (!event.appelMsgDiscord) {
+        this.bot.schedMgr.event.updateEvent(event);
+      }
+    }
+  }
+
+  /** Supprime le message Discord de l’événement */
+  @SafeMethod
+  async suppEvent(event: Event) {
+    try {
+      const channel = this.getChannel(event);
+      if (!event.discordId) return;
+      const message = await channel.messages.fetch(event.discordId).catch(() => null);
+      if (!message) return;
+      // Supprimer les replies du bot
+      for await (const msg of channel.messages.cache.values()) {
+        if (msg.reference?.messageId === message.id && msg.author.id === (await this.bot.guild.members.fetchMe()).id) {
+          await msg.delete().catch(() => null);
+          break;
+        }
+      }
+      await message.delete();
+      
+      
+    } catch (err) {
+      logger.error('suppEvent error', err);
+    }
+  }
+
+  @SafeMethod
+  async attributionEvent(event: Event) {
+    try {
+      // 1) Récupère le forum
+      const forum = /** @type {ForumChannel} */ (
+        this.bot.guild.channels.cache.get(this.bot.getParameter('CHANNEL_BRIEFING') as string)
+      );
+      if (!forum || forum.type !== ChannelType.GuildForum) {
+        throw new Error('CHANNEL_BRIEFING n’est pas un ForumChannel valide');
+      }
+
+      const responses =  await this.em.getRepository(Response).find({
+        event: event,
+        typeRep: { $in: ['accepted', 'added']}
+      }, {
+        populate: ['users', 'team', 'roles'],
+      });
+
+      const headerRow = {
+        col1: 'Utilisateur',
+        col2: 'Équipe',
+        col3: 'Rôles',
+        col4: 'Vaisseau',
+        col5: 'Fonction à bord',
+        col6: 'Commentaire',
+        col2color: '#FFFFFF',
+        col2TextColor: '#000000'
+      };
+
+      // 2) Construis ton tableau de données
+      const payloadRows = [
+        headerRow,
+        ...responses.map(r => ({
+          col1: r.users.username,
+          col2: r.team?.name        ?? 'Aucune équipe',
+          roles:       (r.roles ?? []).map(rr => ({ name: rr.name, color: rr.color })),
+          col4: r.vaisseau         ?? '',
+          col5: r.roleVaisseau     ?? '',
+          col6: r.commentaire      ?? '',
+          col2TextColor: this.getContrastTextColor(r.team?.color ?? '#FFFFFF'),
+          col2color: r.team?.color
+
+        })),
+      ];
+
+      // 3) Prépare les données pour le SVG
+      const data = {
+        name: `Attribution - ${event.name}`,
+        rows: payloadRows
+      };
+
+      const baseDir = path.join('Data', 'Attribution')
+      const config = {
+        svgTemplatePath: path.join(baseDir, 'template.svg'),
+        xsltPath: path.join(baseDir, 'template.xslt'),
+        outputSvgPath: path.join(baseDir, 'attribution_filled.svg'),
+        outputPngPath: path.join(baseDir, this.sanitizeFileName(event.name) + '.png'),
+        baseDir: baseDir
+      };
+    
+      const svgMgr = new SVGManager(data, config);
+      await svgMgr.generateImage();
+      const attachment = new AttachmentBuilder(config.outputPngPath);
+      
+      // 5) Poste ou remplace dans un thread forum
+      if (event.attributionDiscordId) {
+        // on cherche le message existant dans tous les threads
+        for (const thread of forum.threads.cache.values()) {
+          let msg;
+          try { msg = await thread.messages.fetch(event.attributionDiscordId); }
+          catch { continue; }
+          await msg.delete().catch(() => {});
+          const newMsg = await thread.send({ files: [attachment] });
+          event.attributionDiscordId = newMsg.id;
+          break;
+        }
+      }
+
+      if (!event.attributionDiscordId) {
+        // crée un nouveau thread
+        const tagId = forum.availableTags.find(t => t.name === process.env.EVENT_TAG)?.id;
+        const thread = await forum.threads.create({
+          name:         event.name,
+          appliedTags:  tagId ? [tagId] : [],
+          message:      { files: [attachment] },
+        });
+        const starter = await thread.fetchStarterMessage();
+        event.attributionDiscordId = starter!.id;
+      }
+
+      await this.em.persistAndFlush(event);
+
+      // 6) nettoie le fichier temporaire
+      await fsp.unlink(config.outputPngPath).catch(() => {});
+      
+    } catch (err) {
+      logger.error('attributionEvent error', err);
+    }
+  }
+
+  getContrastTextColor(hexColor: string): '#ffffff' | '#000000' {
+    // 1) Nettoyage : enlever le '#' si besoin
+    const hex = hexColor.replace(/^#/, '');
+
+    // 2) Parser en RGB
+    const r = parseInt(hex.substr(0, 2), 16);
+    const g = parseInt(hex.substr(2, 2), 16);
+    const b = parseInt(hex.substr(4, 2), 16);
+
+    // 3) Calcul de la luminosité (formule ITU-R BT.709)
+    //    Y = 0.2126 R + 0.7152 G + 0.0722 B
+    const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+
+    // 4) Choix du texte : seuil à 128 (mi-luminosité)
+    return luminance < 128 ? '#ffffff' : '#000000';
+  }
+
+  @SafeMethod
+  async userResponseHandle(interaction: ButtonInteraction, data: Record<string, any>) {
+
+    // récupère ou crée l’utilisateur en BDD
+    const userEntity = await this.bot.dbMgr.insertAndGetUser((interaction.member! instanceof GuildMember) ? interaction.member! as GuildMember : interaction.member!.user)
+    if (!userEntity) return;
+
+    // met à jour l’affichage de l’événement
+    const event = await this.em.findOneOrFail(
+      Event,
+      { id: data.eventId },
+      {
+        populate: ['type', 'responses.*'],
+      }
+    );
+
+    // cherche la réponse existante
+    let response = await this.em.findOne(
+      Response,
+      { users: userEntity, event: event },
+    );
+
+    if (data.responseType !== 'role') {
+      if (response) {
+        response.typeRep = data.responseType;
+      } else {
+        response = this.em.create(Response, {
+          users: userEntity,
+          event: event,
+          typeRep: data.responseType,
+          roleDemand: []
+        });
+      }
+      await this.em.persistAndFlush(response);
+    }
+
+    const roleDispoList: string[] = JSON.parse(event.roleDispo);
+    const roleDemandList: string[] = response?.roleDemand ?? [];
+
+    await this.updateEvent(event);
+
+    if (
+      roleDispoList.length > 0 &&
+      (
+        (data.responseType === 'role' && response?.typeRep === 'accepted') ||
+        data.responseType === 'accepted'
+      ) &&
+      response
+    ) {
+      const messageContent = 
+        `Afin de mieux répartir les équipes, merci de sélectionner le ou les rôles ` +
+        `que vous souhaitez obtenir lors de l'événement ${event.name}.\n` +
+        `**Attention** : ces rôles ne seront pas définitifs.`;
+
+      const allRoles = [
+        {
+          value: 'Pas de préférence',
+          select: roleDemandList.includes('Pas de préférence'),
+        },
+        ...roleDispoList.map(role => ({
+          value: role,
+          select: roleDemandList.includes(role),
+        })),
+      ];
+
+    
+      const view = new EventView(this.bot, allRoles, response.id);
+
+
+      // envoie la suite d’interaction avec les rows de la view
+      const msg = await interaction.followUp({
+        content: messageContent,
+        ephemeral: true,
+        components: view.rows.map(r => r.toJSON()),    // ← ici, on passe directement les builders
+      });
+
+      view.collectInteractions(msg);
+    }
+
+  } 
+
+  /** Crée le briefing à partir d’un template SVG */
+  @SafeMethod
+  async _handleBriefing(event: Event) {
+   
+    const templatesDir = this.bot.getParameter('DIRECTORY_TEMPLATES') as string;
+    const outputDir    = this.bot.getParameter('DIRECTORY_EVENT_TEMPLATE') as string;
+    const outDir = path.join('Data', outputDir);
+    fs.mkdirSync(outDir, { recursive: true });
+    const fileName = `${nanoid()}.png`;
+
+    const outputPath = path.join(outDir, fileName);
+
+    // Exemple d'utilisation
+    const baseDir = path.join('Data', templatesDir, event.briefingTemplateName.replace(/ /g, '_'))
+    const config = {
+      svgTemplatePath: path.join(baseDir, 'template.svg'),
+      xsltPath: path.join(baseDir,  'template.xslt'),
+      outputSvgPath: path.join(outDir, 'event_filled.svg'),
+      outputPngPath: path.join(outputPath),
+      baseDir: baseDir
+    };
+    
+     const data = {
+      id: event.id,
+      name: event.name,
+      start_date: event.startDate,            // format JJ/MM/AAAA
+      start_time: event.startTime,            // HH:MM
+      lanc_serv: event.lancServ,              // HH:MM:SS
+      lanc_scen: event.lancScen,              // HH:MM:SS
+      end: event.end,
+      type: event.type?.name || '',
+      object1Cc: event.object1Cc,
+      objectAdv: event.objectAdv,
+      commentaire: event.commentaire,
+      spawn: event.spawn,
+      lieu_event: event.lieuEvent,
+      nb_resp: event.nbResp,
+      respawn: event.respawn,
+      regequi_infanterie: event.regleQui.Infanterie || '',
+      regequi_aerien: event.regleQui.Aerien || '',
+      regequi_vehicules: event.regleQui.Vehicules || '',
+      regleenga_infanterie: event.regleEnga.Infanterie || '',
+      regleenga_aerien: event.regleEnga.Aerien || '',
+      regleenga_vehicules: event.regleEnga.Vehicules || '',
+      reglevehicule_infanterie: event.regleVehicule.Infanterie || '',
+      reglevehicule_aerien: event.regleVehicule.Aerien || '',
+      reglevehicule_vehicules: event.regleVehicule.Vehicules || '',
+    };
+
+    const SVGMgr = new SVGManager(data, config)
+    await SVGMgr.generateImage();
+    const channelBrief : ForumChannel = this.bot.guild.channels.cache.get(this.bot.getParameter('CHANNEL_BRIEFING') as string) as ForumChannel;
+    const file = new AttachmentBuilder(outputPath);
+
+    await channelBrief.threads.fetch();
+    const threads = channelBrief.threads.cache;
+
+    let message = null;
+    // 2. Si on a déjà un ID de message à rafraîchir, on cherche d’abord dedans
+    if (event.briefingDiscordId) {
+      for (const thread of threads.values()) {
+        try {
+          const existingMsg = await thread.messages.fetch(event.briefingDiscordId);
+          // Cas 3 : message trouvé, on le supprime et on renvoie le nouveau dans le même thread
+          await existingMsg.delete();
+          message = await thread.send({ files: [file] });
+          
+          break;
+        } catch (err: any) {
+          // 10008 = Unknown Message → pas dans ce thread, on continue
+          if (err.code !== 10008) {
+            logger.error(`Erreur sur le thread ${thread.id} :`, err);
+          }
+        }
+      }
+    }
+
+    // 3. Si on n’a pas trouvé le message (cas 1 ou 2), on crée un nouveau thread
+    if (!message) {
+      const tag = channelBrief.availableTags.find(t => t.name === process.env.EVENT_TAG!);
+      const newThread = await channelBrief.threads.create({
+        name: event.name,
+        appliedTags: tag ? [tag.id] : [],
+        message: { files: [file] }
+      });
+
+      message = await newThread.fetchStarterMessage();
+
+    }
+
+    event.briefingDiscordId = message!.id;
+    
+    await fsp.unlink(config.outputPngPath).catch(() => {});
+
+
+  }
+
+  /** Recherche d’un utilisateur par début de nom */
+  searchUserAttribution(searchUser: string) {
+    const members = Array.from(this.bot.guild.members.cache.values());
+    const re = new RegExp(`^${searchUser.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}`, 'i');
+    return members
+      .filter(m => re.test(m.displayName.replace(/\[.*?\]/g, '').trim()))
+      .map(m => ({ avatar: m.displayAvatarURL(), name: m.displayName, id: m.id }));
+  }
+
+  
+  /** Sélectionne le bon canal TextChannel en fonction du type d’event */
+  getChannel(event: Event): TextChannel {
+    const type = event.type?.name.toUpperCase() ?? "";
+    let param = type.includes('ENTRAINEMENT') ? 'CHANNEL_TRAINING'
+              : type.includes('GROS EVENT') ? 'CHANNEL_GROS_EVENT'
+              : 'CHANNEL_' + event.start.toLocaleDateString('fr-FR', { weekday: 'long' }).toUpperCase();
+    const id = this.bot.getParameter(param) as string;
+    const ch = this.bot.guild.channels.cache.get(id);
+    if (!ch) throw new Error(`Channel non trouvé pour ${param}`);
+    return ch as TextChannel;
+  }
+
+  /** Essaie de convertir une Date ou une string ISO en Date. */
+  private parseDate(dt: Date | string): Date | null {
+    if (dt instanceof Date) {
+      return dt;
+    }
+    const d = new Date(dt);
+    return isNaN(d.getTime()) ? null : d;
+  }
+
+  formatDateTime(dt: Date | string): string {
+    const date = this.parseDate(dt);
+    if (!date) {
+      // si ce n'est pas un ISO valide, on renvoie la string d’origine
+      return String(dt);
+    }
+    return date.toLocaleString('fr-FR', {
+      weekday: 'long',
+      day:     '2-digit',
+      month:   'long',
+      year:    'numeric',
+      hour:    '2-digit',
+      minute:  '2-digit',
+    });
+  }
+
+  formatDate(dt: Date | string): string {
+    const date = this.parseDate(dt);
+    if (!date) {
+      return String(dt);
+    }
+    return date.toLocaleDateString('fr-FR', {
+      day:   '2-digit',
+      month: 'long',
+      year:  'numeric',
+    });
+  }
+
+  formatTime(dt: Date | string): string {
+    const date = this.parseDate(dt);
+    if (!date) {
+      return String(dt);
+    }
+    return date.toLocaleTimeString('fr-FR', {
+      hour:   '2-digit',
+      minute: '2-digit',
+    });
+  }
+
+  formatValue(val: any): string {
+    // on reconnaît aussi les ISO‐strings
+    if (typeof val === 'string') {
+      const date = this.parseDate(val);
+      if (date) {
+        return this.formatTime(date);
+      }
+    }
+    if (val instanceof Date) {
+      return this.formatTime(val);
+    }
+    if (typeof val === 'boolean') {
+      return val ? 'Oui' : 'Non';
+    }
+    if (typeof val === 'object' && val !== null) {
+      return JSON.stringify(val, null, 2);
+    }
+    return String(val ?? '');
+  }
+  
+  sanitizeFileName(input: string, maxLength = 100): string {
+    // 1️⃣ On normalise les diacritiques (é → e, ç → c, …)
+    let name = input.normalize('NFKD').replace(/[\u0300-\u036f]/g, '');
+
+    // 2️⃣ On remplace les caractères interdits Windows/Linux par '-'
+    //    <>:"/\\|?* et tout caractère de contrôle \x00–\x1F
+    name = name.replace(/[<>:"\/\\|?*\x00-\x1F]/g, '-');
+
+    // 3️⃣ On remplace les espaces multiples ou underscores par un seul '-'
+    name = name.replace(/[\s_-]+/g, '-');
+
+    // 4️⃣ On retire tout ce qui n’est pas alphanumérique, '-', ou '.'
+    name = name.replace(/[^a-zA-Z0-9-\.]/g, '');
+
+    // 5️⃣ Éviter les noms réservés Windows (CON, PRN, AUX, NUL, COM1…LPT9)
+    const reserved = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i;
+    if (reserved.test(name)) {
+      name = '_' + name;
+    }
+
+    // 6️⃣ Tronquer pour ne pas dépasser maxLength
+    if (name.length > maxLength) {
+      // On garde l’extension si présente
+      const extIndex = name.lastIndexOf('.');
+      if (extIndex > 0) {
+        const ext = name.slice(extIndex);
+        const base = name.slice(0, extIndex).slice(0, maxLength - ext.length);
+        name = base + ext;
+      } else {
+        name = name.slice(0, maxLength);
+      }
+    }
+
+    // 7️⃣ Enfin, retirer tirets en début/fin
+    name = name.replace(/^-+|-+$/g, '');
+
+    return name;
+  }
+}

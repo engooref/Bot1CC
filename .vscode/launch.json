@@ -1,0 +1,26 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug Bot TypeScript",
+      "type": "pwa-node",
+      "request": "launch",
+      "program": "${workspaceFolder}/src/index.ts",
+      "cwd": "${workspaceFolder}",
+      "runtimeArgs": [
+        "--loader", "ts-node/esm",
+        "--inspect-brk=0.0.0.0:9229"
+      ],
+      "env": {
+        "TS_NODE_TRANSPILE_ONLY": "true",
+        "TS_NODE_ESM": "true"
+      },
+      "console": "integratedTerminal",
+      "skipFiles": [
+        "<node_internals>/**"
+      ],
+      // <-- on déclenche la tâche “npm: build” avant le debug
+      "preLaunchTask": "npm: build"
+    }
+  ]
+}

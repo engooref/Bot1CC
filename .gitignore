@@ -1,9 +1,6 @@
-.vscode/
-ORM/__pycache__/
-__pycache__/
-Log/
-run.lock
-temp_op/
-Data/
-venv/
-Config/
+node_modules
+dist
+.env
+Data
+config
+migrations
