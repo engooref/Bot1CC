@@ -1,88 +1,132 @@
-// src/views/EventView.ts
 import {
-    ActionRowBuilder,
-    ButtonBuilder,
-    ButtonStyle,
-    StringSelectMenuBuilder,
-    StringSelectMenuOptionBuilder,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  StringSelectMenuBuilder,
+  StringSelectMenuOptionBuilder,
+  Message,
+  StringSelectMenuInteraction,
+  ButtonInteraction,
+  MessageComponentInteraction,
+} from 'discord.js';
+import BotManager from '../BotManager.js';
+import { Response } from '../entities/Response.js';
 
-  } from 'discord.js';
-  import BotManager from '../BotManager.js';
-  import { BaseComponentView, ViewHandlers } from './BaseView.js';
-  import { ComponentType } from '../entities/ViewContext.js';
+interface OptionData {
+  value: string;
+  select: boolean;
+}
 
-  interface OptionData {
-    value: string;
-    select: boolean;
+/**
+ * Vue complète gérant select + bouton et persistance BDD automatiquement
+ */
+export class EventView {
+  private selectId: string;
+  private buttonId: string;
+  private selectMenu: StringSelectMenuBuilder;
+  private button: ButtonBuilder;
+  public rows: ActionRowBuilder<any>[];
+  private bot: BotManager;
+  private respId: number;
+
+  constructor(
+    bot: BotManager,
+    optionsData: OptionData[],
+    respId: number,
+  ) {
+    this.bot = bot;
+    this.respId = respId;
+    const ts = Date.now();
+    this.selectId = `select_${respId}_${ts}`;
+    this.buttonId = `btn_${respId}_${ts}`;
+
+    // Initialiser menu et bouton
+    this.selectMenu = new StringSelectMenuBuilder()
+      .setCustomId(this.selectId)
+      .setPlaceholder('Choisissez un rôle…')
+      .setMinValues(1)
+      .setMaxValues(optionsData.length)
+      .addOptions(
+        optionsData.map(o =>
+          new StringSelectMenuOptionBuilder()
+            .setLabel(o.value)
+            .setValue(o.value)
+            .setDefault(o.select)
+        ),
+      );
+
+    this.button = new ButtonBuilder()
+      .setCustomId(this.buttonId)
+      .setLabel('Valider')
+      .setStyle(ButtonStyle.Success)
+      .setDisabled(!optionsData.some(o => o.select));
+
+    this.rows = [
+      new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(this.selectMenu),
+      new ActionRowBuilder<ButtonBuilder>().addComponents(this.button),
+    ];
   }
-  
-  export class EventView extends BaseComponentView {
-    private respId: number;
-    private selectMenu: StringSelectMenuBuilder;
-  
-    constructor(
-      bot: BotManager,
-  
-      optionsData: OptionData[],
-      respId: number,
-    ) {
-      // on construit deux customIds : un pour le select, un pour le bouton
-      const selectId = `select_${respId}`;
-      const buttonId = `send_btn_${respId}`;
-      const customIds = [selectId, buttonId];
-      const handlerKey = ViewHandlers.SelectRoleHandler;
-  
-      // 1️⃣ menu déroulant
-      const select = new StringSelectMenuBuilder()
-        .setCustomId(selectId)
-        .setPlaceholder('Choisissez un rôle…')
-        .setMinValues(1)
-        .setMaxValues(optionsData.length)
-        .addOptions(
-          optionsData.map(o =>
-            new StringSelectMenuOptionBuilder()
-              .setLabel(o.value)
-              .setValue(o.value)
-              .setDefault(o.select),
-          ),
-        );
-  
-      // 2️⃣ bouton de validation
-      const disabled = !optionsData.some(o => o.select);
-      const button = new ButtonBuilder()
-        .setCustomId(buttonId)
-        .setLabel('Valider')
-        .setStyle(ButtonStyle.Success)
-        .setDisabled(disabled);
-  
-      // 3️⃣ on crée les rows
-      const rows = [
-        new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(select),
-        new ActionRowBuilder<ButtonBuilder>().addComponents(button),
-      ];
-  
-      // on stocke le menu pour récupérer ses valeurs dans getData()
-      super(bot, customIds, handlerKey, ComponentType.Select, rows);
-      this.selectMenu = select;
-      this.respId = respId;
-    }
-  
-    /** 
-     * getData est appelé pour chaque customId au moment de persist 
-     * et permet de fournir les données dynamiques selon le composant. 
-     */
-    protected getData(customId: string): Record<string, any> {
-        if (customId.startsWith('select_')) {
-            const rawOptions = this.selectMenu.options.map(o => o.toJSON());
-            const defaultValues = rawOptions
-                .filter(o => o.default)
-                .map(o => o.value);
-            return { respId: this.respId, selected: defaultValues };
-        }
-  
-      return {
-        respId: this.respId,
-      };
-    }
+
+  /**
+   * Installe le collector pour gérer select & button
+   */
+  public collectInteractions(message: Message) {
+    const collector = message.createMessageComponentCollector({ time: 0 });
+    collector.on('collect', async (interaction: MessageComponentInteraction) => {
+      if (interaction.customId === this.selectId && interaction.isStringSelectMenu()) {
+        await this.handleSelect(interaction);
+      }
+      if (interaction.customId === this.buttonId && interaction.isButton()) {
+        await this.handleButton(interaction);
+      }
+    });
   }
-  
+
+  private async handleSelect(interaction: StringSelectMenuInteraction) {
+
+    const selected = interaction.values;
+    const raw = this.selectMenu.options.map(o => o.toJSON());
+    const first = raw[0].value;
+    if (selected.includes(first)) {
+      this.selectMenu.options.forEach((opt, i) => opt.setDefault(i === 0));
+    } else if (!selected.length) {
+      this.selectMenu.options.forEach((opt, i) => opt.setDefault(i === 0));
+    } else {
+      this.selectMenu.options.forEach(opt => {
+        const o = opt.toJSON();
+        const isFirst = o.value === first;
+        opt.setDefault(!isFirst && selected.includes(o.value));
+      });
+    }
+    this.button.setDisabled(false);
+
+    // Mise à jour directe via message API
+    await interaction.update({ components: this.rows });
+  }
+
+  /**
+   * Callback pour le bouton, met à jour la BDD et nettoie
+   */
+  private async handleButton(interaction: ButtonInteraction) {
+
+    // Mise à jour du message sans interaction.update
+    
+    const em = this.bot.dbMgr.getEm();
+    const raw = this.selectMenu.options.map(o => o.toJSON());
+    const selected = raw.filter(o => o.default).map(o => o.value);
+
+    const response = await em.findOne(Response, { id: this.respId }, { populate: ['event'] });
+    if (!response) {
+      await interaction.followUp({ content: 'Réponse introuvable', ephemeral: true });
+      return;
+    }
+    response.roleDemand = selected;
+    await interaction.update({
+      content: `✅ Choix enregistrés pour l'événement "${response.event.name}"`,
+      components: [],
+    });
+    await em.persistAndFlush(response);
+
+    
+  }
+}

@@ -1,5 +1,7 @@
 // src/managers/EventManager.js
-import fs from 'fs/promises';
+import fs from 'fs';
+import { promises as fsp } from 'fs';
+
 import path from 'path';
 import { URL } from 'url';
 import sharp from 'sharp';
@@ -13,30 +15,42 @@ import {
   Message,
   GuildMember,
   ButtonInteraction,
-  APIActionRowComponent,
-  APIMessageActionRowComponent,
 } from 'discord.js';
-import TempFile from 'tmp-promise';
 import { file as tmpFile } from 'tmp-promise';
-import xml2js from 'xml2js';
+
 import BotManager from '../BotManager.js';
 import {Event} from '../entities/Event.js';
 import { Response } from '../entities/Response.js';
 import { randomUUID } from 'crypto';
 import { InviteView } from '../view/InviteView.js';
 import { EventView } from '../view/EventView.js';
+import { EntityManager } from '@mikro-orm/core';
+import { SafeMethod } from '../exception/Safe.js';
+import logger from '../logger.js';
+import { nanoid } from 'nanoid';
+import { SVGManager } from '../utils/SVGManager.js';
 
 
 export default class EventManager {
-   private bot: BotManager;
-   private urlSite : string;
+  private bot: BotManager;
+  private urlSite : string;
+  public fem!: EntityManager ;
 
   constructor(bot: BotManager) {
     this.bot     = bot;
     this.urlSite = process.env.URL_SITE!;
+
+  }
+
+  get em(): EntityManager {
+    if (!this.fem)
+      this.fem = this.bot.dbMgr.getEm();
+    
+    return this.fem;
   }
 
   /** Crée ou met à jour le message d’un événement */
+  @SafeMethod
   async setEvent(event: Event) {
     try {
       const channel = this.getChannel(event);
@@ -49,7 +63,7 @@ export default class EventManager {
 
       // 2) Embed principal
       const embed = new EmbedBuilder()
-        .setTitle(`${event.name} ${event.start.toDateString()}`)
+        .setTitle(event.name)
         .addFields(
           { name: 'Regroupement', value: `\`\`\`${this.formatDateTime(event.start)}\`\`\``, inline: false },
           { name: 'Lancement',    value: `\`\`\`${this.formatTime(event.lancServ)}\`\`\``, inline: false },
@@ -91,16 +105,16 @@ export default class EventManager {
         await this._handleBriefing(event);
       }
 
-      
       // 6) Sauvegarde en base
-      await this.bot.dbMgr.update(event);
+      await this.em.persistAndFlush(event);
       await this.updateEvent(event);
     } catch (err) {
-      console.error('setEvent error', err);
+      logger.error('setEvent error', err);
     }
   }
 
   /** Met à jour le décompte Accepted/Declined/Tentative */
+  @SafeMethod
   async updateEvent(event: Event) {
     try {
       const channel = this.getChannel(event);
@@ -133,7 +147,7 @@ export default class EventManager {
 
       await message.edit({ embeds: [embed] });
     } catch (err) {
-      console.error('updateEvent error', err);
+      logger.error('updateEvent error', err);
     } finally {
       if (!event.appelMsgDiscord) {
         this.bot.schedMgr.event.updateEvent(event);
@@ -142,6 +156,7 @@ export default class EventManager {
   }
 
   /** Supprime le message Discord de l’événement */
+  @SafeMethod
   async suppEvent(event: Event) {
     try {
       const channel = this.getChannel(event);
@@ -159,130 +174,11 @@ export default class EventManager {
       
       
     } catch (err) {
-      console.error('suppEvent error', err);
+      logger.error('suppEvent error', err);
     }
   }
 
-  async createSvgTable(data: string[][], cellHeight = 30, padding = 10, title = '') {
-    const headerHeight = 60;
-    // 1) Prépare l'en-tête
-    data = JSON.parse(JSON.stringify(data)); // clone pour ne pas muter l'original
-    data.unshift(['Joueur', 'Équipe', 'Rôle', 'Vaisseau', 'Rôle Vaisseau', 'Commentaire']);
-  
-    // 2) Helpers
-    const getTextWidth = (text: string, fontSize = 14) => {
-      const clean = text.replace(/#[0-9A-Fa-f]{6}/g, '');
-      return clean.length * (fontSize * 0.6);
-    };
-  
-    const getTextColor = (bg: string) => {
-      const [r, g, b] = [1,3,5].map(i => parseInt(bg.substr(i,2),16));
-      const lum = (0.299*r + 0.587*g + 0.114*b)/255;
-      return lum > 0.5 ? '#000000' : '#FFFFFF';
-    };
-  
-    const adjustBrightness = (color: string, factor = 0.8) => {
-      let [r,g,b] = [1,3,5].map(i => parseInt(color.substr(i,2),16));
-      r = Math.min(255, Math.floor(r*factor));
-      g = Math.min(255, Math.floor(g*factor));
-      b = Math.min(255, Math.floor(b*factor));
-      return `#${r.toString(16).padStart(2,'0')}${g.toString(16).padStart(2,'0')}${b.toString(16).padStart(2,'0')}`;
-    };
-  
-    // 3) Tri secondaire (par équipe, puis nom sans crochets)
-    data = [data[0], ...data.slice(1).sort((a,b) => {
-      if (a[1] !== b[1]) return a[1].localeCompare(b[1]);
-      const cleanA = a[0].replace(/\s*\[[^\]]*\]\s*/g,'');
-      const cleanB = b[0].replace(/\s*\[[^\]]*\]\s*/g,'');
-      return cleanA.localeCompare(cleanB);
-    })];
-  
-    // 4) Dimensions
-    const columns    = data[0].length;
-    const colWidths  = Array.from({ length: columns }, (_, col) =>
-      Math.max(...data.map(row => getTextWidth(String(row[col])))) + 2*padding
-    );
-    const rows       = data.length;
-    const tableWidth = colWidths.reduce((a,b) => a+b, 0);
-    const tableHeight= rows * cellHeight;
-    const svgHeight  = headerHeight + tableHeight + 50;
-    const svgWidth   = tableWidth + 50;
-  
-    // 5) Construit le SVG
-    let svg = `<?xml version="1.0" encoding="UTF-8"?>\n`;
-    svg += `<svg xmlns="http://www.w3.org/2000/svg" width="${svgWidth}" height="${svgHeight}">\n`;
-  
-    // 5a) Dégradé pour l'en-tête
-    svg += `  <defs>\n`;
-    svg += `    <linearGradient id="headerGradient" x1="0%" y1="0%" x2="0%" y2="100%">\n`;
-    svg += `      <stop offset="0%" stop-color="#333333"/>\n`;
-    svg += `      <stop offset="100%" stop-color="#000000"/>\n`;
-    svg += `    </linearGradient>\n`;
-    svg += `  </defs>\n`;
-  
-    // 5b) Rectangle d'en-tête et texte
-    svg += `  <rect x="0" y="0" width="${tableWidth}" height="${headerHeight}" fill="url(#headerGradient)" rx="10" ry="10"/>\n`;
-    svg += `  <text x="${tableWidth/2}" y="40" text-anchor="middle" fill="white" font-family="Arial" font-size="26">Affectation des Joueurs - ${title}</text>\n`;
-  
-    // 5c) Bordure générale
-    svg += `  <rect x="0" y="${headerHeight}" width="${tableWidth}" height="${tableHeight}" fill="none" stroke="black" rx="10" ry="10"/>\n`;
-  
-    // 5d) Cellules et texte
-    let y = headerHeight;
-    for (let row = 0; row < rows; row++) {
-      let x = 0;
-      for (let col = 0; col < columns; col++) {
-        const cellWidth = colWidths[col];
-        // couleur de fond alternée
-        let fill = row === 0 ? '#a4c2f4' : (row % 2 === 0 ? '#f2f2f2' : '#ffffff');
-        svg += `  <rect x="${x}" y="${y}" width="${cellWidth}" height="${cellHeight}" fill="${fill}" stroke="black" rx="5" ry="5"/>\n`;
-  
-        const cellData = String(data[row][col]);
-        if (col === 2 && row > 0 && cellData) {
-          // rôle avec dégradés
-          const roles = cellData.split(', ').map(r => r.split('|'));
-          let rx = x + 5;
-          for (const [name, color] of roles) {
-            const roleW = getTextWidth(name,12) + 20;
-            const textColor = getTextColor(color);
-            const gradId = randomUUID();
-            const endColor = adjustBrightness(color,0.8);
-            // gradient
-            svg += `  <defs>\n`;
-            svg += `    <linearGradient id="${gradId}" x1="0%" y1="0%" x2="0%" y2="100%">\n`;
-            svg += `      <stop offset="0%" stop-color="${color}"/>\n`;
-            svg += `      <stop offset="100%" stop-color="${endColor}"/>\n`;
-            svg += `    </linearGradient>\n`;
-            svg += `  </defs>\n`;
-            // rect role
-            svg += `  <rect x="${rx}" y="${y+5}" width="${roleW}" height="${cellHeight-10}" fill="url(#${gradId})" stroke="black" rx="5" ry="5"/>\n`;
-            // text role
-            svg += `  <text x="${rx + roleW/2}" y="${y + cellHeight/2}" text-anchor="middle" alignment-baseline="middle" font-family="Arial" font-size="12" fill="${textColor}">${name}</text>\n`;
-            rx += roleW + 10;
-          }
-        } else {
-          // texte standard centré
-          svg += `  <text x="${x + cellWidth/2}" y="${y + cellHeight/2}" text-anchor="middle" alignment-baseline="middle" font-family="Arial" font-size="14">${cellData}</text>\n`;
-        }
-        x += cellWidth;
-      }
-      y += cellHeight;
-    }
-  
-    svg += `</svg>`;
-  
-    // 6) Écrit et convertit
-    const { path: svgPath } = await tmpFile({ postfix: '.svg' });
-    await fs.writeFile(svgPath, svg, 'utf8');
-
-    const { path: pngPath } = await tmpFile({ postfix: '.png' });
-    await sharp(svgPath)
-      .png({ quality: 100 })
-      .toFile(pngPath);
-  
-    return pngPath;
-  }
-
+  @SafeMethod
   async attributionEvent(event: Event) {
     try {
       // 1) Récupère le forum
@@ -293,27 +189,59 @@ export default class EventManager {
         throw new Error('CHANNEL_BRIEFING n’est pas un ForumChannel valide');
       }
 
-      const responses =  await this.bot.dbMgr.getEm().getRepository(Response).find({
+      const responses =  await this.em.getRepository(Response).find({
         event: event,
         typeRep: { $in: ['accepted', 'added']}
       }, {
         populate: ['users', 'team', 'roles'],
       });
 
+      const headerRow = {
+        col1: 'Utilisateur',
+        col2: 'Équipe',
+        col3: 'Rôles',
+        col4: 'Vaisseau',
+        col5: 'Fonction à bord',
+        col6: 'Commentaire',
+        col2color: '#FFFFFF',
+        col2TextColor: '#000000'
+      };
+
+      // 2) Construis ton tableau de données
+      const payloadRows = [
+        headerRow,
+        ...responses.map(r => ({
+          col1: r.users.username,
+          col2: r.team?.name        ?? 'Aucune équipe',
+          roles:       (r.roles ?? []).map(rr => ({ name: rr.name, color: rr.color })),
+          col4: r.vaisseau         ?? '',
+          col5: r.roleVaisseau     ?? '',
+          col6: r.commentaire      ?? '',
+          col2TextColor: this.getContrastTextColor(r.team?.color ?? '#FFFFFF'),
+          col2color: r.team?.color
+
+        })),
+      ];
+
       // 3) Prépare les données pour le SVG
-      const data = responses.map(r => [
-        r.users.username,
-        r.team?.name || 'Aucune équipe',
-        r.roles?.map(rr => `${rr.name}|${rr.color}`).join(', ') || '',
-        r.vaisseau || '',
-        r.roleVaisseau || '',
-        r.commentaire || '',
-      ]);
+      const data = {
+        name: `Attribution - ${event.name}`,
+        rows: payloadRows
+      };
 
-      // 4) Génère le PNG
-      const pngPath = await this.createSvgTable(data, 30, 10, event.name);
-      const attachment = new AttachmentBuilder(pngPath);
-
+      const baseDir = path.join('Data', 'Attribution')
+      const config = {
+        svgTemplatePath: path.join(baseDir, 'template.svg'),
+        xsltPath: path.join(baseDir, 'template.xslt'),
+        outputSvgPath: path.join(baseDir, 'attribution_filled.svg'),
+        outputPngPath: path.join(baseDir, this.sanitizeFileName(event.name) + '.png'),
+        baseDir: baseDir
+      };
+    
+      const svgMgr = new SVGManager(data, config);
+      await svgMgr.generateImage();
+      const attachment = new AttachmentBuilder(config.outputPngPath);
+      
       // 5) Poste ou remplace dans un thread forum
       if (event.attributionDiscordId) {
         // on cherche le message existant dans tous les threads
@@ -340,16 +268,34 @@ export default class EventManager {
         event.attributionDiscordId = starter!.id;
       }
 
-      await this.bot.dbMgr.update(event);
+      await this.em.persistAndFlush(event);
 
       // 6) nettoie le fichier temporaire
-      await fs.unlink(pngPath).catch(() => {});
+      await fsp.unlink(config.outputPngPath).catch(() => {});
       
     } catch (err) {
-      console.error('attributionEvent error', err);
+      logger.error('attributionEvent error', err);
     }
   }
 
+  getContrastTextColor(hexColor: string): '#ffffff' | '#000000' {
+    // 1) Nettoyage : enlever le '#' si besoin
+    const hex = hexColor.replace(/^#/, '');
+
+    // 2) Parser en RGB
+    const r = parseInt(hex.substr(0, 2), 16);
+    const g = parseInt(hex.substr(2, 2), 16);
+    const b = parseInt(hex.substr(4, 2), 16);
+
+    // 3) Calcul de la luminosité (formule ITU-R BT.709)
+    //    Y = 0.2126 R + 0.7152 G + 0.0722 B
+    const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+
+    // 4) Choix du texte : seuil à 128 (mi-luminosité)
+    return luminance < 128 ? '#ffffff' : '#000000';
+  }
+
+  @SafeMethod
   async userResponseHandle(interaction: ButtonInteraction, data: Record<string, any>) {
 
     // récupère ou crée l’utilisateur en BDD
@@ -357,13 +303,16 @@ export default class EventManager {
     if (!userEntity) return;
 
     // met à jour l’affichage de l’événement
-    const event = await this.bot.dbMgr.getEm().findOneOrFail(
+    const event = await this.em.findOneOrFail(
       Event,
       { id: data.eventId },
+      {
+        populate: ['type', 'responses.*'],
+      }
     );
 
     // cherche la réponse existante
-    let response = await this.bot.dbMgr.getEm().findOne(
+    let response = await this.em.findOne(
       Response,
       { users: userEntity, event: event },
     );
@@ -372,18 +321,20 @@ export default class EventManager {
       if (response) {
         response.typeRep = data.responseType;
       } else {
-        response = this.bot.dbMgr.getEm().create(Response, {
+        response = this.em.create(Response, {
           users: userEntity,
           event: event,
           typeRep: data.responseType,
-          roleDemand: ''
+          roleDemand: []
         });
       }
-      await this.bot.dbMgr.update(response);
+      await this.em.persistAndFlush(response);
     }
 
     const roleDispoList: string[] = JSON.parse(event.roleDispo);
     const roleDemandList: string[] = response?.roleDemand ?? [];
+
+    await this.updateEvent(event);
 
     if (
       roleDispoList.length > 0 &&
@@ -412,58 +363,114 @@ export default class EventManager {
     
       const view = new EventView(this.bot, allRoles, response.id);
 
+
       // envoie la suite d’interaction avec les rows de la view
-      await interaction.followUp({
+      const msg = await interaction.followUp({
         content: messageContent,
         ephemeral: true,
-        components: view.rows.map(r => 
-          r.toJSON() as APIActionRowComponent<APIMessageActionRowComponent>
-        ),
+        components: view.rows.map(r => r.toJSON()),    // ← ici, on passe directement les builders
       });
+
+      view.collectInteractions(msg);
     }
 
-    await this.updateEvent(event);
   } 
 
-
   /** Crée le briefing à partir d’un template SVG */
+  @SafeMethod
   async _handleBriefing(event: Event) {
-    // 1) Lire le template SVG
-    const tplDir  = path.join('Data', this.bot.getParameter('DIRECTORY_TEMPLATES') as string, event.briefingTemplateName);
-    const tplPath = path.join(tplDir, 'template.svg');
-    const svg     = await fs.readFile(tplPath, 'utf-8');
+   
+    const templatesDir = this.bot.getParameter('DIRECTORY_TEMPLATES') as string;
+    const outputDir    = this.bot.getParameter('DIRECTORY_EVENT_TEMPLATE') as string;
+    const outDir = path.join('Data', outputDir);
+    fs.mkdirSync(outDir, { recursive: true });
+    const fileName = `${nanoid()}.png`;
 
-    // 2) Parser et remplir dynamiquement
-    const parser = new xml2js.Parser();
-    const builder = new xml2js.Builder();
-    const obj = await parser.parseStringPromise(svg);
-    // … parcourir obj.svg.text pour remplacer par event[field] via formatValue …
-    const updatedSvg = builder.buildObject(obj);
+    const outputPath = path.join(outDir, fileName);
 
-    // 3) Conversion en PNG avec sharp
-    const tmp = await TempFile.file({ postfix: '.svg' });
-    await fs.writeFile(tmp.path, updatedSvg);
-    const out = tmp.path.replace(/\.svg$/, '.png');
-    await sharp(tmp.path).png().toFile(out);
-    await fs.unlink(tmp.path);
+    // Exemple d'utilisation
+    const baseDir = path.join('Data', templatesDir, event.briefingTemplateName.replace(/ /g, '_'))
+    const config = {
+      svgTemplatePath: path.join(baseDir, 'template.svg'),
+      xsltPath: path.join(baseDir,  'template.xslt'),
+      outputSvgPath: path.join(outDir, 'event_filled.svg'),
+      outputPngPath: path.join(outputPath),
+      baseDir: baseDir
+    };
+    
+     const data = {
+      id: event.id,
+      name: event.name,
+      start_date: event.startDate,            // format JJ/MM/AAAA
+      start_time: event.startTime,            // HH:MM
+      lanc_serv: event.lancServ,              // HH:MM:SS
+      lanc_scen: event.lancScen,              // HH:MM:SS
+      end: event.end,
+      type: event.type?.name || '',
+      object1Cc: event.object1Cc,
+      objectAdv: event.objectAdv,
+      commentaire: event.commentaire,
+      spawn: event.spawn,
+      lieu_event: event.lieuEvent,
+      nb_resp: event.nbResp,
+      respawn: event.respawn,
+      regequi_infanterie: event.regleQui.Infanterie || '',
+      regequi_aerien: event.regleQui.Aerien || '',
+      regequi_vehicules: event.regleQui.Vehicules || '',
+      regleenga_infanterie: event.regleEnga.Infanterie || '',
+      regleenga_aerien: event.regleEnga.Aerien || '',
+      regleenga_vehicules: event.regleEnga.Vehicules || '',
+      reglevehicule_infanterie: event.regleVehicule.Infanterie || '',
+      reglevehicule_aerien: event.regleVehicule.Aerien || '',
+      reglevehicule_vehicules: event.regleVehicule.Vehicules || '',
+    };
 
-    // 4) Envoi dans un forum Discord
+    const SVGMgr = new SVGManager(data, config)
+    await SVGMgr.generateImage();
     const channelBrief : ForumChannel = this.bot.guild.channels.cache.get(this.bot.getParameter('CHANNEL_BRIEFING') as string) as ForumChannel;
-    const file = new AttachmentBuilder(out);
+    const file = new AttachmentBuilder(outputPath);
+
+    await channelBrief.threads.fetch();
+    const threads = channelBrief.threads.cache;
+
+    let message = null;
+    // 2. Si on a déjà un ID de message à rafraîchir, on cherche d’abord dedans
     if (event.briefingDiscordId) {
-      // Supprime l’ancien message, poste le nouveau dans le thread existant…
-    } else {
-      const thread = await channelBrief.threads.create({
-        name: event.name,
-        appliedTags: [channelBrief.availableTags.find(t  => t.name === process.env.EVENT_TAG!)!.id],
-        
-        message: { 
-          files: [ file ] 
+      for (const thread of threads.values()) {
+        try {
+          const existingMsg = await thread.messages.fetch(event.briefingDiscordId);
+          // Cas 3 : message trouvé, on le supprime et on renvoie le nouveau dans le même thread
+          await existingMsg.delete();
+          message = await thread.send({ files: [file] });
+          
+          break;
+        } catch (err: any) {
+          // 10008 = Unknown Message → pas dans ce thread, on continue
+          if (err.code !== 10008) {
+            logger.error(`Erreur sur le thread ${thread.id} :`, err);
+          }
         }
-      });
-      event.briefingDiscordId = (await thread.fetchStarterMessage())!.id;
+      }
     }
-    await fs.unlink(out);
+
+    // 3. Si on n’a pas trouvé le message (cas 1 ou 2), on crée un nouveau thread
+    if (!message) {
+      const tag = channelBrief.availableTags.find(t => t.name === process.env.EVENT_TAG!);
+      const newThread = await channelBrief.threads.create({
+        name: event.name,
+        appliedTags: tag ? [tag.id] : [],
+        message: { files: [file] }
+      });
+
+      message = await newThread.fetchStarterMessage();
+
+    }
+
+    event.briefingDiscordId = message!.id;
+    
+    await fsp.unlink(config.outputPngPath).catch(() => {});
+
+
   }
 
   /** Recherche d’un utilisateur par début de nom */
@@ -481,7 +488,7 @@ export default class EventManager {
     const type = event.type?.name.toUpperCase() ?? "";
     let param = type.includes('ENTRAINEMENT') ? 'CHANNEL_TRAINING'
               : type.includes('GROS EVENT') ? 'CHANNEL_GROS_EVENT'
-              : 'CHANNEL_' + event.start.toLocaleDateString('en-US', { weekday: 'long' }).toUpperCase();
+              : 'CHANNEL_' + event.start.toLocaleDateString('fr-FR', { weekday: 'long' }).toUpperCase();
     const id = this.bot.getParameter(param) as string;
     const ch = this.bot.guild.channels.cache.get(id);
     if (!ch) throw new Error(`Channel non trouvé pour ${param}`);
@@ -554,5 +561,44 @@ export default class EventManager {
       return JSON.stringify(val, null, 2);
     }
     return String(val ?? '');
+  }
+  
+  sanitizeFileName(input: string, maxLength = 100): string {
+    // 1️⃣ On normalise les diacritiques (é → e, ç → c, …)
+    let name = input.normalize('NFKD').replace(/[\u0300-\u036f]/g, '');
+
+    // 2️⃣ On remplace les caractères interdits Windows/Linux par '-'
+    //    <>:"/\\|?* et tout caractère de contrôle \x00–\x1F
+    name = name.replace(/[<>:"\/\\|?*\x00-\x1F]/g, '-');
+
+    // 3️⃣ On remplace les espaces multiples ou underscores par un seul '-'
+    name = name.replace(/[\s_-]+/g, '-');
+
+    // 4️⃣ On retire tout ce qui n’est pas alphanumérique, '-', ou '.'
+    name = name.replace(/[^a-zA-Z0-9-\.]/g, '');
+
+    // 5️⃣ Éviter les noms réservés Windows (CON, PRN, AUX, NUL, COM1…LPT9)
+    const reserved = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i;
+    if (reserved.test(name)) {
+      name = '_' + name;
+    }
+
+    // 6️⃣ Tronquer pour ne pas dépasser maxLength
+    if (name.length > maxLength) {
+      // On garde l’extension si présente
+      const extIndex = name.lastIndexOf('.');
+      if (extIndex > 0) {
+        const ext = name.slice(extIndex);
+        const base = name.slice(0, extIndex).slice(0, maxLength - ext.length);
+        name = base + ext;
+      } else {
+        name = name.slice(0, maxLength);
+      }
+    }
+
+    // 7️⃣ Enfin, retirer tirets en début/fin
+    name = name.replace(/^-+|-+$/g, '');
+
+    return name;
   }
 }

@@ -61,13 +61,13 @@ import {
     @Property({ length: 255, default: '' })
     nbResp: string = '';
   
-    @Property({ type: 'json', default: '{}' })
+    @Property({ type: 'json', default: '{}', name: 'reglevehicule' })
     regleVehicule: Record<string, any> = {};
   
-    @Property({ type: 'json', default: '{}' })
+    @Property({ type: 'json', default: '{}', name: 'regleenga' })
     regleEnga: Record<string, any> = {};
   
-    @Property({ type: 'json', default: '{}' })
+    @Property({ type: 'json', default: '{}', name: 'regequi' })
     regleQui: Record<string, any> = {};
   
     @Property({ type: 'boolean', default: false })
@@ -78,9 +78,6 @@ import {
   
     @Property({ type: 'bigint', nullable: true })
     briefingDiscordId?: string;
-  
-    @Property({ length: 255, nullable: true, default: '' })
-    briefingFileName: string = '';
   
     @Property({ type: 'bigint', nullable: true })
     attributionDiscordId?: string;

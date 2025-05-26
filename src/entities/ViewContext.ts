@@ -4,6 +4,7 @@ import { Entity, PrimaryKey, Property, Enum } from '@mikro-orm/core';
 export enum ComponentType {
   Button = 'button',
   Select = 'select',
+  Modal = 'modal'
 }
 
 @Entity({ tableName: 'view_context' })

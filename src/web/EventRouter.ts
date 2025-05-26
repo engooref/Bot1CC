@@ -18,7 +18,8 @@ async function getEventFromReq(
   if (!eventId) {
     throw new Error('eventId manquant');
   }
-  const event = await bot.dbMgr.getEm().findOne(Event, { 
+  
+  const event = await bot.evMgr.em.findOne(Event, { 
     id: eventId
   }, {
     populate: ['*', 'responses.users'],

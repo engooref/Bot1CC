@@ -1,23 +1,25 @@
 import { 
   ChannelType, 
   GuildBasedChannel, 
-  CategoryChannel,
   Collection, 
   type Role as DiscordRole, 
   APIUser,
   GuildMember,
+  CategoryChannel,
+  GuildChannel,
 }   from 'discord.js';
 
-import { MikroORM, EntityManager, Loaded, ChangeSetType } from '@mikro-orm/core';
+import { MikroORM, EntityManager, ChangeSetType, RequestContext } from '@mikro-orm/core';
 import logger            from '../logger.js';
 import { User }          from '../entities/User.js';
 import { Role }          from '../entities/Role.js';
 import { Channel  } from '../entities/Channel.js';
 import config from '../mikro-orm.config.js';
 import BotManager from '../BotManager.js';
+import { SafeMethod } from '../exception/Safe.js';
 
 export default class DatabaseManager {
-  private orm!: MikroORM;
+  public orm!: MikroORM;
   private excludeCategories: string[];
   private bot : BotManager;
 
@@ -34,6 +36,7 @@ export default class DatabaseManager {
   /**
    * Initialise la connexion MikroORM et fork un EntityManager
    */
+  @SafeMethod
   public async connect(): Promise<void> {
     this.orm = await MikroORM.init(config);
     logger.info('✅ MikroORM connecté');
@@ -44,6 +47,7 @@ export default class DatabaseManager {
    * Insère ou met à jour un utilisateur Discord en base, et le retourne
    * avec sa collection rolesDiscord entièrement chargée.
    */
+  @SafeMethod
   public async insertAndGetUser(
     member: GuildMember | APIUser
   ): Promise<User> {
@@ -61,7 +65,7 @@ export default class DatabaseManager {
       // 2) Synchronise les rôles Discord dans la table Role
       const roles = await this.syncRoles(mg.roles.cache, em);
 
-      const avatarUrl = mg.user.avatarURL() ?? '';
+      const avatarUrl = mg.user.avatar ?? '';
       let id: number;
 
       if (!user) {
@@ -101,6 +105,7 @@ export default class DatabaseManager {
   /**
    * Insère les rôles Discord manquants et renvoie la liste complète des RoleEntity.
    */
+  @SafeMethod
   public async syncRoles(
     discordRoles: Collection<string, DiscordRole>,
     em: EntityManager = this.getEm(),
@@ -130,7 +135,7 @@ export default class DatabaseManager {
     return existing;
   }
 
-  
+  @SafeMethod
   public async syncChannels(discordChannels: Collection<string, GuildBasedChannel>): Promise<Channel[]> {
     // fork de l’EM en tête de méthode
     const em = this.orm.em.fork();
@@ -141,9 +146,18 @@ export default class DatabaseManager {
 
     // 1) exclusion…
     const excludeIds = new Set<string>();
-    for (const catName of this.excludeCategories) {
-      const guild = this.bot.guild;
-      /* … */
+    for (const catName of this.bot.excludeCategory) {
+      // 1️⃣ On cherche la catégorie par son nom
+      const category = this.bot.guild.channels.cache
+        .find(ch => ch.type === ChannelType.GuildCategory && ch.name === catName) as CategoryChannel | undefined;
+
+      if (!category) {
+        continue;
+      }
+
+      category.children.cache.forEach((child: GuildChannel) => {
+        excludeIds.add(child.id);
+      });
     }
 
     // 2) SELECT batch avec le EM forké
@@ -155,7 +169,7 @@ export default class DatabaseManager {
     const toCreate: Channel[] = [];
     for (const ch of discordChannels.values()) {
       if (existingIds.has(ch.id)) continue;
-      if (ch.isVoiceBased() || ch.type === ChannelType.GuildCategory || excludeIds.has(ch.id)) continue;
+      if (ch.isVoiceBased() || ch.isThread() || ch.type === ChannelType.GuildCategory || excludeIds.has(ch.id)) continue;
 
       toCreate.push(em.create(Channel, {
         name:      ch.name,
@@ -173,30 +187,7 @@ export default class DatabaseManager {
     return existing;
   }
   
-  public getEm() {
+  public getEm(): EntityManager {
     return this.orm.em.fork();
-  }
-
-  public async update<T extends object>(entity: T): Promise<void> {
-    const uow = this.orm.em.getUnitOfWork();
-    uow.computeChangeSet(entity);
-
-    const cs = uow.getChangeSets().find(cs =>
-      cs.entity === entity &&
-      (cs.type === ChangeSetType.CREATE || cs.type === ChangeSetType.UPDATE)
-    );
-
-    if (!cs) return;
-
-    const pk = cs.getPrimaryKey(true) ?? {};
-
-    if (cs.type === ChangeSetType.CREATE) {
-      // nativeInsert ne gère pas toujours tous les types de colonnes (ex. JSON, relations…),
-      // on peut retomber sur persistAndFlush ici :
-      await this.getEm().persistAndFlush(entity);
-    } else {
-      // UPDATE
-      await this.getEm().nativeUpdate(entity.constructor as any, pk as any, cs.payload);
-    }
   }
 }

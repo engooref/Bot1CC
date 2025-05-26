@@ -4,32 +4,44 @@ import { RHMember as RHMemberEntity } from '../entities/RHMember.js';
 import BotManager from '../BotManager.js';
 import logger from '../logger.js';
 import { Response } from '../entities/Response.js';
+import { EntityManager } from '@mikro-orm/core';
+import { SafeMethod } from '../exception/Safe.js';
 
 
 export default class UserManager {
+  public fem!: EntityManager ;
+  
   constructor(private bot: BotManager) {}
 
+  get em(): EntityManager {
+    if (!this.fem)
+      this.fem = this.bot.dbMgr.getEm();
+    
+    return this.fem;
+  }
+  
   /** Supprime un utilisateur et ses données liées */
+  @SafeMethod
   public async deleteUser(user: UserEntity): Promise<void> {
     try {
       logger.info(`Suppression des informations de l'utilisateur : ${user.username}`);
       // reset des données dans l'entité
       user.reset();
-      await this.bot.dbMgr.update(user);
+      await this.em.persistAndFlush(user);
 
       // suppression du profil RH
       if (user.rhProfile) {
-        await this.bot.dbMgr.getEm().removeAndFlush(user.rhProfile);
+        await this.em.removeAndFlush(user.rhProfile);
       }
 
-      const responsesCount = await this.bot.dbMgr.getEm().count(Response, {users: user})
+      const responsesCount = await this.em.count(Response, {users: user})
 
       // si plus aucune trace, réponse ou rôle, on supprime l'utilisateur
       if (
         responsesCount === 0 &&
         (user.rolesDiscord.isEmpty?.() ?? user.rolesDiscord.length === 0)
       ) {
-        await this.bot.dbMgr.getEm().removeAndFlush(user);
+        await this.em.removeAndFlush(user);
       }
 
       logger.info('Suppression effectuée');
@@ -44,6 +56,7 @@ export default class UserManager {
    * @param userDiscordId Snowflake du membre
    * @param isNew true si c’est la première création
    */
+  @SafeMethod
   public async initMemberRh(userDiscordId: string, isNew = false): Promise<RHMemberEntity | null> {
     // récupère le GuildMember
     const guildMember = await this.bot.guild.members.fetch(userDiscordId).catch(() => null);
@@ -54,9 +67,9 @@ export default class UserManager {
     if (!user) return null;
 
     // cherche ou crée le profil RH
-    let memberRh = await this.bot.dbMgr.getEm().findOne(RHMemberEntity, { user: user.id });
+    let memberRh = await this.em.findOne(RHMemberEntity, { user: user.id });
     if (!memberRh) {
-      memberRh = this.bot.dbMgr.getEm().create(RHMemberEntity, {
+      memberRh = this.em.create(RHMemberEntity, {
           user,
           status: '',
           dateEntree: '',
@@ -78,14 +91,15 @@ export default class UserManager {
       memberRh.dateEntree = new Date();
     }
 
-    await this.bot.dbMgr.update(memberRh);
-    return await this.bot.dbMgr.getEm().findOne(RHMemberEntity, { user: user.id });
+    await this.em.persistAndFlush(memberRh);
+    return await this.em.findOne(RHMemberEntity, { user: user.id });
   }
 
   /**
    * Accepte une candidature RH en attribuant les rôles Discord
    * @param idCand identifiant de RHMember en BDD
    */
+  @SafeMethod
   public async acceptCandidature(idCand: number): Promise<{ success: true } | { success: false; error: Error }> {
     try {
       if (idCand === -1) {
@@ -93,7 +107,7 @@ export default class UserManager {
       }
 
       // récupère le profil RH
-      const memberRh = await this.bot.dbMgr.getEm().findOne(RHMemberEntity, idCand);
+      const memberRh = await this.em.findOne(RHMemberEntity, idCand);
       if (!memberRh) {
         throw new Error('Membre RH non trouvé');
       }

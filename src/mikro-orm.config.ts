@@ -15,9 +15,9 @@ export default defineConfig({
     : (await import('@mikro-orm/reflection')).TsMorphMetadataProvider,
 
   // en prod on ne regarde plus en .ts
-  entitiesTs: ['src/entities/**/*.ts'],
+  entitiesTs: !isProd ? ['src/entities/**/*.ts'] : [],
   // EN PROD (JavaScript compilé) :
-  entities:   ['dist/src/entities/**/*.js'],
+  entities:   isProd ? ['dist/src/entities/**/*.js'] : [],
   flushMode: FlushMode.COMMIT,
   
   debug: !isProd,

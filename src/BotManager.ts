@@ -1,20 +1,19 @@
 // src/BotManager.ts
 import { 
-  Client, GatewayIntentBits, Guild, Role, Message, GuildChannel, GuildBasedChannel, 
+  Client, GatewayIntentBits, Guild, Role, GuildChannel, GuildBasedChannel, 
   DMChannel, Collection, GuildMember, 
   PartialGuildMember,
   Interaction,
-  StringSelectMenuInteraction,
-  TextChannel,
-  ButtonInteraction
+  ButtonInteraction,
+  StringSelectMenuBuilder,
+  SelectMenuInteraction,
+  StringSelectMenuInteraction
 } from 'discord.js';
 import logger from './logger.js';
 import DatabaseManager from './managers/DatabaseManager.js';
 import { Role as DBRole } from './entities/Role.js';
 import { Parameter } from './entities/Parameter.js';
 import EventManager  from './managers/EventManager.js';
-// import type TicketManager    from './managers/TicketManager.js';
-// import type OperationManager from './managers/OperationManager.js';
 import SchedulerManager from './managers/SchedulerManager.js';
 
 import { Channel } from './entities/Channel.js';
@@ -26,19 +25,30 @@ import { componentHandlerRegistry } from './registry/ComponentHandlerRegistry.js
 import { ViewHandlers } from './view/BaseView.js';
 import { InteractionContext } from './entities/ViewContext.js';
 
+import { SafeMethod } from './exception/Safe.js';
+import WebServer from './web/WebServer.js';
+import { OperationModule } from './managers/OperationManager.js';
+
+import {Handlers} from './view/TicketsView.js'
+import { TicketManager } from './managers/TicketsManager.js';
+
+
 export default class BotManager extends Client {
   public guildId: string;
   public guild!: Guild;
   public roleMember?: Role;
   public dbMgr: DatabaseManager;
-  public evMgr: EventManager;
-  public usrMgr: UserManager;
+  public evMgr!: EventManager;
+  public usrMgr!: UserManager;
 
   // public ticketMgr: TicketManager;
-  // public opMgr: OperationManager;
-  public schedMgr: SchedulerManager;
+  public opMgr!: OperationModule;
+  public tkMgr!: TicketManager;
+  public schedMgr!: SchedulerManager;
   private hasStarted = false;
   private parameters: Record<string, Parameter> = {};
+
+  public excludeCategory: string[] = ['Cimetière des canaux'];
 
   constructor() {
     super({
@@ -52,14 +62,6 @@ export default class BotManager extends Client {
 
     this.guildId   = process.env.GUILD_ID!;
     this.dbMgr = new DatabaseManager(this, ['Cimetière des canaux']);
-    this.dbMgr.connect();
-
-    this.evMgr = new EventManager(this);
-    this.usrMgr = new UserManager(this);
-
-    // this.ticketMgr = options.ticketMgr;
-    // this.opMgr     = options.opMgr;
-    this.schedMgr  = new SchedulerManager(this);
 
     // Événements Discord.js
     this.once('ready', () => this._onReady());
@@ -87,20 +89,40 @@ export default class BotManager extends Client {
   private setHandlersButtons() {
     // clés libres, tant qu’elles sont uniques
     componentHandlerRegistry.register(ViewHandlers.InviteViewHandler, async (interaction, data) => {
+      await (interaction as ButtonInteraction).deferUpdate();
+
       await this.evMgr.userResponseHandle(interaction as ButtonInteraction, data);
     });
 
-    componentHandlerRegistry.register(ViewHandlers.SelectRoleHandler, async (interaction, data) => {
-      await this.evMgr.userResponseHandle(interaction as ButtonInteraction, data);
+    componentHandlerRegistry.register(ViewHandlers.OperationHandler, async (interaction, data) => {
+      if ((interaction as ButtonInteraction).customId == 'op_btn') 
+        await this.opMgr.sendForm(interaction as ButtonInteraction)
+      else
+        await this.opMgr.handlerForm(interaction, data)
+    });
+
+    componentHandlerRegistry.register(ViewHandlers.TicketsHandler, async (interaction, data) => {
+      if (interaction.isButton()) {
+        if (interaction.customId == Handlers.OpenTicket)
+          await this.tkMgr.sendForm(interaction)
+        else if (interaction.customId == Handlers.CloseTicket)
+          await this.tkMgr.closeForm(interaction, data)
+      }
+      else if ((interaction as StringSelectMenuInteraction).customId == Handlers.SelectType) 
+        await this.tkMgr.createTickets(interaction as StringSelectMenuInteraction, data)
+      else if (interaction.isModalSubmit())
+        await this.tkMgr.modalSubmit(interaction, data)
     });
 
   }
 
+  @SafeMethod
   private async _onReady(): Promise<void> {
     if (this.hasStarted) return;
     this.hasStarted = true;
 
-    // Récupération de la guild
+    await this.dbMgr.connect();
+     // Récupération de la guild
     const guild = this.guilds.cache.get(this.guildId);
     if (!guild) {
       throw new Error(`Guild ${this.guildId} introuvable`);
@@ -118,17 +140,35 @@ export default class BotManager extends Client {
     const me = await this.guild.members.fetchMe();
     await this.dbMgr.insertAndGetUser(me);
 
+    
+    await this.createManager();
 
-    // Démarrage des managers (exemples commentés)
-    // if (this.ticketMgr) await this.ticketMgr.createInitialTickets(this.guild);
-    // if (this.opMgr)     await this.opMgr.ensureChannels(this.guild);
+    logger.info('Synchronisation des Rôles');
     await this.dbMgr.syncRoles(this.guild.roles.cache);
+    logger.info('Synchronisation des Channels');
     await this.dbMgr.syncChannels(this.guild.channels.cache);
-
 
     logger.info(`Discord connecté en tant que ${this.user?.tag}`);
   }
 
+  private async createManager() {
+    logger.info('Création des Managers')
+    this.evMgr = new EventManager(this);
+    this.usrMgr = new UserManager(this);
+    
+    this.opMgr = new OperationModule(this);
+    await this.opMgr.init();
+    
+    this.tkMgr = new TicketManager(this);
+    await this.tkMgr.init();
+
+    this.schedMgr  = new SchedulerManager(this);
+        
+    const webServer = new WebServer(this);
+    webServer.start(parseInt(process.env.PORT!, 10));
+  }
+
+  @SafeMethod
   private async _onGuildRoleCreate(role: Role) {
     try {
       logger.info(`Création du rôle : ${role.name}`);
@@ -141,19 +181,22 @@ export default class BotManager extends Client {
     }
   }
 
+  @SafeMethod
   private async _onGuildRoleDelete(role: Role) {
     try {
+      const em = this.dbMgr.getEm();
       logger.info(`Suppression du rôle : ${role.name}`);
-      const roleDb = this.dbMgr.getEm().findOne(DBRole, {discordId: role.id})
-      if (roleDb) await this.dbMgr.getEm().removeAndFlush(roleDb);
+      await em.nativeDelete(DBRole, {discordId: role.id});
     } catch (e) {
       logger.error(`onGuildRoleDelete - ${e}`);
     }
   }
 
+  @SafeMethod
   private async _onGuildRoleUpdate(oldRole: Role, newRoleObj: Role) {
     try {
-      const roleEntity = await this.dbMgr.getEm().findOne(
+      const em = this.dbMgr.getEm();
+      const roleEntity = await em.findOne(
         DBRole, {discordId:   newRoleObj.id }
       );
 
@@ -161,7 +204,7 @@ export default class BotManager extends Client {
 
       roleEntity.name = newRoleObj.name;
       roleEntity.isGrade = newRoleObj.hoist;
-      await this.dbMgr.update(roleEntity);
+      await em.persistAndFlush(roleEntity);
       
       logger.info(
         `Modification du rôle ${newRoleObj.id} : ${oldRole.name} -> ${newRoleObj.name}`,
@@ -171,6 +214,7 @@ export default class BotManager extends Client {
     }
   }
 
+  @SafeMethod
   private async _onGuildChannelCreate(channel: GuildChannel) {
     try {
       const singleChannelCollection = new Collection<string, GuildBasedChannel>();
@@ -181,30 +225,33 @@ export default class BotManager extends Client {
     }
   }
 
+  @SafeMethod
   private async _onGuildChannelDelete(channel: DMChannel | GuildChannel) {
     try {
       if(channel as DMChannel) return;
-      const channelEntity = await this.dbMgr.getEm().findOne(Channel, {discordId: channel.id});
-      if (channelEntity) await this.dbMgr.getEm().removeAndFlush(channelEntity);
+      const em = this.dbMgr.getEm();
+      await em.nativeDelete(Channel, {discordId: channel.id});
       logger.info(`Suppression du canal : ${(channel as GuildChannel).name}`);
     } catch (e) {
       logger.error(`onGuildChannelDelete - ${e}`);
     }
   }
 
+  @SafeMethod
   private async _onGuildChannelUpdate(
     oldChannel: DMChannel | GuildChannel,
     newChannel: DMChannel | GuildChannel
   ) {
     try {
+      const em = this.dbMgr.getEm();
       if(newChannel as DMChannel) return;
       if ((oldChannel as GuildChannel).name === (newChannel as GuildChannel).name) return;
 
-      const channelEntity = await this.dbMgr.getEm().findOne(Channel, {discordId: newChannel.id});
+      const channelEntity = await em.findOne(Channel, {discordId: newChannel.id});
       if (!channelEntity) return;
 
       channelEntity.name = (newChannel as GuildChannel).name;
-      await this.dbMgr.update(channelEntity);
+      await em.persistAndFlush(channelEntity);
       logger.info(
         `Modification du canal : ${(oldChannel as GuildChannel).name} -> ${(newChannel as GuildChannel).name}`,
       );
@@ -213,15 +260,18 @@ export default class BotManager extends Client {
     }
   }
 
+  @SafeMethod
   private async _onGuildMemberUpdate(
     before: GuildMember | PartialGuildMember,
     after: GuildMember,
   ) {
     try {
+      const em = this.dbMgr.getEm();
       // 1) Récupère ou crée l’utilisateur en bdd
-      let user = await this.dbMgr.getEm().findOne(
+      let user: User | null = await em.findOne(
         User,
         { discordId: after.id },
+        { populate: ['*'] }
       );
 
       // calcule les rôles ajoutés / retirés
@@ -246,7 +296,7 @@ export default class BotManager extends Client {
       if (newRoles.size || removedRoles.size) {
         // s’il perd le rôle “membre”, on le supprime
         if (removedRoles.has(this.roleMember!.id)) {
-          await this.dbMgr.getEm().removeAndFlush(user);
+          await em.removeAndFlush(user);
           return;
         }
 
@@ -257,7 +307,7 @@ export default class BotManager extends Client {
 
         // AJOUT de rôles
         for (const r of newRoles.values()) {
-          const dbRole = await this.dbMgr.getEm().findOne(
+          const dbRole = await em.findOne(
             DBRole,
             { discordId: r.id },
           );
@@ -269,7 +319,7 @@ export default class BotManager extends Client {
 
         // RETRAIT de rôles
         for (const r of removedRoles.values()) {
-          const dbRole = await this.dbMgr.getEm().findOne(
+          const dbRole = await em.findOne(
             DBRole,
             { discordId: r.id },
           );
@@ -281,7 +331,7 @@ export default class BotManager extends Client {
 
         // trace + flush
         await logger.info(`Modification des rôles de ${user.username}`);
-        await this.dbMgr.update(user);
+        await em.persistAndFlush(user);
 
         // si nouveau membre ou changement de grade, réinitialise la RH
         if (
@@ -305,7 +355,7 @@ export default class BotManager extends Client {
       // 3) Si le surnom a changé
       if (before.displayName !== after.displayName) {
         user.username = after.displayName;
-        await this.dbMgr.update(user);
+        await em.persistAndFlush(user);
 
         // calcul de la période [premier jour ; dernier jour] du mois courant
         const today = new Date();
@@ -321,7 +371,7 @@ export default class BotManager extends Client {
         );
 
         // récupère les events du mois
-        const events = await this.dbMgr.getEm().find(Event, {
+        const events = await em.find(Event, {
           start:  { 
             $gte: startOfMonth,
             $lte: endOfMonth, 
@@ -332,7 +382,7 @@ export default class BotManager extends Client {
 
         // pour chaque event où l’utilisateur a déjà répondu…
         for (const event of events) {
-          const resp = await this.dbMgr.getEm().findOne(
+          const resp = await em.findOne(
             Response,
             {
               users: user.id,
@@ -349,9 +399,10 @@ export default class BotManager extends Client {
     }
   }
 
+  @SafeMethod
   private async _onGuildMemberRemove(member: GuildMember | PartialGuildMember) {
     try {
-      const user = await this.dbMgr.getEm().findOne(
+      const user = await this.usrMgr.em.findOne(
         User,
         { discordId: member.id },
         { populate: false },
@@ -363,26 +414,26 @@ export default class BotManager extends Client {
     }
   }
 
+  @SafeMethod
   public async _onInteraction(interaction: Interaction) {
-    if (interaction.isButton() || interaction.isStringSelectMenu()) {
+    if (interaction.isButton() || interaction.isStringSelectMenu() || interaction.isModalSubmit()) {
       const { customId, message } = interaction;
-      const ctx = await this.dbMgr.getEm().findOne(InteractionContext, { customId, messageId: message.id });
-      if (!ctx) return interaction.reply({ content: 'Ce composant a expiré.', ephemeral: true });
+
+      const ctx = await this.dbMgr.getEm().findOne(InteractionContext, { customId, messageId: message?.id });
+      if (!ctx) {
+        logger.debug(`Composant non trouvé -> customId: ${customId}  message: ${message}`)
+        return
+      }
       const handler = componentHandlerRegistry.get(ctx.handlerKey);
       if (handler) await handler(interaction, ctx.data);
     }
 
     
-      // cas du bouton “closeTicket_…”
-      // if (customId.startsWith('closeTicket')) {
-      //   const [, closeButtonId] = customId.split('_');
-      //   await interaction.showModal(
-      //     Ticket.CloseTicketModal(closeButtonId, interaction.channel!)
-      //   );
-      // }
+     
   }
 
   /** Charge tous les paramètres depuis la BDD dans le cache `this.parameters` */
+  @SafeMethod
   public async loadParameters(): Promise<void> {
     // Supposons que db.selectAll renvoie une liste d'instances de Parameter
     const all = await this.dbMgr.getEm().findAll(Parameter, {populate: ["*"]});
@@ -406,6 +457,7 @@ export default class BotManager extends Client {
    * Recharge les paramètres en base, puis réinitialise ton scheduler d’events.
    * (équivalent de ton update_param Python)
    */
+  @SafeMethod
   public async refreshParameters(): Promise<void> {
     await this.loadParameters();
     // Appelle la méthode correspondante de ton scheduler

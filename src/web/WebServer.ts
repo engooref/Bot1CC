@@ -44,7 +44,7 @@ export default class AppExpress {
   }
 
   public start(port: number): void {
-    this.app.listen(port, () => {
+    this.app.listen(port, '0.0.0.0', () => {
       logger.info(`Express server listening on http://localhost:${port}`);
     });
   }

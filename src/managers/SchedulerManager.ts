@@ -3,8 +3,10 @@ import  BotManager  from '../BotManager.js';
 import { Event }      from '../entities/Event.js';
 import { Response }   from '../entities/Response.js';
 import { addDays, startOfDay, endOfDay } from 'date-fns';
-import { GuildMember } from 'discord.js';
+import { GuildMember, ThreadAutoArchiveDuration } from 'discord.js';
 import { FilterQuery } from '@mikro-orm/core';
+import { SafeMethod } from '../exception/Safe.js';
+import logger from '../logger.js';
 
 const DAY_NAMES = ['dimanche','lundi','mardi','mercredi','jeudi','vendredi','samedi'];
 
@@ -30,7 +32,7 @@ export class SchedulerAppEvent {
 
 
     this.startScheduler();
-    console.log(`✔ Scheduled weekly send: ${DAY_NAMES[this.dayIndex]} at ${this.hourMinute}`);
+    logger.info(`✔ Scheduled weekly send: ${DAY_NAMES[this.dayIndex]} at ${this.hourMinute}`);
   }
 
   private startScheduler(): void {
@@ -50,12 +52,13 @@ export class SchedulerAppEvent {
     if (now.getDay() === (this.dayIndex % 7) &&
         now.getHours() === h && now.getMinutes() === m) {
       // lance l’envoi en tâche asynchrone
-      this.sendEventsWeek().catch(err => console.error('sendEventsWeek error', err));
+      this.sendEventsWeek().catch(err => logger.error('sendEventsWeek error', err));
     }
   }
 
+  @SafeMethod
   private async sendEventsWeek(): Promise<void> {
-    console.log('→ sendEventsWeek');
+    logger.info('→ sendEventsWeek');
     const today = new Date();
     // trouve le prochain lundi
     const daysUntilMonday = (8 - today.getDay()) % 7;
@@ -63,7 +66,7 @@ export class SchedulerAppEvent {
     const sunday = endOfDay(addDays(monday, 6));
 
     // version $between
-    const events = await this.bot.dbMgr.getEm().getRepository(Event).find({
+    const events = await this.bot.evMgr.em.getRepository(Event).find({
         start: { 
           $gte: monday,
           $lte: sunday, 
@@ -74,10 +77,10 @@ export class SchedulerAppEvent {
 
     for (const ev of events) {
       await this.bot.evMgr.setEvent(ev);
-      this.bot.dbMgr.getEm().persist(ev);
+      this.bot.evMgr.em.persist(ev);
     }
 
-    await this.bot.dbMgr.getEm().flush()
+    await this.bot.evMgr.em.flush()
   }
 }
 
@@ -89,12 +92,13 @@ export class SchedulerEvent {
     setInterval(() => this.checkEvents(), 60_000);
   }
 
+  @SafeMethod
   private async checkEvents(): Promise<void> {
     const today = new Date();
     const start = startOfDay(today);
     const end   = endOfDay(today);
 
-    const events = await this.bot.dbMgr.getEm().getRepository(Event).find({
+    const events = await this.bot.evMgr.em.getRepository(Event).find({
         start: { 
           $gte: start,
           $lte: end, 
@@ -119,12 +123,13 @@ export class SchedulerEvent {
   private scheduleReminder(ev: Event, delayMs: number): void {
     if (this.pendingTasks.has(ev.id)) return;
     const timeout = setTimeout(() => {
-      this.sendReminder(ev).catch(console.error);
+      this.sendReminder(ev).catch(logger.error);
       this.pendingTasks.delete(ev.id);
     }, delayMs);
     this.pendingTasks.set(ev.id, timeout);
   }
 
+  @SafeMethod
   private async sendReminder(ev: Event): Promise<void> {
     // protège contre doublons
     if (ev.appelMsgDiscord) return;
@@ -134,7 +139,7 @@ export class SchedulerEvent {
     const msg = await channel.messages.fetch(ev.discordId).catch(() => null);
     if (!msg) return;
     
-    const resps = await this.bot.dbMgr.getEm().getRepository(Response).find({
+    const resps = await this.bot.evMgr.em.getRepository(Response).find({
         event: ev,
         typeRep: "accepted"
     } as FilterQuery<Response>);
@@ -150,9 +155,17 @@ export class SchedulerEvent {
       .map(m => `<@${m!.id}>`)
       .join(' ');
 
-    await msg.reply(`${ev.name}\n\n${line || 'Aucun'}`);
+    // Crée un thread sur le message d'origine
+    const thread = await msg.startThread({
+      name: `Rappel : ${ev.name}`,         // nom du thread
+      autoArchiveDuration: ThreadAutoArchiveDuration.OneDay,            // en minutes, ici 1h
+      reason: 'Rappel des participants',
+    });
+
+    // Envoie le contenu dans le thread
+    await thread.send(`${ev.name}\n\n${line}`);
     ev.appelMsgDiscord = true;
-    await this.bot.dbMgr.update(ev);
+    await this.bot.evMgr.em.persistAndFlush(ev);
   }
 
   public cancelReminder(ev: Event): void {
