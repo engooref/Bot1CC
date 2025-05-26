@@ -455,7 +455,7 @@ export default class EventManager {
 
     // 3. Si on n’a pas trouvé le message (cas 1 ou 2), on crée un nouveau thread
     if (!message) {
-      const tag = channelBrief.availableTags.find(t => t.name === process.env.EVENT_TAG!);
+      const tag = channelBrief.availableTags.find(t => t.id === process.env.EVENT_TAG!);
       const newThread = await channelBrief.threads.create({
         name: event.name,
         appliedTags: tag ? [tag.id] : [],
@@ -486,7 +486,7 @@ export default class EventManager {
   /** Sélectionne le bon canal TextChannel en fonction du type d’event */
   getChannel(event: Event): TextChannel {
     const type = event.type?.name.toUpperCase() ?? "";
-    let param = type.includes('ENTRAINEMENT') ? 'CHANNEL_TRAINING'
+    let param = type.includes('ENTRAINEMENT COMPÉTITION') ? 'CHANNEL_TRAINING'
               : type.includes('GROS EVENT') ? 'CHANNEL_GROS_EVENT'
               : 'CHANNEL_' + event.start.toLocaleDateString('fr-FR', { weekday: 'long' }).toUpperCase();
     const id = this.bot.getParameter(param) as string;
