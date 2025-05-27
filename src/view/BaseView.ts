@@ -79,27 +79,11 @@ export abstract class BaseComponentView {
         try {
             // 2️⃣ Tente de refetch + edit le message existant
             const msg = await channel.messages.fetch(message.id);
-            let edited = undefined;
-            if ('files' in options) {
-                const sendPayload: MessageCreateOptions = {
-                    content: options.content ?? undefined,
-                    embeds: options.embeds,
-                    components: this.rows as unknown as any[],
-                    files: options.files,
-                };
-
-
-                // S'il y a un fichier, on supprime l'ancien et on renvoie un nouveau
-                this.bot.dbMgr.getEm().nativeDelete(InteractionContext, {messageId: msg.id})
-                await msg.delete();
-                edited = await (channel as TextChannel).send(sendPayload);
-            } else {
                 // Sinon on édite simplement
-                 edited = await msg.edit({
-                ...options,
-                components: this.rows as unknown as any[],
-                });
-            }
+            const edited = await msg.edit({
+            ...options,
+            components: this.rows as unknown as any[],
+            });
             await this.persistContexts(edited.id, channel.id);
             return edited;
 

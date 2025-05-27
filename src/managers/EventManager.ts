@@ -139,9 +139,9 @@ export default class EventManager {
 
       // 2) Mettre à jour les champs dans l’embed
       embed.data.fields = embed.data.fields!.map(f => {
-        if (f.name.startsWith('Accepted'))   return { name: `Accepted (${lists.accepted.length})`,   value: lists.accepted.join('\n')||'Aucun', inline: f.inline };
-        if (f.name.startsWith('Declined'))   return { name: `Declined (${lists.declined.length})`,   value: lists.declined.join('\n')||'Aucun', inline: f.inline };
-        if (f.name.startsWith('Tentative'))  return { name: `Tentative (${lists.tentative.length})`, value: lists.tentative.join('\n')||'Aucun', inline: f.inline };
+        if (f.name.startsWith('Accepted'))   return { name: `Accepted (${lists.accepted.length})`,   value: lists.accepted.sort((a, b) => a.localeCompare(b, 'fr')).join('\n')||'Aucun', inline: f.inline };
+        if (f.name.startsWith('Declined'))   return { name: `Declined (${lists.declined.length})`,   value: lists.declined.sort((a, b) => a.localeCompare(b, 'fr')).join('\n')||'Aucun', inline: f.inline };
+        if (f.name.startsWith('Tentative'))  return { name: `Tentative (${lists.tentative.length})`, value: lists.tentative.sort((a, b) => a.localeCompare(b, 'fr')).join('\n')||'Aucun', inline: f.inline };
         return f;
       });
 

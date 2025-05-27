@@ -11,7 +11,7 @@ export class TicketType {
   name;
 
   @Property({ type: 'bigint' })
-  roleAuth;
+  roleAuth: string;
 
   /**
    * @param {string} name
