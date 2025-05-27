@@ -212,6 +212,8 @@ export class TicketManager {
         await interaction.update({ content: `Votre ticket a été créé dans <#${channel.id}>`, components: [] });
         logger.info(`Ticket n°${ticket.id} Créer`)
 
+        await this.em.nativeDelete(InteractionContext, {messageId: interaction.message.id});
+
     }
 
     public async closeForm(interaction: ButtonInteraction, data: any) {
@@ -261,7 +263,7 @@ export class TicketManager {
 
         ticket.closed = new Date();
         ticket.closedUserId = interaction.user.id;
-        ticket.closedMessage = interaction.fields.getTextInputValue('select_clotureModal') ?? 'Aucune raison indiquée';
+        ticket.closedMessage = interaction.fields.getTextInputValue('select_clotureModal') !== '' ? interaction.fields.getTextInputValue('select_clotureModal') : 'Aucune raison indiquée';
         await this.em.persistAndFlush(ticket);
 
         const userOpen = await this.bot.guild.members.fetch(ticket.userId);
@@ -292,5 +294,7 @@ export class TicketManager {
         
 
         logger.info(`Ticket n°${ticket.id} Cloturé -> ${ticket.closedMessage}`)
+
+        this.em.nativeDelete(InteractionContext, {messageId: interaction.message?.id})
     }
 }

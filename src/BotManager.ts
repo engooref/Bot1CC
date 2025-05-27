@@ -5,9 +5,10 @@ import {
   PartialGuildMember,
   Interaction,
   ButtonInteraction,
-  StringSelectMenuBuilder,
-  SelectMenuInteraction,
-  StringSelectMenuInteraction
+  StringSelectMenuInteraction,
+  GuildMemberRoleManager,
+  GuildTextBasedChannel,
+  EmbedBuilder
 } from 'discord.js';
 import logger from './logger.js';
 import DatabaseManager from './managers/DatabaseManager.js';
@@ -31,6 +32,7 @@ import { OperationModule } from './managers/OperationManager.js';
 
 import {Handlers} from './view/TicketsView.js'
 import { TicketManager } from './managers/TicketsManager.js';
+import { sendEnga, sendCandidatures } from './view/EngaView.js';
 
 
 export default class BotManager extends Client {
@@ -114,6 +116,10 @@ export default class BotManager extends Client {
         await this.tkMgr.modalSubmit(interaction, data)
     });
 
+    componentHandlerRegistry.register(ViewHandlers.EngaHandler, async (interaction , _) => {
+      if (interaction.isButton())
+        await sendCandidatures(interaction, this);        
+    });
   }
 
   @SafeMethod
@@ -147,6 +153,8 @@ export default class BotManager extends Client {
     await this.dbMgr.syncRoles(this.guild.roles.cache);
     logger.info('Synchronisation des Channels');
     await this.dbMgr.syncChannels(this.guild.channels.cache);
+
+    await sendEnga(this);
 
     logger.info(`Discord connecté en tant que ${this.user?.tag}`);
   }

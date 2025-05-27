@@ -21,7 +21,8 @@ export enum ViewHandlers {
     InviteViewHandler = 'InviteHandler',
     SelectRoleHandler = 'SelectRoleHandler',
     OperationHandler = 'OperationHandler',
-    TicketsHandler = 'TicketsHandler'
+    TicketsHandler = 'TicketsHandler',
+    EngaHandler = 'EngaHandler'
 }
 
 type ComponentInteraction = ButtonInteraction | StringSelectMenuInteraction;
@@ -67,21 +68,38 @@ export abstract class BaseComponentView {
         let channel: TextBasedChannel;
 
         // 1️⃣ Récupère ou refetch le channel
-        if (message.channel) {
-        channel = message.channel as TextBasedChannel;
+        if (message. channel) {
+            channel = message.channel as TextBasedChannel;
         } else {
-        channel = await this.bot.channels.fetch(
-            message.channelId
-        ) as TextBasedChannel;
+            channel = await this.bot.channels.fetch(
+                message.channelId
+            ) as TextBasedChannel;
         }
-
+                
         try {
             // 2️⃣ Tente de refetch + edit le message existant
             const msg = await channel.messages.fetch(message.id);
-            const edited = await msg.edit({
+            let edited = undefined;
+            if ('files' in options) {
+                const sendPayload: MessageCreateOptions = {
+                    content: options.content ?? undefined,
+                    embeds: options.embeds,
+                    components: this.rows as unknown as any[],
+                    files: options.files,
+                };
+
+
+                // S'il y a un fichier, on supprime l'ancien et on renvoie un nouveau
+                this.bot.dbMgr.getEm().nativeDelete(InteractionContext, {messageId: msg.id})
+                await msg.delete();
+                edited = await (channel as TextChannel).send(sendPayload);
+            } else {
+                // Sinon on édite simplement
+                 edited = await msg.edit({
                 ...options,
                 components: this.rows as unknown as any[],
-            });
+                });
+            }
             await this.persistContexts(edited.id, channel.id);
             return edited;
 
@@ -98,7 +116,7 @@ export abstract class BaseComponentView {
 
     public async sendOrEdit(
         channel: TextChannel,
-        existingMessage: Message | null,
+        existingMessage: Message | null | undefined,
         options: Omit<MessageCreateOptions, 'components'> & Omit<MessageEditOptions, 'components'>,
     ): Promise<Message> {
         if (existingMessage) {

@@ -57,14 +57,14 @@ export default class UserManager {
    * @param isNew true si c’est la première création
    */
   @SafeMethod
-  public async initMemberRh(userDiscordId: string, isNew = false): Promise<RHMemberEntity | null> {
+  public async initMemberRh(userDiscordId: string, isNew = false): Promise<RHMemberEntity> {
     // récupère le GuildMember
     const guildMember = await this.bot.guild.members.fetch(userDiscordId).catch(() => null);
-    if (!guildMember) return null;
+    if (!guildMember) throw new Error('Membre non trouvé sur Discord');
 
     // insère ou récupère l’utilisateur en BDD
     let user = await this.bot.dbMgr.insertAndGetUser(guildMember);
-    if (!user) return null;
+    if (!user) throw new Error('Utilisateur non enregistré en BDD');
 
     // cherche ou crée le profil RH
     let memberRh = await this.em.findOne(RHMemberEntity, { user: user.id });
@@ -92,7 +92,7 @@ export default class UserManager {
     }
 
     await this.em.persistAndFlush(memberRh);
-    return await this.em.findOne(RHMemberEntity, { user: user.id });
+    return await this.em.findOneOrFail(RHMemberEntity, { user: user.id });
   }
 
   /**
