@@ -72,8 +72,10 @@ export default class UserManager {
       memberRh = this.em.create(RHMemberEntity, {
           user,
           status: '',
-          dateEntree: '',
-          dateDemand: ''
+          dateEntree: new Date(0),
+          dateDemand: new Date(0),
+          grade: null,
+          lastPromotion: new Date(0),
       });
     }
 
@@ -92,7 +94,7 @@ export default class UserManager {
     }
 
     await this.em.persistAndFlush(memberRh);
-    return await this.em.findOneOrFail(RHMemberEntity, { user: user.id });
+    return memberRh;
   }
 
   /**

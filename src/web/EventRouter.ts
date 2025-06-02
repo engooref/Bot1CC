@@ -2,6 +2,7 @@ import { Router, Request, Response, NextFunction } from 'express';
 import BotManager from '../BotManager.js';
 import { Event } from '../entities/Event.js';
 import logger from '../logger.js';
+import multer from 'multer';
 
 // DTO du body pour créer/mettre à jour un event
 export interface CreateEventDto {
@@ -9,6 +10,7 @@ export interface CreateEventDto {
   search?: string;
   candId?: number;
 }
+const upload = multer({ storage: multer.memoryStorage() });
 
 // on stocke la fonction dans une variable fléchée
 async function getEventFromReq(
@@ -33,7 +35,7 @@ export function createEventRouter(bot: BotManager): Router {
   const router = Router();
 
   // POST /setEvent
-  router.post('/setEvent', async (req: Request<{}, {}, CreateEventDto>, res: Response, next: NextFunction) => {
+  router.post('/setEvent', upload.none(), async (req: Request<{}, {}, CreateEventDto>, res, next) => {
     const { eventId } = req.body;
     try {
       const event = await getEventFromReq(eventId, bot)
@@ -48,7 +50,7 @@ export function createEventRouter(bot: BotManager): Router {
   });
 
   // POST /suppEvent
-  router.post('/suppEvent', async (req: Request<{}, {}, CreateEventDto>, res, next) => {
+  router.post('/suppEvent', upload.none(), async (req: Request<{}, {}, CreateEventDto>, res, next) => {
     const { eventId } = req.body;
     try {
       const event = await getEventFromReq(eventId, bot)
@@ -63,18 +65,24 @@ export function createEventRouter(bot: BotManager): Router {
   });
 
   // POST /searchUserAttribution
-  router.post('/searchUserAttribution', (req: Request<{}, {}, CreateEventDto>, res) => {
+  router.post('/searchUserAttribution', upload.none(), (req: Request<{}, {}, CreateEventDto>, res) => {
     const result = bot.evMgr.searchUserAttribution(req.body.search || '');
     res.json(result);
   });
 
   // POST /setAttributionEvent
-  router.post('/setAttributionEvent', async (req: Request<{}, {}, CreateEventDto>, res, next) => {
+  router.post('/setAttributionEvent',  upload.any(), async (req: Request<{}, {}, CreateEventDto>, res, next) => {
     const { eventId } = req.body;
+    const files = req.files as Express.Multer.File[];
+    if (!files.length) {
+      res.status(400).send('Aucun fichier reçu.');
+      return 
+    }
+
     try {
       const event = await getEventFromReq(eventId, bot)
 
-      await bot.evMgr.attributionEvent(event);
+      await bot.evMgr.attributionEvent(event, files);
 
       res.json({});
     } catch (err) {
@@ -85,7 +93,7 @@ export function createEventRouter(bot: BotManager): Router {
   });
 
   // POST /acceptCandidatures
-  router.post('/acceptCandidatures', async (req: Request<{}, {}, CreateEventDto>, res, next) => {
+  router.post('/acceptCandidatures', upload.none(), async (req: Request<{}, {}, CreateEventDto>, res, next) => {
     const idCand = req.body.candId;
     try {
       if (idCand == null) throw new Error('idCand manquant');
@@ -100,4 +108,3 @@ export function createEventRouter(bot: BotManager): Router {
 
   return router;
 }
-

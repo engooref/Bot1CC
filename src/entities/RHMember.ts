@@ -23,11 +23,11 @@ export class RHMember {
   @Property({ length: 255, default: 'Actif' })
   status: string = 'Actif';
 
-  @Property({ type: 'datetime', nullable: true, defaultRaw: 'CURRENT_TIMESTAMP' })
-  lastPromotion?: Date;
+  @Property({ type: 'datetime', nullable: false })
+  lastPromotion?: Date = new Date(0);
 
   @ManyToOne(() => Role, { inversedBy: 'rHMembers', nullable: true })
-  grade?: Rel<Role>;
+  grade?: Rel<Role> | null = null;
 
   @Property({ type: 'datetime', nullable: false, defaultRaw: "'1970-01-01 00:00:00'" })
   dateEntree: Date = new Date(0);

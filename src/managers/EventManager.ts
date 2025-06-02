@@ -15,6 +15,7 @@ import {
   Message,
   GuildMember,
   ButtonInteraction,
+  ThreadChannel,
 } from 'discord.js';
 import { file as tmpFile } from 'tmp-promise';
 
@@ -179,7 +180,7 @@ export default class EventManager {
   }
 
   @SafeMethod
-  async attributionEvent(event: Event) {
+  async attributionEvent(event: Event, files: Express.Multer.File[]) {
     try {
       // 1) Récupère le forum
       const forum = /** @type {ForumChannel} */ (
@@ -189,110 +190,71 @@ export default class EventManager {
         throw new Error('CHANNEL_BRIEFING n’est pas un ForumChannel valide');
       }
 
-      const responses =  await this.em.getRepository(Response).find({
-        event: event,
-        typeRep: { $in: ['accepted', 'added']}
-      }, {
-        populate: ['users', 'team', 'roles'],
-      });
-
-      const headerRow = {
-        col1: 'Utilisateur',
-        col2: 'Équipe',
-        col3: 'Rôles',
-        col4: 'Vaisseau',
-        col5: 'Fonction à bord',
-        col6: 'Commentaire',
-        col2color: '#FFFFFF',
-        col2TextColor: '#000000'
-      };
-
-      // 2) Construis ton tableau de données
-      const payloadRows = [
-        headerRow,
-        ...responses.map(r => ({
-          col1: r.users.username,
-          col2: r.team?.name        ?? 'Aucune équipe',
-          roles:       (r.roles ?? []).map(rr => ({ name: rr.name, color: rr.color })),
-          col4: r.vaisseau         ?? '',
-          col5: r.roleVaisseau     ?? '',
-          col6: r.commentaire      ?? '',
-          col2TextColor: this.getContrastTextColor(r.team?.color ?? '#FFFFFF'),
-          col2color: r.team?.color
-
-        })),
-      ];
-
-      // 3) Prépare les données pour le SVG
-      const data = {
-        name: `Attribution - ${event.name}`,
-        rows: payloadRows
-      };
-
-      const baseDir = path.join('Data', 'Attribution')
-      const config = {
-        svgTemplatePath: path.join(baseDir, 'template.svg'),
-        xsltPath: path.join(baseDir, 'template.xslt'),
-        outputSvgPath: path.join(baseDir, 'attribution_filled.svg'),
-        outputPngPath: path.join(baseDir, this.sanitizeFileName(event.name) + '.png'),
-        baseDir: baseDir
-      };
-    
-      const svgMgr = new SVGManager(data, config);
-      await svgMgr.generateImage();
-      const attachment = new AttachmentBuilder(config.outputPngPath);
-      
-      // 5) Poste ou remplace dans un thread forum
-      if (event.attributionDiscordId) {
-        // on cherche le message existant dans tous les threads
+      // 1) Si on a un briefing, on cherche d’abord le thread associé
+      let targetThread: ThreadChannel | null = null;
+      if (event.briefingDiscordId) {
         for (const thread of forum.threads.cache.values()) {
-          let msg;
-          try { msg = await thread.messages.fetch(event.attributionDiscordId); }
-          catch { continue; }
-          await msg.delete().catch(() => {});
-          const newMsg = await thread.send({ files: [attachment] });
-          event.attributionDiscordId = newMsg.id;
-          break;
+          try {
+            const message = await thread.messages.fetch(event.briefingDiscordId);
+            targetThread = thread;
+            break;
+          } catch {
+            continue;
+          }
         }
       }
 
-      if (!event.attributionDiscordId) {
-        // crée un nouveau thread
-        const tagId = forum.availableTags.find(t => t.name === process.env.EVENT_TAG)?.id;
-        const thread = await forum.threads.create({
-          name:         event.name,
-          appliedTags:  tagId ? [tagId] : [],
-          message:      { files: [attachment] },
-        });
-        const starter = await thread.fetchStarterMessage();
-        event.attributionDiscordId = starter!.id;
+      if (event.attributionDiscordId) {
+        // si on n’a pas trouvé le thread briefing, on peut quand même tenter de supprimer
+        // l’ancienne attribution depuis tous les threads
+        for (const thread of forum.threads.cache.values()) {
+          try {
+            const oldMsg = await thread.messages.fetch(event.attributionDiscordId);
+            await oldMsg.delete();
+            if (!targetThread) targetThread = thread
+            break;
+          } catch {
+            continue;
+          }
+        }
       }
 
-      await this.em.persistAndFlush(event);
+      const payloads = files.map(file => ({
+        attachment: file.buffer,
+        name: file.originalname + '.png',
+      }));
 
-      // 6) nettoie le fichier temporaire
-      await fsp.unlink(config.outputPngPath).catch(() => {});
+      
+      // 3) Si on a trouvé le thread du briefing, on poste dedans…
+      let msg = undefined;
+      if (targetThread) {
+        msg = await targetThread.send({
+          files: payloads,
+          content: `Attribution rôles pour l’événement **${event.name}**`,
+        });
+        
+      } else {
+
+        // 4) …sinon on crée un tout nouveau thread
+        const tag = forum.availableTags.find(t => t.id === process.env.EVENT_TAG!);
+        const thread = await forum.threads.create({
+          name:        event.name,
+          appliedTags: tag ? [tag.id] : [],
+          message:     {
+            content: `Attribution rôles pour l’événement **${event.name}**`,
+            files: payloads,
+          },
+        });
+        msg = await thread.fetchStarterMessage();
+      }
+
+        event.attributionDiscordId = msg!.id;
+      
+      await this.em.persistAndFlush(event);
       
     } catch (err) {
       logger.error('attributionEvent error', err);
     }
-  }
-
-  getContrastTextColor(hexColor: string): '#ffffff' | '#000000' {
-    // 1) Nettoyage : enlever le '#' si besoin
-    const hex = hexColor.replace(/^#/, '');
-
-    // 2) Parser en RGB
-    const r = parseInt(hex.substr(0, 2), 16);
-    const g = parseInt(hex.substr(2, 2), 16);
-    const b = parseInt(hex.substr(4, 2), 16);
-
-    // 3) Calcul de la luminosité (formule ITU-R BT.709)
-    //    Y = 0.2126 R + 0.7152 G + 0.0722 B
-    const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-
-    // 4) Choix du texte : seuil à 128 (mi-luminosité)
-    return luminance < 128 ? '#ffffff' : '#000000';
   }
 
   @SafeMethod

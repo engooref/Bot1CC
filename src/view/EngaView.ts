@@ -87,9 +87,9 @@ export async function sendCandidatures(interaction: ButtonInteraction, bot: BotM
         await bot.usrMgr.em.persistAndFlush(memberRh);
 
         await interaction.followUp({
-        content: `Bravo, tu viens de franchir la première étape de ta candidature !  
-        On va jeter un coup d'œil à ton dossier et on te tient au courant.  
-        Reste sur le qui-vive 😉.`,
+        content: `Bravo, tu viens de franchir la première étape de ta candidature !
+On va jeter un coup d'œil à ton dossier et on te tient au courant.  
+Reste sur le qui-vive 😉.`,
         ephemeral: true
         });
 
