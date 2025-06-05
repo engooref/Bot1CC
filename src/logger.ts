@@ -1,39 +1,74 @@
 // src/logger.ts
-import { createLogger, format, transports, Logger } from 'winston';
-import type TransportStream from 'winston-transport';
-import WinstonGraylog2 from 'winston-graylog2';
+import pino, { LoggerOptions, Logger } from 'pino';
+import path from 'path';
+import fs from 'fs';
 
-const isProd: boolean = process.env.NODE_ENV === 'prod';
+const isProd = process.env.NODE_ENV! === 'prod';
 
-const graylogTransport = new WinstonGraylog2({
-  name: 'Graylog',
+// S’assure que le dossier logs existe (en prod)
+if (isProd) {
+  const logsDir = path.resolve(process.cwd(), 'logs');
+  if (!fs.existsSync(logsDir)) {
+    fs.mkdirSync(logsDir, { recursive: true });
+  }
+}
+
+// Options de base pour Pino
+const baseOptions: LoggerOptions = {
   level: isProd ? 'info' : 'debug',
-  graylog: {
-    servers: [{ host: '127.0.0.1', port: 12201 }],
-    facility: 'discord-bot',
-  },
-  staticMeta: {
+  timestamp: pino.stdTimeFunctions.isoTime,
+  base: {
     service: 'my-discord-bot',
     env: process.env.NODE_ENV || 'dev',
   },
-}) as unknown as TransportStream;  // ← on cast ici
+};
 
-const logger: Logger = createLogger({
-  level: isProd ? 'info' : 'debug',
-  format: format.combine(
-    format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }),
-    format.errors({ stack: true }),
-    format.splat(),
-    format.printf(({ timestamp, level, message, stack }) =>
-      stack
-        ? `${timestamp} [${level}] ${message}\n${stack}`
-        : `${timestamp} [${level}] ${message}`
-    ),
-  ),
-  transports: [
-    new transports.Console(),
-    graylogTransport,
-  ],
-});
+let logger: Logger;
+
+if (isProd) {
+  // ============ PRODUCTION ============
+  // 1. Destination vers le fichier JSON (bot.log)
+  const fileStream = pino.destination({
+    dest: path.resolve(process.cwd(), 'logs', 'bot.log'),
+    sync: false,
+  });
+
+  // 2. Transport “pino-pretty” pour la console (stdout)
+  const prettyTransport = pino.transport({
+    target: 'pino-pretty',
+    options: {
+      colorize: true,
+      translateTime: 'SYS:yyyy-mm-dd HH:MM:ss',
+      ignore: 'pid,hostname',
+      singleLine: true,        // chaque log sur une seule ligne
+      levelFirst: true,        // afficher le niveau en début de ligne
+    },
+  });
+
+  // 3. Multistream : fichier JSON + console “pretty”
+  logger = pino(
+    baseOptions,
+    pino.multistream([
+      { stream: fileStream },         // JSON brut dans logs/bot.log
+      { stream: prettyTransport },     // “pretty” dans console
+    ])
+  );
+} else {
+  // ============ DÉVELOPPEMENT ============
+  // En dev, on veut juste du “pretty-print” dans la console, pas de fichier.
+  logger = pino({
+    ...baseOptions,
+    transport: {
+      target: 'pino-pretty',
+      options: {
+        colorize: true,
+        translateTime: 'SYS:yyyy-mm-dd HH:MM:ss',
+        ignore: 'pid,hostname',
+        singleLine: true,
+        levelFirst: true,
+      },
+    },
+  });
+}
 
 export default logger;

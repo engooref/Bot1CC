@@ -33,7 +33,7 @@ export class SVGManager {
 
           proc.on('error', err => reject(err));
           proc.on('close', code => {
-            //fs.unlinkSync(tmpXmlPath);
+            fs.unlinkSync(tmpXmlPath);
 
             if (code === 0) {
               resolve(stdout);

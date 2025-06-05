@@ -1,0 +1,15 @@
+[
+  {
+    "name": "screen",
+    "description": "Sous commandes pour le screen of the week",
+    "options": [
+      {
+        "type": "SUB_COMMAND",
+        "name": "config",
+        "description": "Permet de modifier la configuration",
+        "options": []
+      }
+    ],
+    "handler": "screenHandler"
+  }
+]
