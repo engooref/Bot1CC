@@ -17,6 +17,12 @@ if (isProd) {
 const baseOptions: LoggerOptions = {
   level: isProd ? 'info' : 'debug',
   timestamp: pino.stdTimeFunctions.isoTime,
+  // On ajoute un formatter pour que le "level" soit écrit en chaîne plutôt qu'en code
+  formatters: {
+    level(label: string) {
+      return { level: label };
+    },
+  },
   base: {
     service: 'my-discord-bot',
     env: process.env.NODE_ENV || 'dev',
