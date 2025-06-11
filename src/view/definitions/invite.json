@@ -1,0 +1,22 @@
+[
+  {
+    "customId": "accepted_{id}",
+    "label": "Accepted",
+    "style": "Success"
+  },
+  {
+    "customId": "declined_{id}",
+    "label": "Declined",
+    "style": "Danger"
+  },
+  {
+    "customId": "tentative_{id}",
+    "label": "Tentative",
+    "style": "Primary"
+  },
+  {
+    "customId": "role_{id}",
+    "label": "Role",
+    "style": "Secondary"
+  }
+]

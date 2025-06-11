@@ -21,7 +21,6 @@ import fs from 'fs';
 import { SCLocations } from '../entities/SCLocations.js';
 import { SVGManager } from '../utils/SVGManager.js';
 import mime from 'mime';
-import { channel } from 'diagnostics_channel';
 
 const CATEGORY_NAME = 'Opérations';
 const FOLDER_NAME = "Operations";

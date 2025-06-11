@@ -3,20 +3,42 @@ import  BotManager  from '../BotManager.js';
 import { Event }      from '../entities/Event.js';
 import { Response }   from '../entities/Response.js';
 import { addDays, startOfDay, endOfDay } from 'date-fns';
-import { GuildMember, ThreadAutoArchiveDuration } from 'discord.js';
+import { AttachmentBuilder, ChannelType, EmbedBuilder, GuildMember, TextChannel, ThreadAutoArchiveDuration, ThreadChannel } from 'discord.js';
 import { FilterQuery } from '@mikro-orm/core';
 import { SafeMethod } from '../exception/Safe.js';
 import logger from '../logger.js';
+import cron from 'node-cron';
+import { defaultConfig } from './ScreenManager.js';
+import path from 'path';
+import fs from 'fs';
 
 const DAY_NAMES = ['dimanche','lundi','mardi','mercredi','jeudi','vendredi','samedi'];
+
+// Mapping JS cron days (0–6) to names
+const cronDays: Record<string, number> = {
+  SUNDAY:    0,
+  MONDAY:    1,
+  TUESDAY:   2,
+  WEDNESDAY: 3,
+  THURSDAY:  4,
+  FRIDAY:    5,
+  SATURDAY:  6,
+};
+
+type ActiveContest = {
+  threadId: string;
+  startTimestamp: number;
+};
 
 export default class SchedulerManager {
   public appEvent: SchedulerAppEvent;
   public event:   SchedulerEvent;
+  public screen: SchedulerScreen;
 
   constructor(bot: BotManager) {
     this.appEvent = new SchedulerAppEvent(bot);
     this.event    = new SchedulerEvent(bot);
+    this.screen = new SchedulerScreen(bot);
   }
 }
 
@@ -201,4 +223,260 @@ export class SchedulerEvent {
     // Au-delà de 24h ou échéance passée, on n’en fait pas plus
   }
 
+}
+
+export class SchedulerScreen { 
+  private storePath = path.resolve('./config', 'contests.json');
+  private contestStore: ActiveContest[] = [];
+
+  constructor(private bot: BotManager) {
+
+    // Merge configFile with defaults
+    for (const key of Object.keys(defaultConfig)) {
+      const val = this.bot.scrMgr.configFile.get(key);
+      if (val == null) this.bot.scrMgr.configFile.add(key, defaultConfig[key]);
+    }
+
+    this.ensureStore();
+    this.loadStore();
+    this.resumeContests();
+
+    // Réagencer le job cron si la config change
+    this.bot.scrMgr.configFile.on('change', () => this.scheduleWeekly());
+    this.scheduleWeekly();
+
+  }
+
+  private ensureStore() {
+    if (!fs.existsSync(this.storePath)) {
+      fs.writeFileSync(this.storePath, JSON.stringify([]));
+    }
+  }
+
+  /** Charge les concours actifs depuis le fichier */
+  private loadStore() {
+    try {
+      const data = fs.readFileSync(this.storePath, 'utf-8');
+      this.contestStore = JSON.parse(data) as ActiveContest[];
+    } catch {
+      this.contestStore = [];
+    }
+  }
+
+  /** Sauvegarde l’état actuel des concours */
+  private saveStore() {
+    fs.writeFileSync(this.storePath, JSON.stringify(this.contestStore));
+  }
+
+  private resumeContests() {
+    const now = Date.now();
+    const cfg = this.bot.scrMgr.configFile;
+    const contestDuration = 3 * 60 * 1000;                     // ou 7d en prod
+    const cfgreminder: string = this.bot.scrMgr.configFile.get('reminder_hours_before')!;
+    const reminderOffset  = parseFloat(String(cfgreminder).replace(',', '.').trim()) * 3600 * 1000
+
+    this.contestStore.forEach(contest => {
+      const elapsed = now - contest.startTimestamp;
+      const toEnd        = contestDuration - elapsed;
+      const toReminder   = contestDuration - reminderOffset - elapsed;
+      const threadFetch  = this.bot.channels
+          .fetch(cfg.get('channel_screen')!)
+          .then(ch => (ch as TextChannel).threads.fetch(contest.threadId));
+
+      // 1) Si on doit encore envoyer le rappel
+      if (toReminder > 0) {
+        setTimeout(() => threadFetch.then(t => this.sendReminder(t as ThreadChannel)), toReminder);
+      }
+
+      // 2) Si le concours n'est pas encore clos
+      if (toEnd > 0) {
+        setTimeout(() => threadFetch.then(t => this.endContest(t as ThreadChannel)), toEnd);
+      }
+      // 3) Sinon (on redémarre APRES la clôture) -> on nettoie sans renvoyer
+      else {
+        threadFetch.then(t => this.endContest(t as ThreadChannel))
+        // this.contestStore = this.contestStore.filter(c => c.threadId !== contest.threadId);
+        // this.saveStore();
+      }
+    });
+  }
+  
+  private scheduleWeekly() {
+    // Ex. schedule_hour = '10:00'
+    const [hour, minute] = this.bot.scrMgr.configFile.get('schedule_hour')!.split(':').map(Number);
+    const dayOfWeek = cronDays[this.bot.scrMgr.configFile.get('schedule_day')!];
+
+    // Cron: minute hour * * dayOfWeek
+    const cronExpr = `${minute} ${hour} * * ${dayOfWeek}`;
+    cron.schedule(cronExpr, () => this.startContest());
+    logger.info(`Screen: Création du thread le ${this.bot.scrMgr.configFile.get('schedule_day')!} à ${this.bot.scrMgr.configFile.get('schedule_hour')!}`);
+  }
+
+  private async startContest() {
+    // 1. Récupérer le channel
+    const ch = await this.bot.channels.fetch(this.bot.scrMgr.configFile.get('channel_screen')!) as TextChannel;
+    
+    // 2. Créer le thread
+    const now = new Date();
+    const dateStr = now.toLocaleDateString('fr-FR', { timeZone: 'Europe/Paris' });
+    const thread = await ch.threads.create({
+      name: this.bot.scrMgr.configFile.get('thread_name_template')!.replace('{date}', dateStr),
+      autoArchiveDuration: ThreadAutoArchiveDuration.OneWeek, // 7 days
+      reason: 'Concours hebdomadaire screenshots',
+    });
+
+    // Enregistrer le concours
+    this.contestStore.push({ threadId: thread.id, startTimestamp: Date.now() });
+    this.saveStore();
+
+    // Durées en ms
+    const contestDuration = 3 * 60 * 1000;
+
+    const cfgreminder: string = this.bot.scrMgr.configFile.get('reminder_hours_before')!;
+    const reminderOffset  = parseFloat(String(cfgreminder).replace(',', '.').trim()) * 3600 * 1000
+    const reminderDelay = contestDuration - reminderOffset;
+
+    // Calcul des dates
+    const endDate      = new Date(now.getTime() + contestDuration);
+    const reminderDate = new Date(now.getTime() + reminderDelay);
+
+    // Format FR
+    const opts: Intl.DateTimeFormatOptions = {
+      timeZone: 'Europe/Paris',
+      weekday:  'long',
+      year:     'numeric',
+      month:    '2-digit',
+      day:      '2-digit',
+      hour:     '2-digit',
+      minute:   '2-digit'
+    };
+
+    const endStr      = endDate.toLocaleDateString('fr-FR', opts);
+    const reminderStr = reminderDate.toLocaleDateString('fr-FR', opts);
+
+    // Message enrichi
+    const welcomeText = [
+      this.bot.scrMgr.configFile.get('welcome_message')!,
+      `📅 **Fin du concours :** ${endStr}`,
+      `⏰ **Rappel avant clôture :** ${reminderStr}`
+    ].join('\n');
+
+    
+    // 3. Envoyer le message de bienvenue + réaction
+    const welcomeMsg = await thread.send(welcomeText);
+
+    // const contestDuration = 7 * 24 * 60 * 60 * 1000;
+ 
+    setTimeout(() => this.sendReminder(thread), reminderDelay);
+    setTimeout(() => this.endContest(thread), contestDuration);
+  }
+
+  
+
+  private async sendReminder(thread: ThreadChannel) {
+    try {
+      if (this.bot.scrMgr.configFile.get('reminder_text_before')!)
+        await thread.send(this.bot.scrMgr.configFile.get('reminder_text_before')!);
+    } catch (err) {
+      console.error('Erreur envoi reminder:', err);
+    }
+  }
+
+  private async endContest(thread: ThreadChannel) {
+    try {
+      // Fermer le thread
+      await thread.setArchived(true);
+
+      // Récupérer tous les messages
+      const msgs = await thread.messages.fetch({ limit: 100 });
+      // Filtrer les images et compter les réactions
+      type Entry = { url: string; votes: number };
+      const entries: Entry[] = [];
+
+      msgs.forEach(msg => {
+        const attachments = msg.attachments.filter(att =>
+          ['image/png','image/jpeg'].includes(att.contentType || '')
+        );
+        attachments.forEach(att => {
+          const votes = msg.reactions.cache.get(this.bot.scrMgr.configFile.get('emoji_vote')!)?.count ?? 0;
+          // retirer 1 si le bot a lui-même réagi
+          entries.push({ url: att.url, votes: Math.max(0, votes - 1) });
+        });
+      });
+
+      // Top 3
+      const top3 = entries
+        .sort((a,b) => b.votes - a.votes)
+        .slice(0, 3);
+
+      // Poster dans channel_result
+      
+      const resCh = await this.bot.channels
+        .fetch(this.bot.scrMgr.configFile.get('channel_result')!) as TextChannel;
+
+      const threadName = 'Resultat screenof the week';
+
+      // 1. S'assurer que les threads sont chargés en cache
+      await resCh.threads.fetch();
+
+      // 2. Chercher le thread existant
+      let threadr = resCh.threads.cache.find(
+        t => t.name === threadName 
+      ) as ThreadChannel | undefined;
+
+      // 3. S'il n'existe pas, le créer
+      if (!threadr) {
+        threadr = await resCh.threads.create({
+          name: threadName,
+          autoArchiveDuration: 1440,           // archivage automatique après 24 h d’inactivité
+          type: ChannelType.PublicThread,      // ou GuildPublicThread selon ta version
+          reason: 'Création du thread pour les résultats weekly'
+        });
+      }
+
+      if (top3.length) {
+        const attachments = await Promise.all(
+          top3.map(async (e, i) =>
+            new AttachmentBuilder(
+              await this.fetchBuffer(e.url),
+              { name: `top${i + 1}.png` }
+            )
+          )
+        );
+
+        // 2) Construis un embed plus riche
+        const summary = new EmbedBuilder()
+          .setTitle(`🏆 Résultats du concours ${thread.name}`)
+          .setColor(0x7289DA) // Discord blurple
+          .addFields(
+            { name: '🥇 1er', value: `Votes : **${top3[0]?.votes ?? 0}**`, inline: true },
+            { name: '🥈 2e', value: `Votes : **${top3[1]?.votes ?? 0}**`, inline: true },
+            { name: '🥉 3e', value: `Votes : **${top3[2]?.votes ?? 0}**`, inline: true },
+          )
+          .setDescription(
+            `Résultat du Screen of the Week ! Voici les 3 captures ayant reçu le plus de réactions **${this.bot.scrMgr.configFile.get('emoji_vote')}**.`
+          )
+          
+          .setTimestamp(); // date de publication automatique
+
+        // 1) Envoi d’abord de l’embed seul
+        await threadr.send({ embeds: [summary] });
+
+        // 2) Puis envoi des fichiers seuls, qui apparaîtront juste en dessous
+        await threadr.send({ files: attachments });
+              
+      } else {
+        await threadr.send('Aucune participation détectée cette semaine. ');
+      }
+    } catch (err) {
+      console.error('Erreur endContest:', err);
+    }
+  }
+
+  async fetchBuffer(url: string): Promise<Buffer> {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`Échec du téléchargement de ${url}: ${res.status}`);
+    const arrayBuffer = await res.arrayBuffer();
+    return Buffer.from(arrayBuffer);
+  }
 }

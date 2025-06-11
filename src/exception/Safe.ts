@@ -10,8 +10,8 @@ export function SafeMethod(
     try {
       return await original.apply(this, args);
     } catch (err) {
-      logger.error(`Erreur dans ${propertyKey}:`, err);
-      
+      logger.error(new Error(`Erreur dans ${propertyKey}:\n ${err}`));
+
     }
   };
 }

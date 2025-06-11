@@ -1,7 +1,8 @@
 import BotManager from "../BotManager.js";
 import { ButtonStyle, ButtonBuilder, ActionRowBuilder } from "discord.js";
-import { BaseComponentView, ViewHandlers } from "./BaseView.js";
+import { BaseComponentView, getDefinitions, ViewHandlers } from "./BaseView.js";
 import { ComponentType} from "../entities/ViewContext.js";
+import { JSONComponent } from "../utils/Type.js";
 
 /**
    * View pour l'invitation à un événement.
@@ -13,34 +14,25 @@ export class InviteView extends BaseComponentView {
       private eventId: number,
       withRole = false,
     ) {
-      // Définit les customIds pour cette view
-      const customIds = [
-        `accepted_${eventId}`,
-        `declined_${eventId}`,
-        `tentative_${eventId}`,
-      ];
-      if (withRole) {
-        customIds.push(`role_${eventId}`);
+      let definitions: JSONComponent[] = getDefinitions('./src/views/definitions/invite.json');
+
+      // 2️⃣ Filtrer le bouton “role_{id}” si `withRole` est false
+      if (!withRole) {
+        definitions = definitions.filter(def => !def.customId.startsWith('role_'));
       }
-  
-      // Construit les boutons manuellement
-      const buttons = customIds.map(id => {
-        const [type] = id.split('_');
-        let style = ButtonStyle.Primary;
-        switch (type) {
-          case 'accepted': style = ButtonStyle.Success; break;
-          case 'declined': style = ButtonStyle.Danger; break;
-          case 'tentative': style = ButtonStyle.Primary; break;
-          case 'role': style = ButtonStyle.Secondary; break;
-        }
-        return new ButtonBuilder()
-          .setCustomId(id)
-          .setLabel(type.charAt(0).toUpperCase() + type.slice(1))
-          .setStyle(style);
+
+      // 3️⃣ Remplacer le placeholder `{id}` par la valeur eventId pour chaque customId
+      const instantiatedDefs = definitions.map(def => {
+        // On fait une copie superficielle de l'objet
+        const copy: JSONComponent = { ...def };
+
+        // customId original contient “_{id}” ; on remplace `{id}` par eventId
+        copy.customId = def.customId.replace('{id}', String(eventId));
+
+        return copy;
       });
-      const rows = [new ActionRowBuilder<ButtonBuilder>().addComponents(buttons)];
-  
-      super(bot, customIds, ViewHandlers.InviteViewHandler, ComponentType.Button, rows);
+      
+      super(bot, ViewHandlers.InviteViewHandler, ComponentType.Button, instantiatedDefs);
     }
   
     protected getData(customId: string): Record<string, any> {

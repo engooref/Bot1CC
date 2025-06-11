@@ -11,13 +11,7 @@ export default class EngaView extends BaseComponentView {
     constructor(
         bot: BotManager,
     ) {
-        const button = new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder()
-            .setCustomId('button_enga')
-            .setLabel('Confirmer ma candidature')
-            .setStyle(ButtonStyle.Success)
-        )
-
-        super(bot, ['button_enga'], ViewHandlers.EngaHandler, ComponentType.Button, [button])
+        super(bot, ViewHandlers.EngaHandler, ComponentType.Button, './src/views/definitions/enga.json')
     }
 
     protected getData(customId: string): Record<string, any> {
