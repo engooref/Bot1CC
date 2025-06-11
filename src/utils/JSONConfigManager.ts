@@ -5,14 +5,28 @@ import path from 'path';
 import logger from '../logger.js';
 
 export class JSONConfigManager<T extends Record<string, any>> extends EventEmitter {
-  private filePath: string;
+  private filePath: string | null;
   private data: Partial<T> = {};
   private isWatching = false;
 
-  constructor(filePath: string) {
+  constructor(filePath: string);
+  constructor(jsonString: string, isString: true);
+  // Implémentation unique
+  constructor(input: string, isString = false) {
     super();
-    this.filePath = path.resolve(filePath);
-    this.loadFromDisk();
+    if (isString) {
+      // On reçoit directement la chaîne JSON
+      try {
+        this.data = JSON.parse(input) as Partial<T>;
+      } catch (err) {
+        throw new Error(`Invalid JSON string: ${(err as Error).message}`);
+      }
+      this.filePath = null;
+    } else {
+      // On reçoit un chemin de fichier
+      this.filePath = path.resolve(input);
+      this.loadFromDisk();
+    }
   }
 
   public getAll(): T {
@@ -38,19 +52,20 @@ export class JSONConfigManager<T extends Record<string, any>> extends EventEmitt
   public watch(interval = 1000): void {
     if (this.isWatching) return;
     this.isWatching = true;
-    fs.watchFile(this.filePath, { interval }, () => {
+    fs.watchFile(this.filePath!, { interval }, () => {
       this.loadFromDisk();
       this.emit('change', this.getAll());
+      
     });
   }
 
   private loadFromDisk() {
     try {
-      const raw = fs.readFileSync(this.filePath, 'utf-8');
+      const raw = fs.readFileSync(this.filePath!, 'utf-8');
       this.data = JSON.parse(raw);
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-        fs.writeFileSync(this.filePath, '{}', 'utf-8');
+        fs.writeFileSync(this.filePath!, '{}', 'utf-8');
         this.data = {};
       } else {
         logger.error(err);
@@ -59,8 +74,15 @@ export class JSONConfigManager<T extends Record<string, any>> extends EventEmitt
   }
 
   private async save() {
+    if(!this.filePath) return
     const tmp = this.filePath + '.tmp';
     await fs.promises.writeFile(tmp, JSON.stringify(this.data, null, 2), 'utf-8');
     await fs.promises.rename(tmp, this.filePath);
+  }
+
+  public async copy(json: JSONConfigManager<T>) 
+  {
+    this.data = json.data
+    await this.save();
   }
 }

@@ -8,6 +8,18 @@
         "name": "config",
         "description": "Permet de modifier la configuration",
         "options": []
+      },
+      {
+        "type": "SUB_COMMAND",
+        "name": "start",
+        "description": "Start le schedule Screen",
+        "options": []
+      },
+      {
+        "type": "SUB_COMMAND",
+        "name": "stop",
+        "description": "Stop le schedule Screen",
+        "options": []
       }
     ],
     "handler": "screenHandler"

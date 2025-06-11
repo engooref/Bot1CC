@@ -1,0 +1,137 @@
+{
+  "cat_salons_roles": [
+    {
+      "type": "StringSelectMenu",
+      "customId": "select_category_screen",
+      "placeholder": "Modifier → Category Screenshots",
+      "other": [
+        { "name": "CHANNELS_TYPE", "value": ["GUILD_CATEGORY"], "other": ["GUILD_TEXT"]}
+      ]
+    },
+    {
+      "type": "StringSelectMenu",
+      "customId": "select_channel_screen",
+      "placeholder": "Modifier → Channel Screenshots",
+      "other": [
+        { "name": "CHANNELS_TYPE", "value": ["GUILD_TEXT"], "other": "{category_screen}"}
+      ]
+    },
+    {
+      "type": "StringSelectMenu",
+      "customId": "select_category_result",
+      "placeholder": "Modifier → Category Result",
+      "other": [
+        { "name": "CHANNELS_TYPE", "value": ["GUILD_CATEGORY"], "other": ["GUILD_TEXT"]}
+      ]
+    },
+    {
+      "type": "StringSelectMenu",
+      "customId": "select_channel_result",
+      "placeholder": "Modifier → Channel Result",
+      "other": [
+        { "name": "CHANNELS_TYPE", "value": ["GUILD_TEXT"], "other": "{category_result}"}
+      ]
+    }
+  ],
+
+  "cat_planification": [
+    {
+      "type": "StringSelectMenu",
+      "customId": "select_schedule_day",
+      "placeholder": "Choisissez le jour de création…",
+      "options": [
+        { "label": "Lundi", "value": "MONDAY" },
+        { "label": "Mardi", "value": "TUESDAY" },
+        { "label": "Mercredi", "value": "WEDNESDAY" },
+        { "label": "Jeudi", "value": "THURSDAY" },
+        { "label": "Vendredi", "value": "FRIDAY" },
+        { "label": "Samedi", "value": "SATURDAY" },
+        { "label": "Dimanche", "value": "SUNDAY" }
+      ]
+    },
+    
+    {
+      "type": "Modal",
+      "customId": "modal_timezone",
+      "title": "Configuration Heures",
+      "fields": [
+        {
+          "customId": "input_schedule_hour",
+          "label": "Heure (HH:mm) ex. 08:00",
+          "style": "Short",
+          "placeholder": "08:00",
+          "required": true
+        },
+        {
+          "customId": "input_reminder_hours_before",
+          "label": "Heures avant massage clôture (ex. 24)",
+          "style": "Short",
+          "placeholder": "24",
+          "required": true
+        },
+        {
+          "customId": "input_reminder_text_before",
+          "label": "Texte avant clôture",
+          "style": "Paragraph",
+          "placeholder": "...",
+          "required": true
+        }
+      ]
+    },
+    {
+      "type": "Button",
+      "customId": "toggle_auto_remind_modal",
+      "label": "Configurer Heures",
+      "style": "Primary",
+      "target": "modal_timezone"
+    }
+  ],
+
+  "cat_contenu_messages": [
+    {
+      "type": "Modal",
+      "customId": "modal_thread_name_template",
+      "title": "Configuration du thread",
+      "fields": [
+        {
+          "customId": "input_thread_name_template",
+          "label": "Modèle du thread",
+          "style": "Paragraph",
+          "placeholder": "Screen Semaine #{numero} – {YYYY-MM-DD}",
+          "required": true
+        },
+        {
+          "customId": "input_welcome_message",
+          "label": "Message d’introduction",
+          "style": "Paragraph",
+          "placeholder": "Postez vos screens et votez avec :1CC: !",
+          "required": true
+        },
+        {
+          "customId": "input_theme_default",
+          "label": "Thème par défaut (ex. Libre)",
+          "style": "Short",
+          "placeholder": "Libre",
+          "required": true
+        }
+      ]
+    }
+  ],
+
+  "cat_vote_classement": [
+    {
+      "type": "Modal",
+      "customId": "modal_emoji_vote",
+      "title": "Configurer l’émoji de vote",
+      "fields": [
+        {
+          "customId": "input_emoji_vote",
+          "label": "Nom ou ID de l’émoji (ex. 1CC)",
+          "style": "Short",
+          "placeholder": "1CC",
+          "required": true
+        }
+      ]
+    }
+  ]
+}

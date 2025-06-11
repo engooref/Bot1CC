@@ -6,9 +6,6 @@ import {
   Interaction,
   ButtonInteraction,
   StringSelectMenuInteraction,
-  GuildMemberRoleManager,
-  GuildTextBasedChannel,
-  EmbedBuilder
 } from 'discord.js';
 import logger from './logger.js';
 import DatabaseManager from './managers/DatabaseManager.js';
@@ -23,7 +20,7 @@ import UserManager from './managers/UserManager.js';
 import { Event } from './entities/Event.js';
 import { Response } from './entities/Response.js';
 import { componentHandlerRegistry } from './registry/ComponentHandlerRegistry.js';
-import { ViewHandlers } from './view/BaseView.js';
+import { ComponentInteraction, ViewHandlers } from './view/BaseView.js';
 import { InteractionContext } from './entities/ViewContext.js';
 
 import { SafeMethod } from './exception/Safe.js';
@@ -33,6 +30,8 @@ import { OperationModule } from './managers/OperationManager.js';
 import {Handlers} from './view/TicketsView.js'
 import { TicketManager } from './managers/TicketsManager.js';
 import { sendEnga, sendCandidatures } from './view/EngaView.js';
+import SlashCommandManager, { CommandHandler } from './utils/SlashCommandManager.js';
+import ScreenManager from './managers/ScreenManager.js';
 
 
 export default class BotManager extends Client {
@@ -47,6 +46,9 @@ export default class BotManager extends Client {
   public opMgr!: OperationModule;
   public tkMgr!: TicketManager;
   public schedMgr!: SchedulerManager;
+  private slhMgr!: SlashCommandManager;
+  public scrMgr!: ScreenManager;
+
   private hasStarted = false;
   private parameters: Record<string, Parameter> = {};
 
@@ -120,6 +122,11 @@ export default class BotManager extends Client {
       if (interaction.isButton())
         await sendCandidatures(interaction, this);        
     });
+
+    componentHandlerRegistry.register(ViewHandlers.ScreenHandler, async (interaction , data) => {
+      
+      await this.scrMgr.handlerForm(interaction as (ComponentInteraction), data);  
+    });
   }
 
   @SafeMethod
@@ -170,8 +177,17 @@ export default class BotManager extends Client {
     this.tkMgr = new TicketManager(this);
     await this.tkMgr.init();
 
+    this.scrMgr = new ScreenManager(this);
+
+    const handlersMap: Record<string, CommandHandler> = {
+      ...await this.scrMgr.getSlashHandlers()
+    }
+
+    this.slhMgr = new SlashCommandManager(this, handlersMap);
+    await this.slhMgr.loadAllCommandDefinitions()
+    
     this.schedMgr  = new SchedulerManager(this);
-        
+
     const webServer = new WebServer(this);
     webServer.start(parseInt(process.env.PORT!, 10));
   }
@@ -434,7 +450,8 @@ export default class BotManager extends Client {
       }
       const handler = componentHandlerRegistry.get(ctx.handlerKey);
       if (handler) await handler(interaction, ctx.data);
-    }
+    } else if (interaction.isChatInputCommand())
+      this.slhMgr.handleInteraction(interaction);
 
     
      
@@ -444,7 +461,7 @@ export default class BotManager extends Client {
   @SafeMethod
   public async loadParameters(): Promise<void> {
     // Supposons que db.selectAll renvoie une liste d'instances de Parameter
-    const all = await this.dbMgr.getEm().findAll(Parameter, {populate: ["*"]});
+    const all = await this.dbMgr.getEm().find(Parameter, {}, { populate: ["*"] });;
     this.parameters = {};
     for (const p of all) {
       // on utilise p.toString() comme clé, comme ton __str__ Python qui renvoie le name

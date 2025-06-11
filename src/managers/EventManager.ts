@@ -17,12 +17,10 @@ import {
   ButtonInteraction,
   ThreadChannel,
 } from 'discord.js';
-import { file as tmpFile } from 'tmp-promise';
 
 import BotManager from '../BotManager.js';
 import {Event} from '../entities/Event.js';
 import { Response } from '../entities/Response.js';
-import { randomUUID } from 'crypto';
 import { InviteView } from '../view/InviteView.js';
 import { EventView } from '../view/EventView.js';
 import { EntityManager } from '@mikro-orm/core';

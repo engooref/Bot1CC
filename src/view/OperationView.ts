@@ -27,6 +27,7 @@ import { ComponentType, InteractionContext } from '../entities/ViewContext.js';
 import { EntityManager } from '@mikro-orm/core';
 import { SCLocations } from '../entities/SCLocations.js';
 import logger from '../logger.js';
+import { JSONComponent, JSONTypeComponent } from '../utils/Type.js';
 
 // Décris la forme interne de l’état de l’opération
 interface OperationState {
@@ -54,7 +55,6 @@ export class OperationView extends BaseComponentView {
 
     super(
       bot,
-      customIds,
       ViewHandlers.OperationHandler,
       ComponentType.Button,
       []
@@ -709,19 +709,19 @@ export class OperationView extends BaseComponentView {
 export class CreationOperationView extends BaseComponentView {
   constructor(bot: BotManager) {
     // ① On déclare le customId et le handlerKey
-    const customIds = ['op_btn'];
     const handlerKey = ViewHandlers.OperationHandler;
     const componentType = ComponentType.Button;
 
-    // ② On construit la rangée de composants : un unique bouton
-    const button = new ButtonBuilder()
-      .setCustomId('op_btn')
-      .setLabel('Créer une Opération')
-      .setStyle(ButtonStyle.Success);
-
-    const row = new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(button);
-
-    super(bot, customIds, handlerKey, componentType, [row]);
+    const json: JSONComponent[] = [
+      {
+        type: JSONTypeComponent.Button,
+        customId: 'op_btn',
+        label: 'Créer une Opération',
+        style: 'Success'
+      }
+    ] 
+   
+    super(bot, handlerKey, componentType, json);
   }
 
   /**

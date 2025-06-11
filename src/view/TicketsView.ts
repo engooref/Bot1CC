@@ -1,8 +1,9 @@
 import { ActionRowBuilder, StringSelectMenuBuilder, ButtonInteraction, TextInputBuilder, TextInputStyle, ModalBuilder, MessageActionRowComponentBuilder, ButtonBuilder, ButtonStyle } from "discord.js";
 import BotManager from "../BotManager.js";
 import { TicketType } from "../entities/TicketType.js";
-import { BaseComponentView, ViewHandlers } from "./BaseView.js";
+import { BaseComponentView, getDefinitions, ViewHandlers } from "./BaseView.js";
 import { ComponentType } from "../entities/ViewContext.js";
+import { JSONComponent, JSONTypeComponent } from "../utils/Type.js";
 
 export enum Handlers {
   OpenTicket = 'open_ticket',
@@ -12,10 +13,24 @@ export enum Handlers {
 }
 
 /** View for selecting ticket type **/
+
 export default class TicketTypeSelectView extends BaseComponentView {
   private types: TicketType[];
 
   constructor(bot: BotManager, types: TicketType[]) {
+    const json: JSONComponent[] = 
+    [
+      {
+        type: JSONTypeComponent.StringSelectMenu,
+        customId: Handlers.SelectType,
+        placeholder: 'Sélectionnez le service',
+        options: [
+          { "label": "Type 1", "value": "1" },
+          { "label": "Type 2", "value": "2" }
+        ]
+      },
+    ]
+   
     const menu = new ActionRowBuilder<MessageActionRowComponentBuilder>()
       .addComponents(
         new StringSelectMenuBuilder()
@@ -23,7 +38,7 @@ export default class TicketTypeSelectView extends BaseComponentView {
           .setPlaceholder('Selectionnez le service')
           .addOptions(types.map(t => ({ label: t.name, value: String(t.id) })))
       );
-    super(bot, [Handlers.SelectType], ViewHandlers.TicketsHandler, ComponentType.Select, [menu]);
+    super(bot, ViewHandlers.TicketsHandler, ComponentType.Select, json);
     this.types = types;
   }
 
@@ -35,11 +50,17 @@ export default class TicketTypeSelectView extends BaseComponentView {
 
 export class OpenTicketView extends BaseComponentView {
   constructor(bot: BotManager) {
-    const btn = new ActionRowBuilder<ButtonBuilder>()
-      .addComponents(
-        new ButtonBuilder().setCustomId(Handlers.OpenTicket).setLabel('Créer un Ticket').setStyle(ButtonStyle.Success)
-      );
-    super(bot, [Handlers.OpenTicket], ViewHandlers.TicketsHandler, ComponentType.Button, [btn]);
+    const json: JSONComponent[] = 
+      [
+        {
+          type: JSONTypeComponent.Button,
+          customId: Handlers.OpenTicket,
+          label: 'Créer un Ticket',
+          style: "Success"
+        },
+      ]
+
+    super(bot, ViewHandlers.TicketsHandler, ComponentType.Button, json);
   }
 
   protected getData(customId: string) {
@@ -52,12 +73,17 @@ export class CloseTicketView extends BaseComponentView {
   private id: number;
 
   constructor(bot: BotManager, id: number) {
-    
-    const btn = new ActionRowBuilder<ButtonBuilder>()
-      .addComponents(
-        new ButtonBuilder().setCustomId(Handlers.CloseTicket).setLabel('Cloturer').setStyle(ButtonStyle.Danger)
-      );
-    super(bot, [Handlers.CloseTicket], ViewHandlers.TicketsHandler, ComponentType.Button, [btn]);
+    const json: JSONComponent[] = 
+      [
+        {
+          type: JSONTypeComponent.Button,
+          customId: Handlers.CloseTicket,
+          label: 'Clôturer',
+          style: "Danger"
+        },
+      ]
+
+    super(bot, ViewHandlers.TicketsHandler, ComponentType.Button, json);
     this.id = id;
   }
 
