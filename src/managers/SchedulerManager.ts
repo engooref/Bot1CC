@@ -156,7 +156,8 @@ export class SchedulerEvent {
       .join(' ');
 
     // Crée un thread sur le message d'origine
-    const thread = await msg.startThread({
+    
+    const thread = msg.hasThread ? msg.thread! : await msg.startThread({
       name: `Rappel : ${ev.name}`,         // nom du thread
       autoArchiveDuration: ThreadAutoArchiveDuration.OneDay,            // en minutes, ici 1h
       reason: 'Rappel des participants',

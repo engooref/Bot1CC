@@ -30,6 +30,7 @@ import { SafeMethod } from '../exception/Safe.js';
 import logger from '../logger.js';
 import { nanoid } from 'nanoid';
 import { SVGManager } from '../utils/SVGManager.js';
+import { stdin } from 'process';
 
 
 export default class EventManager {
@@ -100,6 +101,19 @@ export default class EventManager {
 
       const sent = await view.sendOrEdit(channel, msg, { embeds: [embed] });
       event.discordId = sent.id;
+
+      if(!sent.hasThread) {
+        const thread = await sent.startThread(
+          {
+            name: event.name
+            
+          }
+        );
+
+        await thread.send({
+          content: "DISCUSSION EVENT"
+        })
+      }
       
       // 5) Briefing (fichier + forum)
       if (event.briefingTemplateName) {
