@@ -1,4 +1,4 @@
-import { Channel, ChatInputCommandInteraction, ComponentType, DMChannel, Message, MessageFlags, ModalSubmitInteraction, StringSelectMenuInteraction, TextBasedChannel, TextChannel } from "discord.js";
+import { Channel, ChatInputCommandInteraction, ComponentType, DMChannel, GuildMemberRoleManager, Message, MessageFlags, ModalSubmitInteraction, PermissionFlagsBits, StringSelectMenuInteraction, TextBasedChannel, TextChannel } from "discord.js";
 import BotManager from "../BotManager";
 import { CommandHandler } from "../utils/SlashCommandManager.js";
 import ScreenConfigView, { Handlers, ScreenConfig2View } from "../view/ScreenView.js";
@@ -21,7 +21,7 @@ export const defaultConfig: Record<string, string> = {
   reminder_text_before:  'N’oubliez pas : le concours se termine bientôt !',
   thread_name_template: '📸 Concours hebdo du {date}',
   welcome_message:     'Envoyez vos plus belles captures PNG/JPEG ! 🎉',
-  theme_default:       'Thème de la semaine',
+  theme_default:       '',
   emoji_vote:          '👍',
 };
 
@@ -42,6 +42,23 @@ export default class ScreenManager {
 
     @SafeMethod
     private async screenHandler(interaction: ChatInputCommandInteraction) {
+        const member = interaction.member;
+
+        // Vérifie que c'est un GuildMember (pas DM)
+        if (!interaction.inGuild() || !member || !('roles' in member)) {
+            return interaction.reply({ content: "Cette commande ne peut être utilisée que dans un serveur.", ephemeral: true });
+        }
+
+        const isAdmin = interaction.memberPermissions?.has(PermissionFlagsBits.Administrator);
+        const hasRole = (member.roles as GuildMemberRoleManager).cache.has("1153222537128460288");
+
+        if (!isAdmin && !hasRole) {
+            return interaction.reply({
+            content: "❌ Tu n’as pas la permission d’utiliser cette commande.",
+            ephemeral: true
+            });
+        }
+        
         switch(interaction.options.getSubcommand()) {
         case "config":
             const view = new ScreenConfigView(this.bot)
@@ -61,12 +78,24 @@ export default class ScreenManager {
 
             await interaction.editReply({content: "Configuration envoyé en DM"})
             break;
-        case "start_schedule":
-        case "stop_schedule":
-            this.scheduleState = interaction.options.getSubcommand() === "start_schedule";
+        case "start":
+        case "stop":
+            this.scheduleState = interaction.options.getSubcommand() === "start";
             this.configFile.add('start_schedule', this.scheduleState ? 'O' : 'N');
+            await interaction.editReply({
+                content: `Le mode planification est maintenant ${this.scheduleState ? 'activé' : 'désactivé'}.`
+            });
             break;
+        case "theme":
+            this.configFile.add('theme_default', interaction.options.getString('texte') ?? defaultConfig.theme_default);
+            await interaction.editReply({
+                content: `Le thème a été mis à jour avec succès.`   
+            });
+            break;
+        default:
+            return interaction.reply({ content: "Commande non reconnue.", ephemeral: true });
         }
+
     }
 
     @SafeMethod

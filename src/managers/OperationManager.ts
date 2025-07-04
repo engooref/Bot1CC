@@ -14,7 +14,7 @@ import {
 } from 'discord.js';
 import path from 'path';
 import BotManager from '../BotManager.js';
-import { CreationOperationView, OperationView } from '../view/OperationView.js';
+import { CreationOperationView, OperationState, OperationView } from '../view/OperationView.js';
 import { JSONConfigManager } from '../utils/JSONConfigManager.js';
 import logger from '../logger.js';
 import fs from 'fs';
@@ -29,6 +29,7 @@ const BASE = path.resolve('config');
 export class OperationModule {
   public roleConfig: JSONConfigManager<Record<string,string>>;
   public gameConfig: JSONConfigManager<Record<string,string>>;
+  public opeConfig: JSONConfigManager<Record<string,string>>;
   public roleManager: OperationRoleManager;
   private creationView: CreationOperationView;
   private fcategory: CategoryChannel | undefined;
@@ -37,6 +38,7 @@ export class OperationModule {
     // on instancie les config managers
     this.roleConfig = new JSONConfigManager<Record<string,string>>(path.join(BASE, 'roles.json'));
     this.gameConfig = new JSONConfigManager<Record<string,string>>(path.join(BASE, 'games.json'));
+    this.opeConfig = new JSONConfigManager<Record<string,string>>(path.join(BASE, 'typeOp.json'));
 
     // on passe les managers à RoleManager
     this.roleManager   = new OperationRoleManager(bot, this);
@@ -176,12 +178,13 @@ export class OperationModule {
     
   }
 
-  public async createOperation(interaction: any, state: any) {
-    const role = this.bot.guild.roles.cache.get(state.type);
+  public async createOperation(interaction: any, state: OperationState) {
+    const role = this.bot.guild.roles.cache.get(state.type!);
     if (!role) return;
 
+    const name = (state.typeSpe && state.typeSpe !== 'GE') ? (path.join('MP', state.typeSpe)) : role.name;
     const config = {
-      svgTemplatePath: path.join('Data', FOLDER_NAME, `${role.name}.svg`),
+      svgTemplatePath: path.join('Data', FOLDER_NAME, `${name}.svg`),
       xsltPath: path.join('Data', FOLDER_NAME, 'template.xslt'),
       outputSvgPath: path.join('Data', FOLDER_NAME, 'operation.svg'),
       outputPngPath: path.join('Data', FOLDER_NAME, `${interaction.user.username}_${role.name}.png`),
@@ -242,7 +245,7 @@ export class OperationModule {
       dataUri   = `data:${contentType};base64,${base64}`;
     }
 
-    const materiel = (state.type === this.bot.opMgr.roleConfig.get('🎮')) ? (this.gameConfig.get(state.games)) : (state.equip ? `Equipement: ${state.equip}` : '');
+    const materiel = (state.type === this.bot.opMgr.roleConfig.get('🎮')) ? (this.gameConfig.get(state.games!)) : (state.equip ? `Equipement: ${state.equip}` : '');
     
     const data = {
       description: state.description ? state.description : '',

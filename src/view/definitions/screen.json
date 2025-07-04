@@ -112,7 +112,7 @@
           "label": "Thème par défaut (ex. Libre)",
           "style": "Short",
           "placeholder": "Libre",
-          "required": true
+          "required": false
         }
       ]
     }

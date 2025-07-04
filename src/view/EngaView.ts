@@ -11,7 +11,7 @@ export default class EngaView extends BaseComponentView {
     constructor(
         bot: BotManager,
     ) {
-        super(bot, ViewHandlers.EngaHandler, ComponentType.Button, './src/views/definitions/enga.json')
+        super(bot, ViewHandlers.EngaHandler, ComponentType.Button, './src/view/definitions/enga.json')
     }
 
     protected getData(customId: string): Record<string, any> {

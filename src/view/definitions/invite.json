@@ -2,21 +2,25 @@
   {
     "customId": "accepted_{id}",
     "label": "Accepted",
-    "style": "Success"
+    "style": "Success",
+    "type": "Button"
   },
   {
     "customId": "declined_{id}",
     "label": "Declined",
-    "style": "Danger"
+    "style": "Danger",
+    "type": "Button"
   },
   {
     "customId": "tentative_{id}",
     "label": "Tentative",
-    "style": "Primary"
+    "style": "Primary",
+    "type": "Button"
   },
   {
     "customId": "role_{id}",
     "label": "Role",
-    "style": "Secondary"
+    "style": "Secondary",
+    "type": "Button"
   }
 ]

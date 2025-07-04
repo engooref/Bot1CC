@@ -112,6 +112,10 @@ export default class EventManager {
           content: "DISCUSSION EVENT"
         })
       }
+
+     
+      if (!channel.name.endsWith('📅'))
+        await channel.setName(channel.name + '📅')
       
       // 5) Briefing (fichier + forum)
       if (event.briefingTemplateName) {
@@ -185,6 +189,8 @@ export default class EventManager {
       }
       await message.delete();
       
+      if (channel?.name.endsWith('📅'))
+        await channel?.setName(channel?.name.slice(0, -1))
       
     } catch (err) {
       logger.error('suppEvent error', err);

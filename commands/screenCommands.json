@@ -20,6 +20,19 @@
         "name": "stop",
         "description": "Stop le schedule Screen",
         "options": []
+      },
+      {
+        "type": "SUB_COMMAND",
+        "name": "theme",
+        "description": "Permet de changer le thème du screen",
+        "options": [
+          {
+            "type": "STRING",
+            "name": "texte",
+            "description": "Le texte du thème",
+            "required": false
+          }
+        ]
       }
     ],
     "handler": "screenHandler"

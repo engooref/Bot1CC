@@ -14,7 +14,7 @@ export class InviteView extends BaseComponentView {
       private eventId: number,
       withRole = false,
     ) {
-      let definitions: JSONComponent[] = getDefinitions('./src/views/definitions/invite.json');
+      let definitions: JSONComponent[] = getDefinitions('./src/view/definitions/invite.json');
 
       // 2️⃣ Filtrer le bouton “role_{id}” si `withRole` est false
       if (!withRole) {

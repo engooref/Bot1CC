@@ -24,20 +24,9 @@ export default class TicketTypeSelectView extends BaseComponentView {
         type: JSONTypeComponent.StringSelectMenu,
         customId: Handlers.SelectType,
         placeholder: 'Sélectionnez le service',
-        options: [
-          { "label": "Type 1", "value": "1" },
-          { "label": "Type 2", "value": "2" }
-        ]
+        options: types.map(t => ({ label: t.name, value: String(t.id) }))
       },
     ]
-   
-    const menu = new ActionRowBuilder<MessageActionRowComponentBuilder>()
-      .addComponents(
-        new StringSelectMenuBuilder()
-          .setCustomId(Handlers.SelectType)
-          .setPlaceholder('Selectionnez le service')
-          .addOptions(types.map(t => ({ label: t.name, value: String(t.id) })))
-      );
     super(bot, ViewHandlers.TicketsHandler, ComponentType.Select, json);
     this.types = types;
   }

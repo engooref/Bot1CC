@@ -97,6 +97,24 @@ export class SchedulerAppEvent {
       populate: ['*', 'responses.users'],
     });
 
+
+    for (const day of DAY_NAMES) {
+      const id = this.bot.getParameter("CHANNEL_" + day.toUpperCase()) as string;
+      const channel = this.bot.guild.channels.cache.get(id);
+      if (channel?.name.endsWith('📅'))
+        await channel?.setName(channel?.name.slice(0, -1))
+
+    }
+
+    let channel = this.bot.guild.channels.cache.get(this.bot.getParameter("CHANNEL_TRAINING") as string);
+    if (channel?.name.endsWith('📅'))
+      await channel?.setName(channel?.name.slice(0, -1))
+    
+    channel = this.bot.guild.channels.cache.get(this.bot.getParameter("CHANNEL_GROS_EVENT") as string);
+    if (channel?.name.endsWith('📅'))
+      await channel?.setName(channel?.name.slice(0, -1))
+
+
     for (const ev of events) {
       await this.bot.evMgr.setEvent(ev);
       this.bot.evMgr.em.persist(ev);
@@ -232,12 +250,14 @@ export class SchedulerScreen {
 
   constructor(private bot: BotManager) {
 
+    
     // Merge configFile with defaults
     for (const key of Object.keys(defaultConfig)) {
       const val = this.bot.scrMgr.configFile.get(key);
       if (val == null) this.bot.scrMgr.configFile.add(key, defaultConfig[key]);
     }
 
+    
     this.ensureStore();
     this.loadStore();
     this.resumeContests();
@@ -248,6 +268,7 @@ export class SchedulerScreen {
 
   }
 
+  @SafeMethod
   private ensureStore() {
     if (!fs.existsSync(this.storePath)) {
       fs.writeFileSync(this.storePath, JSON.stringify([]));
@@ -255,6 +276,7 @@ export class SchedulerScreen {
   }
 
   /** Charge les concours actifs depuis le fichier */
+  @SafeMethod
   private loadStore() {
     try {
       const data = fs.readFileSync(this.storePath, 'utf-8');
@@ -265,14 +287,17 @@ export class SchedulerScreen {
   }
 
   /** Sauvegarde l’état actuel des concours */
+  @SafeMethod
   private saveStore() {
     fs.writeFileSync(this.storePath, JSON.stringify(this.contestStore));
   }
 
+  @SafeMethod
   private resumeContests() {
+    if (this.bot.scrMgr.configFile.get('start_schedule')! !== 'O') return;
     const now = Date.now();
     const cfg = this.bot.scrMgr.configFile;
-    const contestDuration = 3 * 60 * 1000;                     // ou 7d en prod
+    const contestDuration = 7 * 24 * 60 * 60 * 1000 // ou 7d en prod
     const cfgreminder: string = this.bot.scrMgr.configFile.get('reminder_hours_before')!;
     const reminderOffset  = parseFloat(String(cfgreminder).replace(',', '.').trim()) * 3600 * 1000
 
@@ -295,14 +320,16 @@ export class SchedulerScreen {
       }
       // 3) Sinon (on redémarre APRES la clôture) -> on nettoie sans renvoyer
       else {
-        threadFetch.then(t => this.endContest(t as ThreadChannel))
-        // this.contestStore = this.contestStore.filter(c => c.threadId !== contest.threadId);
-        // this.saveStore();
+        this.contestStore = this.contestStore.filter(c => c.threadId !== contest.threadId);
+        this.saveStore();
       }
     });
   }
   
+  @SafeMethod
   private scheduleWeekly() {
+    if (this.bot.scrMgr.configFile.get('start_schedule')! !== 'O') return;
+
     // Ex. schedule_hour = '10:00'
     const [hour, minute] = this.bot.scrMgr.configFile.get('schedule_hour')!.split(':').map(Number);
     const dayOfWeek = cronDays[this.bot.scrMgr.configFile.get('schedule_day')!];
@@ -313,7 +340,10 @@ export class SchedulerScreen {
     logger.info(`Screen: Création du thread le ${this.bot.scrMgr.configFile.get('schedule_day')!} à ${this.bot.scrMgr.configFile.get('schedule_hour')!}`);
   }
 
+  @SafeMethod
   private async startContest() {
+    if (this.bot.scrMgr.configFile.get('start_schedule')! !== 'O') return;
+
     // 1. Récupérer le channel
     const ch = await this.bot.channels.fetch(this.bot.scrMgr.configFile.get('channel_screen')!) as TextChannel;
     
@@ -331,7 +361,7 @@ export class SchedulerScreen {
     this.saveStore();
 
     // Durées en ms
-    const contestDuration = 3 * 60 * 1000;
+    const contestDuration = 7 * 24 * 60 * 60 * 1000;
 
     const cfgreminder: string = this.bot.scrMgr.configFile.get('reminder_hours_before')!;
     const reminderOffset  = parseFloat(String(cfgreminder).replace(',', '.').trim()) * 3600 * 1000
@@ -339,7 +369,6 @@ export class SchedulerScreen {
 
     // Calcul des dates
     const endDate      = new Date(now.getTime() + contestDuration);
-    const reminderDate = new Date(now.getTime() + reminderDelay);
 
     // Format FR
     const opts: Intl.DateTimeFormatOptions = {
@@ -353,28 +382,27 @@ export class SchedulerScreen {
     };
 
     const endStr      = endDate.toLocaleDateString('fr-FR', opts);
-    const reminderStr = reminderDate.toLocaleDateString('fr-FR', opts);
 
     // Message enrichi
     const welcomeText = [
       this.bot.scrMgr.configFile.get('welcome_message')!,
+      this.bot.scrMgr.configFile.get('theme_default')! ? `Thème de la semaine: ${this.bot.scrMgr.configFile.get('theme_default')!}` : "Pas de thème imposé, surprenez-nous avec vos plus beaux screens !",
       `📅 **Fin du concours :** ${endStr}`,
-      `⏰ **Rappel avant clôture :** ${reminderStr}`
     ].join('\n');
 
-    
     // 3. Envoyer le message de bienvenue + réaction
-    const welcomeMsg = await thread.send(welcomeText);
+    await thread.send(welcomeText);
 
-    // const contestDuration = 7 * 24 * 60 * 60 * 1000;
  
     setTimeout(() => this.sendReminder(thread), reminderDelay);
     setTimeout(() => this.endContest(thread), contestDuration);
   }
 
   
-
+  @SafeMethod
   private async sendReminder(thread: ThreadChannel) {
+    if (this.bot.scrMgr.configFile.get('start_schedule')! !== 'O') return;
+
     try {
       if (this.bot.scrMgr.configFile.get('reminder_text_before')!)
         await thread.send(this.bot.scrMgr.configFile.get('reminder_text_before')!);
@@ -383,23 +411,36 @@ export class SchedulerScreen {
     }
   }
 
+  @SafeMethod
   private async endContest(thread: ThreadChannel) {
+    if (this.bot.scrMgr.configFile.get('start_schedule')! !== 'O') return;
+
     try {
       // Fermer le thread
       await thread.setArchived(true);
 
+      await thread.send('Le concours est terminé ! Merci à tous pour vos participations. Les résultats seront annoncés sous peu.');
+      
       // Récupérer tous les messages
-      const msgs = await thread.messages.fetch({ limit: 100 });
-      // Filtrer les images et compter les réactions
+      const msgs = await thread.messages.fetch();     // Filtrer les images et compter les réactions
       type Entry = { url: string; votes: number };
       const entries: Entry[] = [];
+      const emojiVoteName = this.bot.scrMgr.configFile.get('emoji_vote')!; // ex: ":1cc:" ou "👍"
+      let emojiVoteKey = emojiVoteName;
+
+      // Si c'est un emoji custom (format :nom:), on cherche son ID dans le cache
+      const match = emojiVoteName.match(/^:?(?<name>\w+):?$/);
+      if (match && this.bot.guild.emojis.cache.size) {
+        const found = this.bot.guild.emojis.cache.find(e => e.name?.toLowerCase() === match.groups!.name.toLowerCase());
+        if (found) emojiVoteKey = found.id!; // .identifier pour custom, sinon garde le caractère
+      }
 
       msgs.forEach(msg => {
         const attachments = msg.attachments.filter(att =>
           ['image/png','image/jpeg'].includes(att.contentType || '')
         );
         attachments.forEach(att => {
-          const votes = msg.reactions.cache.get(this.bot.scrMgr.configFile.get('emoji_vote')!)?.count ?? 0;
+          const votes = msg.reactions.cache.get(emojiVoteKey)?.count ?? 0;
           // retirer 1 si le bot a lui-même réagi
           entries.push({ url: att.url, votes: Math.max(0, votes - 1) });
         });
@@ -469,10 +510,14 @@ export class SchedulerScreen {
       } else {
         await threadr.send('Aucune participation détectée cette semaine. ');
       }
+
+      this.contestStore = this.contestStore.filter(c => c.threadId !== thread.id);
     } catch (err) {
       console.error('Erreur endContest:', err);
     }
   }
+
+  
 
   async fetchBuffer(url: string): Promise<Buffer> {
     const res = await fetch(url);

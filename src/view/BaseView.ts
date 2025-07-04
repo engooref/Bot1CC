@@ -210,7 +210,7 @@ export abstract class BaseComponentView {
         // row.components est un array de builders, chacun a data.custom_id
         (row.components as any[]).map(comp => comp.data.custom_id as string)
         );
-        
+
         if (this.modal?.length)
              this.modal.flatMap(mod => {presentIds.push(mod.data.custom_id!)}) 
 
@@ -245,6 +245,7 @@ export abstract class BaseComponentView {
     protected buildComponentsFromJSON(definition: JSONComponent[]) {
         try {
             const actionRows: ActionRowBuilder<any>[] = [];
+            const buttons: ButtonBuilder[] = []
             let modal: ModalBuilder[] = [];
             for (const comp of definition) {
                 switch (comp.type) {
@@ -345,7 +346,7 @@ export abstract class BaseComponentView {
                         else btn.setCustomId(comp.customId);
                         if (comp.disabled) btn.setDisabled(true);
                         if(comp.target) this.buttonTarget[comp.customId] = comp.target;
-                        actionRows.push(new ActionRowBuilder<ButtonBuilder>().addComponents(btn));
+                        buttons.push(btn);
                         break;
                     }
                     case JSONTypeComponent.Modal: {
@@ -371,6 +372,7 @@ export abstract class BaseComponentView {
                     }
                 }
             }
+            if (buttons.length) actionRows.push(new ActionRowBuilder<ButtonBuilder>().addComponents(buttons));
             return { actionRows, modal };
         }
         catch (err) {
@@ -391,7 +393,7 @@ export function getDefinitions(definitionsPath: string) {
     // 1️⃣ On charge le JSON depuis le fichier
     const absolutePath = path.isAbsolute(definitionsPath)
     ? definitionsPath
-    : path.resolve(__dirname, definitionsPath);
+    : path.resolve(definitionsPath);
     let definitions: JSONComponent[];
     try {
         const raw = fs.readFileSync(absolutePath, 'utf-8');

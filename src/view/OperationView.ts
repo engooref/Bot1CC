@@ -28,9 +28,10 @@ import { EntityManager } from '@mikro-orm/core';
 import { SCLocations } from '../entities/SCLocations.js';
 import logger from '../logger.js';
 import { JSONComponent, JSONTypeComponent } from '../utils/Type.js';
+import { SafeMethod } from '../exception/Safe.js';
 
 // Décris la forme interne de l’état de l’opération
-interface OperationState {
+export interface OperationState {
   type?: string;
   minutes: string;
   location: string;
@@ -39,6 +40,7 @@ interface OperationState {
   equip?: string;
   reward?: string;
   url?: string;
+  typeSpe? : string;
 }
 
 export class OperationView extends BaseComponentView {
@@ -50,7 +52,7 @@ export class OperationView extends BaseComponentView {
       'select_type', 'select_heure',
       'select_star', 'select_planet', 'select_moon', 'search_btn',
       'select_game', 'details_btn', 'send_btn', 'cancel_btn',
-      'details_modal', 'recherche_modal'
+      'details_modal', 'recherche_modal', 'select_typespe'
     ];
 
     super(
@@ -62,6 +64,7 @@ export class OperationView extends BaseComponentView {
 
     this.em = bot.dbMgr.getEm();
     this.state = { minutes: '0', location: '0.0.0' };
+    this.customIds = customIds
   }
 
   public isSupp(val: string): boolean {
@@ -69,6 +72,7 @@ export class OperationView extends BaseComponentView {
     return supp.includes(val);
   }
 
+  @SafeMethod
   private async buildRowsSplit(
     roleEmojis: Record<string, string>,
     listGames: Record<string, string>
@@ -77,6 +81,8 @@ export class OperationView extends BaseComponentView {
     detailRows:  ActionRowBuilder<MessageActionRowComponentBuilder>[];
   }> {
     const allRows: ActionRowBuilder<MessageActionRowComponentBuilder>[] = [];
+    
+    let data: Record<string, string> | undefined = this.bot.opMgr.opeConfig.get(this.state.type ?? 'def') as Record<string, string> | undefined
     
     // 1️⃣ TYPE
     allRows.push(
@@ -93,6 +99,24 @@ export class OperationView extends BaseComponentView {
           )
       )
     );
+
+    if (data) {
+      data = { GE: 'Non Défini', ...data };
+      allRows.push(
+        new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
+          new StringSelectMenuBuilder()
+          .setCustomId(this.customIds[12])
+          .setPlaceholder("Choisissez l'opération")
+          .addOptions(
+            ...Object.entries(data).map(([key, val]: [string, string]) => ({
+              label: val,
+              value: key,
+              default: (this.state.typeSpe ?? "GE") === key
+            }))
+          )
+        )
+      );
+    }
 
     // 2️⃣ HEURE
     const hourValues = [0,15,30,45,60,90,120,150,180];
@@ -233,8 +257,8 @@ export class OperationView extends BaseComponentView {
     );
 
     // ** Split en deux messages **
-    const headerRows = allRows.slice(0, 2);        // TYPE + HEURE
-    const detailRows = allRows.slice(2);           // tout le reste
+    const headerRows = allRows.slice(0, 2 + (data ? 1 : 0));        // TYPE + HEURE
+    const detailRows = allRows.slice(2 + (data ? 1 : 0));           // tout le reste
 
     return { headerRows, detailRows };
   }
@@ -343,7 +367,7 @@ export class OperationView extends BaseComponentView {
       await this.renderHeader(channel, null);
       await this.renderDetail(channel, null);
     } else {
-      const headerCIDs = [ this.customIds[0], this.customIds[1] ];
+      const headerCIDs = [ this.customIds[0], this.customIds[1], this.customIds[12] ];
       if (headerCIDs.includes(cid)) {
         const ctx = await this.em.findOne(InteractionContext, {
           handlerKey: this.handlerKey,
@@ -525,6 +549,9 @@ export class OperationView extends BaseComponentView {
 
           return;
 
+        case this.customIds[12]:
+          this.state.typeSpe = (interaction as StringSelectMenuInteraction).values[0];
+          break;  
         default:
           // customId inconnu
           logger.warn(`Unhandled customId in OperationView: ${cid}`);
