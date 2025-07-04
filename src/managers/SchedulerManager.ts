@@ -126,6 +126,9 @@ export class SchedulerAppEvent {
 
 export class SchedulerEvent {
   private pendingTasks = new Map<number, NodeJS.Timeout>();
+  // Map pour stocker l'ID du channel vocal parent par event
+  private voiceParentChannels = new Map<number, string>();
+  private voiceParentCleanup = new Map<number, NodeJS.Timeout>();
 
   constructor(private bot: BotManager) {
     // démarre la boucle toutes les 60s
@@ -196,17 +199,53 @@ export class SchedulerEvent {
       .join(' ');
 
     // Crée un thread sur le message d'origine
-    
     const thread = msg.hasThread ? msg.thread! : await msg.startThread({
-      name: `Rappel : ${ev.name}`,         // nom du thread
-      autoArchiveDuration: ThreadAutoArchiveDuration.OneDay,            // en minutes, ici 1h
+      name: `Rappel : ${ev.name}`,
+      autoArchiveDuration: ThreadAutoArchiveDuration.OneDay,
       reason: 'Rappel des participants',
     });
-
-    // Envoie le contenu dans le thread
     await thread.send(`${ev.name}\n\n${line}`);
     ev.appelMsgDiscord = true;
     await this.bot.evMgr.em.persistAndFlush(ev);
+
+    // --- Création du channel vocal parent ---
+    // On crée le channel vocal parent dans la même catégorie que le channel textuel de l'event
+    const parentCategory = channel.parentId;
+    const voiceParent = await this.bot.guild.channels.create({
+      name: `Créer un vocal d'équipe - ${ev.name}`,
+      type: ChannelType.GuildVoice,
+      parent: parentCategory ?? undefined,
+      userLimit: 99,
+      reason: `Préparation event ${ev.name}`
+    });
+    ev.vocalParentId = voiceParent.id;
+    await this.bot.evMgr.em.persistAndFlush(ev);
+
+    // Planifie la suppression du channel vocal parent à la fin de l'event
+    const now = Date.now();
+    const end = new Date(ev.end).getTime();
+    const delay = Math.max(0, end - now);
+    if (this.voiceParentCleanup.has(ev.id)) {
+      clearTimeout(this.voiceParentCleanup.get(ev.id));
+    }
+    const cleanupTimeout = setTimeout(async () => {
+      try {
+        if (ev.vocalParentId) {
+          const ch = await this.bot.guild.channels.fetch(ev.vocalParentId).catch(() => null);
+          if (ch) await ch.delete('Fin de l\'event');
+          ev.vocalParentId = undefined;
+          await this.bot.evMgr.em.persistAndFlush(ev);
+        }
+      } catch {}
+      this.voiceParentChannels.delete(ev.id);
+      this.voiceParentCleanup.delete(ev.id);
+    }, delay);
+    this.voiceParentCleanup.set(ev.id, cleanupTimeout);
+  }
+
+  // Méthode utilitaire pour récupérer l'ID du channel vocal parent d'un event
+  public getVoiceParentChannelId(eventId: number): string | undefined {
+    return this.voiceParentChannels.get(eventId);
   }
 
   public cancelReminder(ev: Event): void {

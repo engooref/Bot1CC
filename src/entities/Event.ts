@@ -94,6 +94,9 @@ import {
     @Property({ length: 255, default: '' })
     roleDispo: string = '';
   
+    @Property({ length: 255, nullable: true })
+    vocalParentId?: string;
+  
     @OneToMany(() => Response, resp => resp.event, { orphanRemoval: true })
     responses = new Collection<Response>(this);
   
@@ -134,4 +137,3 @@ import {
     }
   
   }
-  

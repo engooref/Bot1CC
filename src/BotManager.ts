@@ -6,6 +6,9 @@ import {
   Interaction,
   ButtonInteraction,
   StringSelectMenuInteraction,
+  VoiceState,
+  GuildVoiceChannelResolvable,
+  ChannelType,
 } from 'discord.js';
 import logger from './logger.js';
 import DatabaseManager from './managers/DatabaseManager.js';
@@ -88,6 +91,7 @@ export default class BotManager extends Client {
     this.on('guildMemberRemove', this._onGuildMemberRemove.bind(this));
 
     this.on('interactionCreate', this._onInteraction.bind(this))
+    this.on('voiceStateUpdate', this._onVoiceStateUpdate.bind(this));
   }
 
   private setHandlersButtons() {
@@ -487,5 +491,51 @@ export default class BotManager extends Client {
     await this.loadParameters();
     // Appelle la méthode correspondante de ton scheduler
     this.schedMgr.appEvent.resetScheduler();
+  }
+
+  /**
+   * Gère la création des channels vocaux d'équipe et leur suppression auto
+   */
+  @SafeMethod
+  private async _onVoiceStateUpdate(oldState: VoiceState, newState: VoiceState) {
+    // Si le membre rejoint un channel vocal
+    if (newState.channelId && newState.channelId !== oldState.channelId) {
+      // Cherche un event dont le vocalParentId correspond au channel rejoint
+      const em = this.dbMgr.getEm();
+      const event = await em.findOne(Event, { vocalParentId: newState.channelId });
+      if (event) {
+        // Vérifie si le membre est accepté à l'event et récupère son équipe
+        const user = await em.findOne(User, { discordId: newState.id });
+        if (!user) return;
+        const resp = await em.findOne(Response, { event: event, users: user, typeRep: 'accepted' }, { populate: ['team'] });
+        if (!resp || !resp.team) {
+          // L'utilisateur n'est pas attribué : il peut rester dans le channel parent, mais on ne crée pas de vocal d'équipe
+          try {
+            await newState.member?.send("❌ Tu n'es attribué à aucune équipe pour cet event. Tu peux rejoindre un vocal d'équipe existant si tu y es invité.");
+          } catch {}
+          return;
+        }
+        // Cherche si un vocal d'équipe existe déjà
+        const teamName = resp.team.name;
+        const parentChannel = newState.channel ? newState.channel.parent : null;
+        const existing = newState.guild.channels.cache.find((ch: any) =>
+          ch.type === ChannelType.GuildVoice && ch.name === `Équipe ${teamName}` && ch.parentId === parentChannel?.id
+        );
+        if (existing && existing.type === ChannelType.GuildVoice) {
+          // Si le vocal d'équipe existe déjà, on y déplace directement le membre
+          await newState.setChannel(existing);
+          return;
+        }
+        // Sinon, on crée le channel vocal d'équipe
+        const teamChannel = await newState.guild.channels.create({
+          name: `Équipe ${teamName}`,
+          type: ChannelType.GuildVoice,
+          parent: parentChannel?.id,
+          userLimit: 10,
+          reason: `Vocal équipe pour event ${event.id}`
+        });
+        await newState.setChannel(teamChannel);
+      }
+    }
   }
 }
