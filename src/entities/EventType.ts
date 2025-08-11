@@ -11,6 +11,9 @@ export class EventType {
   @Property({ length: 255 })
   name!: string;
 
+  @Property({ type: 'int', nullable: false })
+  xp!: number;
+
   @Property({ length: 7 })
   color!: string;
 

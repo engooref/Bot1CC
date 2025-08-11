@@ -1,6 +1,7 @@
 import express, { Application, Request, Response, NextFunction } from 'express';
 import { createEventRouter } from './EventRouter.js';
 import { createGeneralRouter} from './GeneralRouter.js';
+import { createUserRouter } from './UserRouter.js';
 import  BotManager  from '../BotManager.js';
 import logger from '../logger.js';
 import { RequestContext } from '@mikro-orm/core';
@@ -33,6 +34,7 @@ export default class AppExpress {
     // routes évènements
     this.app.use('/', createGeneralRouter(this.bot));
     this.app.use('/', createEventRouter(this.bot));
+    this.app.use('/user', createUserRouter(this.bot));
 
   }
 
@@ -45,7 +47,7 @@ export default class AppExpress {
 
   public start(port: number): void {
     this.app.listen(port, '0.0.0.0', () => {
-      logger.info(`Express server listening on http://localhost:${port}`);
+      logger.debug(`Express server listening on http://localhost:${port}`);
     });
   }
 }

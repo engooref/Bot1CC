@@ -1,0 +1,15 @@
+[
+  {
+    "name": "event",
+    "description": "Commandes de gestion events",
+    "options": [
+        {
+            "name": "dispatch",
+            "description": "Répartit les membres du vocal actuel dans des channels d'équipe pour l'event",
+            "type": "SUB_COMMAND",
+            "options": []
+        }
+    ],
+    "handler": "eventHandler"
+  }
+]

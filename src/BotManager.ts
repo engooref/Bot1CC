@@ -7,7 +7,6 @@ import {
   ButtonInteraction,
   StringSelectMenuInteraction,
   VoiceState,
-  GuildVoiceChannelResolvable,
   ChannelType,
 } from 'discord.js';
 import logger from './logger.js';
@@ -35,6 +34,9 @@ import { TicketManager } from './managers/TicketsManager.js';
 import { sendEnga, sendCandidatures } from './view/EngaView.js';
 import SlashCommandManager, { CommandHandler } from './utils/SlashCommandManager.js';
 import ScreenManager from './managers/ScreenManager.js';
+import MusicManager from './managers/MusicManager.js';
+
+import { VoicePresence } from './entities/VoicePresence.js';
 
 
 export default class BotManager extends Client {
@@ -51,6 +53,7 @@ export default class BotManager extends Client {
   public schedMgr!: SchedulerManager;
   private slhMgr!: SlashCommandManager;
   public scrMgr!: ScreenManager;
+  public musicMgr!: MusicManager;
 
   private hasStarted = false;
   private parameters: Record<string, Parameter> = {};
@@ -64,6 +67,8 @@ export default class BotManager extends Client {
         GatewayIntentBits.GuildMessages,
         GatewayIntentBits.GuildMessageReactions,
         GatewayIntentBits.GuildMembers,
+        GatewayIntentBits.GuildVoiceStates,
+
       ],
     });
 
@@ -152,26 +157,26 @@ export default class BotManager extends Client {
       this.roleMember = this.guild.roles.cache.get(roleId);
     }
 
-    this.loadParameters();
 
     const me = await this.guild.members.fetchMe();
     await this.dbMgr.insertAndGetUser(me);
-
     
+    await this.loadParameters();
     await this.createManager();
 
-    logger.info('Synchronisation des Rôles');
+    await logger.debug('Synchronisation des Rôles');
     await this.dbMgr.syncRoles(this.guild.roles.cache);
-    logger.info('Synchronisation des Channels');
+    await logger.debug('Synchronisation des Channels');
     await this.dbMgr.syncChannels(this.guild.channels.cache);
 
     await sendEnga(this);
 
-    logger.info(`Discord connecté en tant que ${this.user?.tag}`);
+
+    await logger.info(`Discord connecté en tant que ${this.user?.tag}`);
   }
 
   private async createManager() {
-    logger.info('Création des Managers')
+    await logger.debug('Création des Managers')
     this.evMgr = new EventManager(this);
     this.usrMgr = new UserManager(this);
     
@@ -182,10 +187,14 @@ export default class BotManager extends Client {
     await this.tkMgr.init();
 
     this.scrMgr = new ScreenManager(this);
+    //this.musicMgr = new MusicManager(this);
 
-    const handlersMap: Record<string, CommandHandler> = {
-      ...await this.scrMgr.getSlashHandlers()
-    }
+    // Fusion dynamique des handlers exposés par chaque manager
+    const handlersMap = {
+      ...this.scrMgr.getSlashHandlers(),
+      ...this.evMgr.getSlashHandlers(),
+      ...this.dbMgr.getSlashHandlers(),
+    } as Record<string, CommandHandler>;
 
     this.slhMgr = new SlashCommandManager(this, handlersMap);
     await this.slhMgr.loadAllCommandDefinitions()
@@ -199,13 +208,13 @@ export default class BotManager extends Client {
   @SafeMethod
   private async _onGuildRoleCreate(role: Role) {
     try {
-      logger.info(`Création du rôle : ${role.name}`);
+      await logger.info(`Création du rôle : ${role.name}`);
       const singleRoleCollection = new Collection<string, Role>();
       // 2. Ajoute ton rôle dedans (clé = id, valeur = objet role)
       singleRoleCollection.set(role.id, role);
       this.dbMgr.syncRoles(singleRoleCollection);
     } catch (e) {
-      logger.error(`onGuildRoleCreate - ${e}`);
+      await logger.error(`onGuildRoleCreate - ${e}`);
     }
   }
 
@@ -213,10 +222,10 @@ export default class BotManager extends Client {
   private async _onGuildRoleDelete(role: Role) {
     try {
       const em = this.dbMgr.getEm();
-      logger.info(`Suppression du rôle : ${role.name}`);
+      await logger.info(`Suppression du rôle : ${role.name}`);
       await em.nativeDelete(DBRole, {discordId: role.id});
     } catch (e) {
-      logger.error(`onGuildRoleDelete - ${e}`);
+      await logger.error(`onGuildRoleDelete - ${e}`);
     }
   }
 
@@ -231,14 +240,11 @@ export default class BotManager extends Client {
       if (!roleEntity) return;
 
       roleEntity.name = newRoleObj.name;
-      roleEntity.isGrade = newRoleObj.hoist;
       await em.persistAndFlush(roleEntity);
       
-      logger.info(
-        `Modification du rôle ${newRoleObj.id} : ${oldRole.name} -> ${newRoleObj.name}`,
-      );
+      await logger.info(`Modification du rôle ${newRoleObj.id} : ${oldRole.name} -> ${newRoleObj.name}`);
     } catch (e) {
-      logger.error(`onGuildRoleUpdate - ${e}`);
+      await logger.error(`onGuildRoleUpdate - ${e}`);
     }
   }
 
@@ -249,7 +255,7 @@ export default class BotManager extends Client {
       singleChannelCollection.set(channel.id, channel as GuildBasedChannel);
       this.dbMgr.syncChannels(singleChannelCollection);
     } catch (e) {
-      logger.error(`onGuildChannelCreate - ${e}`);
+      await logger.error(`onGuildChannelCreate - ${e}`);
     }
   }
 
@@ -259,9 +265,9 @@ export default class BotManager extends Client {
       if(channel as DMChannel) return;
       const em = this.dbMgr.getEm();
       await em.nativeDelete(Channel, {discordId: channel.id});
-      logger.info(`Suppression du canal : ${(channel as GuildChannel).name}`);
+      await logger.info(`Suppression du canal : ${(channel as GuildChannel).name}`);
     } catch (e) {
-      logger.error(`onGuildChannelDelete - ${e}`);
+      await logger.error(`onGuildChannelDelete - ${e}`);
     }
   }
 
@@ -280,11 +286,9 @@ export default class BotManager extends Client {
 
       channelEntity.name = (newChannel as GuildChannel).name;
       await em.persistAndFlush(channelEntity);
-      logger.info(
-        `Modification du canal : ${(oldChannel as GuildChannel).name} -> ${(newChannel as GuildChannel).name}`,
-      );
+      await logger.info(`Modification du canal : ${(oldChannel as GuildChannel).name} -> ${(newChannel as GuildChannel).name}`);
     } catch (e) {
-      logger.error(`onGuildChannelUpdate - ${e}`);
+      await logger.error(`onGuildChannelUpdate - ${e}`);
     }
   }
 
@@ -338,9 +342,10 @@ export default class BotManager extends Client {
           const dbRole = await em.findOne(
             DBRole,
             { discordId: r.id },
+            { populate: ['rank'] }
           );
           if (dbRole && !user.rolesDiscord.contains(dbRole)) {
-            changeGrade = changeGrade || dbRole.isGrade;
+            changeGrade = changeGrade || (dbRole.rank !== null);
             user.rolesDiscord.add(dbRole);
           }
         }
@@ -352,13 +357,13 @@ export default class BotManager extends Client {
             { discordId: r.id },
           );
           if (dbRole && user.rolesDiscord.contains(dbRole)) {
-            changeGrade = changeGrade || dbRole.isGrade;
+            changeGrade = changeGrade || (dbRole.rank !== null);
             user.rolesDiscord.remove(dbRole);
           }
         }
 
         // trace + flush
-        await logger.info(`Modification des rôles de ${user.username}`);
+        await await logger.info(`Modification des rôles de ${user.username}`);
         await em.persistAndFlush(user);
 
         // si nouveau membre ou changement de grade, réinitialise la RH
@@ -372,7 +377,7 @@ export default class BotManager extends Client {
               !changeGrade,
             );
           } catch (err) {
-            logger.error(
+            await logger.error(
               `Erreur initMemberRh pour ${user.username} → ${err}`,
             );
             throw err;
@@ -423,7 +428,7 @@ export default class BotManager extends Client {
         }
       }
     } catch (e) {
-      logger.error(`onGuildMemberUpdate - ${e}`);
+      await logger.error(`onGuildMemberUpdate - ${e}`);
     }
   }
 
@@ -438,7 +443,7 @@ export default class BotManager extends Client {
       if (!user) return;
       await this.usrMgr.deleteUser(user);
     } catch (e) {
-      logger.error(`onGuildMemberRemove - ${e}`);
+      await logger.error(`onGuildMemberRemove - ${e}`);
     }
   }
 
@@ -449,7 +454,7 @@ export default class BotManager extends Client {
 
       const ctx = await this.dbMgr.getEm().findOne(InteractionContext, { customId, messageId: message?.id });
       if (!ctx) {
-        logger.debug(`Composant non trouvé -> customId: ${customId}  message: ${message}`)
+        await logger.debug(`Composant non trouvé -> customId: ${customId}  message: ${message}`)
         return
       }
       const handler = componentHandlerRegistry.get(ctx.handlerKey);
@@ -465,7 +470,7 @@ export default class BotManager extends Client {
   @SafeMethod
   public async loadParameters(): Promise<void> {
     // Supposons que db.selectAll renvoie une liste d'instances de Parameter
-    const all = await this.dbMgr.getEm().find(Parameter, {}, { populate: ["*"] });;
+    const all = await this.dbMgr.getEm().find(Parameter, {}, { populate: ["*"] });
     this.parameters = {};
     for (const p of all) {
       // on utilise p.toString() comme clé, comme ton __str__ Python qui renvoie le name
@@ -498,44 +503,165 @@ export default class BotManager extends Client {
    */
   @SafeMethod
   private async _onVoiceStateUpdate(oldState: VoiceState, newState: VoiceState) {
-    // Si le membre rejoint un channel vocal
-    if (newState.channelId && newState.channelId !== oldState.channelId) {
-      // Cherche un event dont le vocalParentId correspond au channel rejoint
-      const em = this.dbMgr.getEm();
-      const event = await em.findOne(Event, { vocalParentId: newState.channelId });
-      if (event) {
-        // Vérifie si le membre est accepté à l'event et récupère son équipe
-        const user = await em.findOne(User, { discordId: newState.id });
-        if (!user) return;
-        const resp = await em.findOne(Response, { event: event, users: user, typeRep: 'accepted' }, { populate: ['team'] });
-        if (!resp || !resp.team) {
-          // L'utilisateur n'est pas attribué : il peut rester dans le channel parent, mais on ne crée pas de vocal d'équipe
-          try {
-            await newState.member?.send("❌ Tu n'es attribué à aucune équipe pour cet event. Tu peux rejoindre un vocal d'équipe existant si tu y es invité.");
-          } catch {}
-          return;
-        }
-        // Cherche si un vocal d'équipe existe déjà
-        const teamName = resp.team.name;
-        const parentChannel = newState.channel ? newState.channel.parent : null;
-        const existing = newState.guild.channels.cache.find((ch: any) =>
-          ch.type === ChannelType.GuildVoice && ch.name === `Équipe ${teamName}` && ch.parentId === parentChannel?.id
-        );
-        if (existing && existing.type === ChannelType.GuildVoice) {
-          // Si le vocal d'équipe existe déjà, on y déplace directement le membre
-          await newState.setChannel(existing);
-          return;
-        }
-        // Sinon, on crée le channel vocal d'équipe
-        const teamChannel = await newState.guild.channels.create({
-          name: `Équipe ${teamName}`,
-          type: ChannelType.GuildVoice,
-          parent: parentChannel?.id,
-          userLimit: 10,
-          reason: `Vocal équipe pour event ${event.id}`
+    const em = this.evMgr.em;
+    const userId = newState.id;
+    const now = new Date();
+    const channel = newState.channel ?? oldState.channel;
+    if (!channel) return;
+
+    // Helper: get event by parentId
+    const getEventByParentId = async (parentId: string | null) => {
+      if (!parentId) return null;
+      return await em.findOne(Event, { vocalParentId: parentId });
+    };
+
+    // Helper: get or create VoicePresence
+    const getOrCreatePresence = async (event: Event, user: User, isInChannel: boolean) => {
+      let presence = await em.findOne(VoicePresence, { event, user }) as InstanceType<typeof VoicePresence> | null;
+      if (!presence) {
+        presence = em.create(VoicePresence, {
+          event,
+          user,
+          lastJoin: now,
+          totalMs: 0,
+          isInChannel,
+          xpMan: 0,
         });
-        await newState.setChannel(teamChannel);
+        em.persist(presence);
       }
+      return presence;
+    };
+
+    // Helper: update presence on leave
+    const handleLeave = async (presence: InstanceType<typeof VoicePresence>) => {
+      if (presence.isInChannel) {
+        presence.totalMs += now.getTime() - presence.lastJoin.getTime();
+        presence.isInChannel = false;
+        await em.persistAndFlush(presence);
+      }
+    };
+
+    // Helper: move user to team channel
+    const moveToTeamChannel = async (
+      parentId: string,
+      teamName: string,
+      userState: VoiceState,
+      eventId: number
+    ): Promise<void> => {
+      const channelName = `Équipe ${teamName}`;
+      let teamChannel = this.guild.channels.cache.find(
+        (ch: any) => ch.type === ChannelType.GuildVoice && ch.parentId === parentId && ch.name === channelName
+      );
+      if (!teamChannel) {
+        teamChannel = await this.guild.channels.create({
+          name: channelName,
+          type: ChannelType.GuildVoice,
+          parent: parentId,
+          reason: `Création vocal équipe pour event ${eventId}`,
+        });
+      }
+      await userState.setChannel(teamChannel.id);
+    };
+
+    // Helper: move user to "Aucune équipe" channel
+    const moveToNoTeamChannel = async (
+      parentId: string,
+      userState: VoiceState,
+      eventId: number
+    ): Promise<void> => {
+      let noTeamChannel = this.guild.channels.cache.find(
+        (ch: any) => ch.type === ChannelType.GuildVoice && ch.parentId === parentId && ch.name === 'Aucune équipe'
+      );
+      if (!noTeamChannel) {
+        noTeamChannel = await this.guild.channels.create({
+          name: 'Aucune équipe',
+          type: ChannelType.GuildVoice,
+          parent: parentId,
+          reason: `Création vocal "Aucune équipe" pour event ${eventId}`,
+        });
+      }
+      await userState.setChannel(noTeamChannel.id);
+    };
+
+    // Helper: delete empty team channel and parent category if empty
+    const deleteEmptyTeamChannel = async (
+      channel: GuildChannel
+    ): Promise<void> => {
+      try {
+        await channel.delete('Suppression auto : channel d\'équipe vide');
+        const parentCategory = channel.parent;
+        if (
+          parentCategory &&
+          parentCategory.type === ChannelType.GuildCategory &&
+          parentCategory.children &&
+          parentCategory.children.cache.filter(
+            (ch: any) => ch.type === ChannelType.GuildVoice
+          ).size === 0
+        ) {
+          await parentCategory.delete('Suppression auto : catégorie vide');
+        }
+      } catch (e) {
+        await logger.error(`Erreur suppression channel équipe vide : ${e}`);
+      }
+    };
+
+    // 1. Récupère l'event via parentId du channel (si newState.channel, sinon oldState.channel)
+    let event = await getEventByParentId(channel.parentId);
+    // 2. Si pas d'event avec newState, c'est qu'il a quitté la catégorie (on traite le leave)
+    if (!event && oldState.channel && oldState.channel.parentId) {
+      event = await getEventByParentId(oldState.channel.parentId);
+    }
+    if (!event) return;
+
+    // 3. Récupère l'utilisateur
+    const user = await em.findOne(User, { discordId: userId });
+    if (!user) return;
+
+    // 4. Récupère la réponse à l'event
+    const resp = await em.findOne(Response, { event, users: user, typeRep: { $in: ['accepted'] } }, { populate: ['team'] });
+    if (!resp) return;
+
+    // 5. Liste des channels d'équipe
+    const allTeamChannels = channel.guild.channels.cache
+      .filter(ch => ch.type === ChannelType.GuildVoice && ch.parentId === event.vocalParentId)
+      .map(ch => ch.id);
+
+    // 6. Détermine l'état AVANT/APRÈS
+    const wasIn = oldState.channelId && allTeamChannels.includes(oldState.channelId);
+    const isIn  = newState.channelId && allTeamChannels.includes(newState.channelId);
+
+    // 7. Récupère ou crée la présence
+    let presence = await getOrCreatePresence(event, user, isIn || false);
+
+    // 8. Si l'utilisateur quitte le channel d'un event et sort de la catégorie
+    if (wasIn && !isIn) {
+      await handleLeave(presence);
+    } else if (!wasIn && isIn) {
+      // Si il vient d'entrer, on met isInChannel à true et lastJoin à now
+      presence.lastJoin = now;
+      presence.isInChannel = true;
+      await em.persistAndFlush(presence);
+    }
+
+    // 9. Si l'utilisateur est dans une équipe, on le move dans le channel équipe
+    if (isIn && newState.channelId === event.vocalParentId) {
+      if (resp.team) {
+        await moveToTeamChannel(event.vocalParentId, resp.team.name, newState, event.id);
+      } else {
+        await moveToNoTeamChannel(event.vocalParentId, newState, event.id);
+      }
+    }
+
+    // 10. Suppression auto du channel d'équipe s'il est vide
+    if (
+      oldState.channel &&
+      oldState.channel.type === ChannelType.GuildVoice &&
+      oldState.channel.name.startsWith('Équipe ') &&
+      'members' in oldState.channel &&
+      oldState.channel.members instanceof Collection &&
+      oldState.channel.members.size === 0
+    ) {
+      await deleteEmptyTeamChannel(oldState.channel);
     }
   }
 }

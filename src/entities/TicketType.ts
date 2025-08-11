@@ -19,8 +19,7 @@ export class TicketType {
    */
   constructor(name : string, roleAuth : bigint) {
     this.name = name;
-    // MikroORM stocke les bigints en string pour éviter les limites JS
-    this.roleAuth = roleAuth.toString();
+    this.roleAuth = roleAuth ? roleAuth.toString() : '';
   }
 
   toString() {

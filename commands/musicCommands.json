@@ -1,0 +1,52 @@
+[
+  {
+    "name": "music",
+    "description": "Commandes de gestion de musique (YouTube/Spotify)",
+    "options": [
+      {
+        "type": "SUB_COMMAND",
+        "name": "play",
+        "description": "Joue une musique depuis YouTube ou Spotify",
+        "options": [
+          {
+            "type": "STRING",
+            "name": "query",
+            "description": "Titre ou URL",
+            "required": true
+          }
+        ]
+      },
+      {
+        "type": "SUB_COMMAND",
+        "name": "pause",
+        "description": "Met la musique en pause",
+        "options": []
+      },
+      {
+        "type": "SUB_COMMAND",
+        "name": "resume",
+        "description": "Reprend la musique",
+        "options": []
+      },
+      { 
+        "type": "SUB_COMMAND",
+        "name": "skip",
+        "description": "Passe au titre suivant",
+        "options": []
+      },
+      {
+        "type": "SUB_COMMAND",
+        "name": "queue",
+        "description": "Affiche la file d'attente",
+        "options": []
+      },
+      {
+        "type": "SUB_COMMAND",
+        "name": "join",
+        "description": "Fait rejoindre le bot dans ton salon vocal",
+        "options": []
+      }
+    ],
+    "handler": "musicHandler"
+  }
+]

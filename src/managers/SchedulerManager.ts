@@ -54,7 +54,7 @@ export class SchedulerAppEvent {
 
 
     this.startScheduler();
-    logger.info(`✔ Scheduled weekly send: ${DAY_NAMES[this.dayIndex]} at ${this.hourMinute}`);
+    logger.debug(`✔ Scheduled weekly send: ${DAY_NAMES[this.dayIndex]} at ${this.hourMinute}`);
   }
 
   private startScheduler(): void {
@@ -74,13 +74,13 @@ export class SchedulerAppEvent {
     if (now.getDay() === (this.dayIndex % 7) &&
         now.getHours() === h && now.getMinutes() === m) {
       // lance l’envoi en tâche asynchrone
-      this.sendEventsWeek().catch(err => logger.error('sendEventsWeek error', err));
+      this.sendEventsWeek().catch(async err =>  await logger.error('sendEventsWeek error', err));
     }
   }
 
   @SafeMethod
-  private async sendEventsWeek(): Promise<void> {
-    logger.info('→ sendEventsWeek');
+  public async sendEventsWeek(): Promise<void> {
+    await logger.debug('→ sendEventsWeek');
     const today = new Date();
     // trouve le prochain lundi
     const daysUntilMonday = (8 - today.getDay()) % 7;
@@ -106,21 +106,30 @@ export class SchedulerAppEvent {
 
     }
 
-    let channel = this.bot.guild.channels.cache.get(this.bot.getParameter("CHANNEL_TRAINING") as string);
-    if (channel?.name.endsWith('📅'))
-      await channel?.setName(channel?.name.slice(0, -1))
     
-    channel = this.bot.guild.channels.cache.get(this.bot.getParameter("CHANNEL_GROS_EVENT") as string);
-    if (channel?.name.endsWith('📅'))
-      await channel?.setName(channel?.name.slice(0, -1))
+    const countTraining = await this.countEventsByType('ENTRAINEMENT COMPÉTITION');
+    let channel = this.bot.guild.channels.cache.get(this.bot.getParameter("CHANNEL_TRAINING") as string);
+    if (channel?.name.endsWith('📅') && countTraining === 0)
+      await channel.setName(channel.name.slice(0, -1));
 
+    const countEvent = await this.countEventsByType('GROS EVENT');
+    channel = this.bot.guild.channels.cache.get(this.bot.getParameter("CHANNEL_GROS_EVENT") as string);
+    if (channel?.name.endsWith('📅') && countEvent === 0)
+      await channel.setName(channel.name.slice(0, -1));
 
     for (const ev of events) {
       await this.bot.evMgr.setEvent(ev);
       this.bot.evMgr.em.persist(ev);
     }
 
-    await this.bot.evMgr.em.flush()
+    await this.bot.evMgr.em.flush();
+  }
+
+  private async countEventsByType(typeLike: string): Promise<number> {
+    return await this.bot.evMgr.em.getRepository(Event).count({
+      start: { $gte: startOfDay(new Date()) },
+      type: { name: { $like: `%${typeLike}%` } }
+    });
   }
 }
 
@@ -165,8 +174,8 @@ export class SchedulerEvent {
 
   private scheduleReminder(ev: Event, delayMs: number): void {
     if (this.pendingTasks.has(ev.id)) return;
-    const timeout = setTimeout(() => {
-      this.sendReminder(ev).catch(logger.error);
+    const timeout = setTimeout(async () => {
+      this.sendReminder(ev).catch(await logger.error);
       this.pendingTasks.delete(ev.id);
     }, delayMs);
     this.pendingTasks.set(ev.id, timeout);
@@ -210,15 +219,62 @@ export class SchedulerEvent {
 
     // --- Création du channel vocal parent ---
     // On crée le channel vocal parent dans la même catégorie que le channel textuel de l'event
-    const parentCategory = channel.parentId;
-    const voiceParent = await this.bot.guild.channels.create({
-      name: `Créer un vocal d'équipe - ${ev.name}`,
-      type: ChannelType.GuildVoice,
-      parent: parentCategory ?? undefined,
-      userLimit: 99,
-      reason: `Préparation event ${ev.name}`
+
+    const eventCategory = await this.bot.guild.channels.create({
+      name: `Event - ${ev.name}`,
+      type: ChannelType.GuildCategory,
+      reason: `Catégorie pour l'event ${ev.name}`,
+      permissionOverwrites: [
+        {
+          id: this.bot.guild.roles.everyone, // Tout le monde
+          allow: ['ViewChannel'],
+          deny: ['Connect', 'Speak'],
+        },
+        {
+          id: this.bot.roleMember!.id, // Remplace par l'ID du rôle "membre"
+          allow: ['ViewChannel', 'Connect', 'Speak'],
+        },
+      ],
     });
-    ev.vocalParentId = voiceParent.id;
+    
+    // Déplace la catégorie juste après une autre catégorie (par exemple "Catégorie de référence")
+    const referenceCategoryId = '523426571978276864'; // Remplace par l'ID voulu
+    const referenceCategory = this.bot.guild.channels.cache.get(referenceCategoryId);
+    if (referenceCategory && referenceCategory.type === ChannelType.GuildCategory) {
+      // Place la nouvelle catégorie juste après la catégorie de référence
+      await eventCategory.setPosition(referenceCategory.position + 1);
+    }
+
+    // Crée le channel vocal parent dans cette catégorie
+    await this.bot.guild.channels.create({
+      name: `Créer un vocal d'équipe`,
+      type: ChannelType.GuildVoice,
+      parent: eventCategory.id,
+      reason: `Préparation event ${ev.name}`,
+      // Pas de permissionOverwrites ici, il hérite de la catégorie
+    });
+
+    // Crée la salle de conférence privée
+    await this.bot.guild.channels.create({
+      name: `Briefing`,
+      type: ChannelType.GuildStageVoice,
+      parent: eventCategory.id,
+      reason: `Salle de briefing privée pour l'event ${ev.name}`,
+      permissionOverwrites: [
+        {
+          id: this.bot.guild.roles.everyone,
+          allow: ['ViewChannel'],
+          deny: ['Connect', 'Speak'],
+        },
+        {
+          id: this.bot.roleMember!.id,
+          allow: ['ViewChannel', 'Connect', 'Speak'],
+        },
+      ],
+    });
+
+    // Stocke l'ID de la catégorie et du vocal parent dans l'event
+    ev.vocalParentId = eventCategory.id;
     await this.bot.evMgr.em.persistAndFlush(ev);
 
     // Planifie la suppression du channel vocal parent à la fin de l'event
@@ -231,10 +287,63 @@ export class SchedulerEvent {
     const cleanupTimeout = setTimeout(async () => {
       try {
         if (ev.vocalParentId) {
-          const ch = await this.bot.guild.channels.fetch(ev.vocalParentId).catch(() => null);
-          if (ch) await ch.delete('Fin de l\'event');
-          ev.vocalParentId = undefined;
-          await this.bot.evMgr.em.persistAndFlush(ev);
+          // On récupère la catégorie de l'event
+          const category = await this.bot.guild.channels.fetch(ev.vocalParentId).catch(() => null);
+          if (category && category.type === ChannelType.GuildCategory) {
+            // On cherche le channel vocal parent (le "créateur de channel") et le channel Briefing dans cette catégorie
+            const childrenManager = category.children ?? category.guild.channels.cache.filter(ch => ch.parentId === category.id);
+            const childrenArray = Array.from(childrenManager.cache.values());
+            const creatorChannel = childrenArray.find(
+              ch => (ch as any).type === ChannelType.GuildVoice && (ch as any).name.startsWith('Créer un vocal d\'équipe')
+            );
+            const briefingChannel = childrenArray.find(
+              ch => (ch as any).type === ChannelType.GuildStageVoice && (ch as any).name === 'Briefing'
+            );
+
+            // Supprime le créateur de channel si vide
+            // Fonction utilitaire pour attendre qu'un channel soit vide puis le supprimer
+            const waitAndDeleteIfEmpty = (channel: any, reason: string): Promise<boolean> => {
+              return new Promise((resolve) => {
+                if (channel && 'members' in channel) {
+                  if (channel.members.size === 0) {
+                    channel.delete(reason).then(() => resolve(true));
+                  } else {
+                    const interval = setInterval(async () => {
+                      const refreshedChannel = await this.bot.guild.channels.fetch(channel.id).catch(() => null);
+                      if (refreshedChannel && 'members' in refreshedChannel && (refreshedChannel as any).members.size === 0) {
+                        clearInterval(interval);
+                        await refreshedChannel.delete(reason);
+                        resolve(true);
+                      }
+                    }, 10_000);
+                  }
+                  
+                } else {
+                  resolve(false);
+                }
+              });
+            };
+
+            // Supprime le créateur de channel si vide ou attend qu'il soit vide
+            let creatorDeleted = false;
+            if (creatorChannel) {
+              creatorDeleted = await waitAndDeleteIfEmpty(creatorChannel, 'Suppression du créateur de channel à la fin de l\'event');
+            }
+
+            // Supprime le channel Briefing si vide ou attend qu'il soit vide
+            let briefingDeleted = false;
+            if (briefingChannel) {
+              briefingDeleted = await waitAndDeleteIfEmpty(briefingChannel, 'Suppression du channel Briefing à la fin de l\'event');
+            }
+
+            // Si les deux channels sont supprimés ou n'existent pas, supprime la catégorie si vide
+            if (
+              ((creatorChannel == null || creatorDeleted) && (briefingChannel == null || briefingDeleted)) &&
+              category.children.cache.size === 0
+            ) {
+              await category.delete('Suppression de la catégorie vide à la fin de l\'event');
+            }
+          }
         }
       } catch {}
       this.voiceParentChannels.delete(ev.id);
@@ -376,7 +485,7 @@ export class SchedulerScreen {
     // Cron: minute hour * * dayOfWeek
     const cronExpr = `${minute} ${hour} * * ${dayOfWeek}`;
     cron.schedule(cronExpr, () => this.startContest());
-    logger.info(`Screen: Création du thread le ${this.bot.scrMgr.configFile.get('schedule_day')!} à ${this.bot.scrMgr.configFile.get('schedule_hour')!}`);
+    logger.debug(`Screen: Création du thread le ${this.bot.scrMgr.configFile.get('schedule_day')!} à ${this.bot.scrMgr.configFile.get('schedule_hour')!}`);
   }
 
   @SafeMethod
@@ -495,7 +604,7 @@ export class SchedulerScreen {
       const resCh = await this.bot.channels
         .fetch(this.bot.scrMgr.configFile.get('channel_result')!) as TextChannel;
 
-      const threadName = 'Resultat screenof the week';
+      const threadName = 'Resultat screen of the week';
 
       // 1. S'assurer que les threads sont chargés en cache
       await resCh.threads.fetch();

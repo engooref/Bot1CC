@@ -16,6 +16,8 @@ import {
   GuildMember,
   ButtonInteraction,
   ThreadChannel,
+  ChatInputCommandInteraction,
+  VoiceChannel,
 } from 'discord.js';
 
 import BotManager from '../BotManager.js';
@@ -29,6 +31,7 @@ import logger from '../logger.js';
 import { nanoid } from 'nanoid';
 import { SVGManager } from '../utils/SVGManager.js';
 import { stdin } from 'process';
+import { CommandHandler } from '../utils/SlashCommandManager.js';
 
 
 export default class EventManager {
@@ -126,7 +129,7 @@ export default class EventManager {
       await this.em.persistAndFlush(event);
       await this.updateEvent(event);
     } catch (err) {
-      logger.error('setEvent error', err);
+      await logger.error('setEvent error', err);
     }
   }
 
@@ -164,7 +167,7 @@ export default class EventManager {
 
       await message.edit({ embeds: [embed] });
     } catch (err) {
-      logger.error('updateEvent error', err);
+      await logger.error('updateEvent error', err);
     } finally {
       if (!event.appelMsgDiscord) {
         this.bot.schedMgr.event.updateEvent(event);
@@ -192,8 +195,56 @@ export default class EventManager {
       if (channel?.name.endsWith('📅'))
         await channel?.setName(channel?.name.slice(0, -1))
       
+      if (event.briefingDiscordId) {
+        // Supprimer le briefing s’il existe
+        const forum = /** @type {ForumChannel} */ (
+          this.bot.guild.channels.cache.get(this.bot.getParameter('CHANNEL_BRIEFING') as string)
+        );
+        if (forum && forum.type === ChannelType.GuildForum) {
+          for (const thread of forum.threads.cache.values()) {
+            try {
+              const msg = await thread.messages.fetch(event.briefingDiscordId);
+              await msg.delete();
+              break;
+            } catch {
+              continue;
+            }
+          }
+        }
+      }
+
+      if (event.attributionDiscordId) {
+        // Supprimer l’attribution s’il existe
+        const forum = /** @type {ForumChannel} */ (
+          this.bot.guild.channels.cache.get(this.bot.getParameter('CHANNEL_BRIEFING') as string)
+        );
+        if (forum && forum.type === ChannelType.GuildForum) {
+          for (const thread of forum.threads.cache.values()) {
+            try {
+              const msg = await thread.messages.fetch(event.attributionDiscordId);
+              await msg.delete();
+              break;
+            } catch {
+              continue;
+            }
+          }
+        }
+      }
+
+      if (event.vocalParentId) {
+        const category = channel.guild.channels.cache.get(event.vocalParentId);
+        if (category && category.type === ChannelType.GuildCategory) {
+          // Delete all children channels in the category
+          for (const child of category.children.cache.values()) {
+            await child.delete().catch(() => null);
+          }
+          // Delete the category itself
+          await category.delete().catch(() => null);
+        }
+      }
+
     } catch (err) {
-      logger.error('suppEvent error', err);
+      await logger.error('suppEvent error', err);
     }
   }
 
@@ -271,7 +322,7 @@ export default class EventManager {
       await this.em.persistAndFlush(event);
       
     } catch (err) {
-      logger.error('attributionEvent error', err);
+      await logger.error('attributionEvent error', err);
     }
   }
 
@@ -427,7 +478,7 @@ export default class EventManager {
         } catch (err: any) {
           // 10008 = Unknown Message → pas dans ce thread, on continue
           if (err.code !== 10008) {
-            logger.error(`Erreur sur le thread ${thread.id} :`, err);
+            await logger.error(`Erreur sur le thread ${thread.id} :`, err);
           }
         }
       }
@@ -580,5 +631,73 @@ export default class EventManager {
     name = name.replace(/^-+|-+$/g, '');
 
     return name;
+  }
+
+  /**
+   * Handler pour la commande /event dispatch
+   * Crée les channels d'équipe et déplace les membres du vocal courant.
+   */
+  public async handleDispatch(interaction: ChatInputCommandInteraction) {
+    // Vérifie que la commande est lancée dans un vocal
+    const member = interaction.member as GuildMember;
+    const voice = member.voice.channel;
+    if (!voice || voice.type !== ChannelType.GuildVoice) {
+      await interaction.reply({ content: "Tu dois être dans un salon vocal pour utiliser cette commande.", ephemeral: true });
+      return;
+    }
+
+    // Récupère l'event lié à la catégorie du vocal
+    const event = await this.em.findOne(Event, { vocalParentId: voice.parentId });
+    if (!event) {
+      await interaction.reply({ content: "Aucun event associé à cette catégorie.", ephemeral: true });
+      return;
+    }
+
+    // Récupère tous les membres dans le vocal
+    const members = Array.from((voice as VoiceChannel).members.values());
+    if (members.length === 0) {
+      await interaction.reply({ content: "Aucun membre à dispatcher.", ephemeral: true });
+      return;
+    }
+
+    // Crée un channel par membre (exemple simple, à adapter pour des équipes)
+    const createdChannels: string[] = [];
+    const category = interaction.guild!.channels.cache.get(event.vocalParentId!);
+    if (!category || category.type !== ChannelType.GuildCategory) {
+      await interaction.reply({ content: "Catégorie d'équipe introuvable.", ephemeral: true });
+      return;
+    }
+    for (const m of members) {
+      // Cherche un channel existant dans la catégorie avec le nom attendu
+      const existing = category.children.cache.find(
+        ch => ch.type === ChannelType.GuildVoice && ch.name === `Équipe ${m.displayName}`
+      );
+      let teamChannel;
+      if (existing) {
+        teamChannel = existing;
+      } else {
+        teamChannel = await interaction.guild!.channels.create({
+          name: `Équipe ${m.displayName}`,
+          type: ChannelType.GuildVoice,
+          parent: event.vocalParentId,
+          reason: `Dispatch équipe pour ${event.name}`,
+        });
+        createdChannels.push(teamChannel.name);
+      }
+      if (teamChannel && teamChannel.type === ChannelType.GuildVoice) {
+        await m.voice.setChannel(teamChannel.id);
+      }
+    }
+
+    await interaction.reply({
+      content: `Membres dispatchés dans les channels :\n${members.map(m => `- Équipe ${m.displayName}`).join('\n')}`,
+      ephemeral: true,
+    });
+  }
+
+  public getSlashHandlers(): Record<string, CommandHandler> {
+    return {
+          eventHandler : this.handleDispatch.bind(this) as CommandHandler, 
+    };
   }
 }

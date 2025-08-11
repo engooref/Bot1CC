@@ -22,7 +22,8 @@ export default class EngaView extends BaseComponentView {
 }
 
 export async function sendEnga(bot: BotManager) {
-    const channel = bot.guild.channels.cache.get(bot.getParameter('CHANNEL_ENGA') as string) as TextChannel;
+    const channelId = bot.getParameter('CHANNEL_ENGA') as string;
+    const channel = bot.guild.channels.cache.get(channelId) as TextChannel;
 
     if (!channel) return
     
@@ -71,13 +72,13 @@ export async function sendCandidatures(interaction: ButtonInteraction, bot: BotM
 
         // Chargement / création de l'entité en base
         const memberRh = await bot.usrMgr.initMemberRh(interaction.user.id);
-        if (memberRh.dateDemand.getTime() !== new Date(0).getTime()) {
+        if (memberRh.status === 'Candidatures') {
             interaction.editReply('Vous avez déjà une demande en cours.');
             return 
         }
 
-        memberRh.dateDemand = new Date();
         memberRh.status = 'Candidatures';
+        memberRh.dateEntree = new Date();
         await bot.usrMgr.em.persistAndFlush(memberRh);
 
         await interaction.followUp({
@@ -90,13 +91,23 @@ Reste sur le qui-vive 😉.`,
         // Préparation de l'annonce RH
         const guild = interaction.client.guilds.cache.get(bot.guildId);
         if (!guild) return;
-        const channelRh = guild.channels.cache.get(bot.getParameter('CHANNEL_RH') as string) as GuildTextBasedChannel;
+        const channelRh = guild.channels.cache.get(bot.getParameter('CHANNEL_RH') as string) as TextChannel;
         if (!channelRh || !channelRh.isTextBased()) return;
+
+         // Récupère ou crée le thread "Candidatures"
+        let thread = channelRh.threads.cache.find(t => t.name === 'Candidatures' && !t.archived);
+        if (!thread) {
+        thread = await channelRh.threads.create({
+            name: 'Candidatures',
+            autoArchiveDuration: 10080 ,
+            reason: 'Thread pour le suivi des candidatures',
+        });
+        }
 
         const rhRole = guild.roles.cache.get((bot.getParameter('ROLE_RH') as string[])[0]) as Role;
         const now = new Date().toLocaleString('fr-FR', {
         day: '2-digit', month: '2-digit', year: 'numeric',
-        hour: '2-digit', minute: '2-digit', second: '2-digit'
+        hour: '2-digit', minute: '2-digit'
         });
 
         const embed = new EmbedBuilder()
@@ -117,7 +128,7 @@ Reste sur le qui-vive 😉.`,
             });
         }
         } catch (err) {
-        logger.warn(`Impossible de vérifier le lien RSI: ${err}`);
+        await logger.warn(`Impossible de vérifier le lien RSI: ${err}`);
         }
 
         embed.addFields({
@@ -126,18 +137,18 @@ Reste sur le qui-vive 😉.`,
         inline: true
         });
 
-        embed.addFields(
-        {
-            name: 'Envoyer un message privé',
-            value: `[Envoyez un message](discord://-/channels/@me/${interaction.user.id})`,
-            inline: true
-        }
-        );
+        // Ajoute un champ pour MP le membre
+        embed.addFields({
+        name: 'Contacter le candidat',
+        value: `[Envoyer un message privé](https://discord.com/users/${interaction.user.id})`,
+        inline: true
+        });
 
-        await channelRh.send({ embeds: [embed] });
+        // Envoie l'embed dans le thread
+        await thread.send({ embeds: [embed] });
 
     } catch (error) {
-        logger.error(`Erreur lors de la confirmation de la candidature: ${error}`);
+        await logger.error(`Erreur lors de la confirmation de la candidature: ${error}`);
         if (interaction.deferred || interaction.replied) {
         await interaction.followUp({ content: `Erreur: ${error}`, ephemeral: true });
         } else {

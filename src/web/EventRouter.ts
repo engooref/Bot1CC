@@ -44,7 +44,7 @@ export function createEventRouter(bot: BotManager): Router {
       res.json({});
 
     } catch (err) {
-      logger.error(`Erreur lors de /setEvent: ${err} / params: eventId -> ${eventId}`)
+      await logger.error(`Erreur lors de /setEvent: ${err} / params: eventId -> ${eventId}`)
       next(err);
     }
   });
@@ -58,7 +58,7 @@ export function createEventRouter(bot: BotManager): Router {
       await bot.evMgr.suppEvent(event);
       res.json({});
     } catch (err) {
-      logger.error(`Erreur lors de /suppEvent: ${err} / params: eventId -> ${eventId}`)
+      await logger.error(`Erreur lors de /suppEvent: ${err} / params: eventId -> ${eventId}`)
 
       next(err);
     }
@@ -86,7 +86,7 @@ export function createEventRouter(bot: BotManager): Router {
 
       res.json({});
     } catch (err) {
-      logger.error(`Erreur lors de /setAttributionEvent: ${err} / params: eventId -> ${eventId}`)
+      await logger.error(`Erreur lors de /setAttributionEvent: ${err} / params: eventId -> ${eventId}`)
 
       next(err);
     }
@@ -100,7 +100,7 @@ export function createEventRouter(bot: BotManager): Router {
       const result = await bot.usrMgr.acceptCandidature(idCand);
       res.json(result);
     } catch (err) {
-      logger.error(`Erreur lors de /acceptCandidatures: ${err} / params: idCand -> ${idCand}`)
+      await logger.error(`Erreur lors de /acceptCandidatures: ${err} / params: idCand -> ${idCand}`)
 
       next(err);
     }

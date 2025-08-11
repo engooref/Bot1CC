@@ -17,11 +17,120 @@ import { Channel  } from '../entities/Channel.js';
 import config from '../mikro-orm.config.js';
 import BotManager from '../BotManager.js';
 import { SafeMethod } from '../exception/Safe.js';
+import { runInThisContext } from 'vm';
+import PurgeManager from './PurgeManager.js';
+import { RHMember } from '../entities/RHMember.js';
 
 export default class DatabaseManager {
+  /**
+   * Retourne les handlers pour SlashCommandManager
+   */
+  public getSlashHandlers(): Record<string, (interaction: any) => Promise<void>> {
+    return {
+      handleDatabaseCommand: this.handleDatabaseCommand.bind(this)
+    };
+  }
   public orm!: MikroORM;
   private excludeCategories: string[];
   private bot : BotManager;
+
+  /**
+   * Handler slash pour la commande /db (privé, owner only, DM only)
+   */
+  public async handleDatabaseCommand(interaction: any) {
+    const ownerId = process.env.ENGOO_ID;
+    if (interaction.user.id !== ownerId) {
+      await interaction.reply({ content: '⛔ Commande réservée au propriétaire.', ephemeral: true });
+      return;
+    }
+    if (interaction.guild) {
+      await interaction.reply({ content: '⛔ Cette commande est disponible uniquement en DM.', ephemeral: true });
+      return;
+    }
+
+    const sub = interaction.options.getSubcommand();
+    if (sub === 'purge') {
+      try {
+        const purge = new PurgeManager(this.getEm(), this.bot);
+
+        await purge.purgeInvalidUsers();
+        await purge.purgeInvalidRoles();
+        await purge.purgeInvalidChannels();
+
+        await interaction.followUp({ content: '✅ Purge des utilisateurs, rôles et canaux invalides effectuée.', ephemeral: true });
+      } catch (err) {
+        await logger.error('Erreur lors de la purge :', (err instanceof Error ? err.message : String(err)));
+        await interaction.followUp({ content: '❌ Une erreur est survenue lors de la purge.', ephemeral: true });
+      }
+    } else if (sub === 'sync_users') {
+      try {
+        const discordMembers = await this.bot.guild.members.fetch();
+        const em = this.getEm();
+        const roleMemberId = this.bot.roleMember!.id;
+        const reservistRoleId = process.env.RES_ID!;
+
+        for (const [id, member] of discordMembers) {
+          if (id === this.bot.user!.id) {
+            continue;
+          }
+
+          if (!member || !member.roles.cache.has(roleMemberId) || member?.roles.cache.has(reservistRoleId)) {
+            continue;
+          }
+
+          // Vérifier que le nom du membre commence par [1CC] ou [1CC] suivi d'un espace
+          if (!member.displayName.startsWith('[1CC]')) {
+            continue;
+          }
+
+          // Synchroniser les rôles
+          const roles = await this.syncRoles(member.roles.cache, em);
+
+          // Mettre à jour ou insérer l'utilisateur
+          let user = await em.findOne(User, { discordId: id });
+          if (!user) {
+            user = em.create(User, {
+              username: member.displayName,
+              discordId: id,
+              avatar: member.user.avatar ?? '',
+            });
+          } else {
+            user.username = member.displayName;
+            user.avatar = member.user.avatar ?? '';
+          }
+          user.rolesDiscord.set(roles);
+          await em.persistAndFlush(user);
+
+          // Vérifier ou créer le profil RH
+          let rhMember = await em.findOne<RHMember>('RHMember', { user: user.id });
+          if (!rhMember) {
+            rhMember = em.create<RHMember>('RHMember', {
+              user,
+              status: 'Actif',
+              dateEntree: new Date(),
+              pendingApproval: null
+            });
+          } else if (rhMember.status === 'Candidatures') {
+            rhMember.status = 'Actif';
+          }
+          await em.persistAndFlush(rhMember);
+        }
+
+        await interaction.followUp({ content: '✅ Synchronisation des utilisateurs terminée.', ephemeral: true });
+      } catch (err) {
+        logger.error('Erreur lors de la synchronisation des utilisateurs :', (err instanceof Error ? err.message : String(err)));
+        await interaction.followUp({ content: '❌ Une erreur est survenue lors de la synchronisation des utilisateurs.', ephemeral: true });
+      }
+    } else if (sub === "sync_events") {
+      try {
+        await this.bot.schedMgr.appEvent.sendEventsWeek();
+        await interaction.followUp({ content: '✅ Synchronisation des événements terminée.', ephemeral: true });
+      } catch (err) {
+        await logger.error('Erreur lors de la synchronisation des événements :', (err instanceof Error ? err.message : String(err)));
+        await interaction.followUp({ content: '❌ Une erreur est survenue lors de la synchronisation des événements.', ephemeral: true });
+      }
+    }
+  }
 
   constructor(bot: BotManager, excludeCategories: string[] = []) {
     this.bot = bot;
@@ -39,7 +148,7 @@ export default class DatabaseManager {
   @SafeMethod
   public async connect(): Promise<void> {
     this.orm = await MikroORM.init(config);
-    logger.info('✅ MikroORM connecté');
+    await logger.debug('✅ MikroORM connecté');
     
   }
 
@@ -74,8 +183,6 @@ export default class DatabaseManager {
           username:       mg.displayName,
           discordId:      mg.id,
           avatar:         avatarUrl,
-          expPourcentage: 0,
-          expLevel:       0,
         });
         user.rolesDiscord.set(roles);
 
@@ -121,10 +228,9 @@ export default class DatabaseManager {
       if (existingIds.has(r.id) || r.name === '@everyone' || r.name === this.bot.user?.username) continue;
       toCreate.push(em.create(Role, {
         name:      r.name,
-        discordId: r.id,
-        isGrade:   r.hoist,
+        discordId: r.id
       }));
-      logger.info(`Ajout du rôle: ${r.name}`);
+      await logger.debug(`Ajout du rôle: ${r.name}`);
     }
 
     if (toCreate.length) {
@@ -137,54 +243,62 @@ export default class DatabaseManager {
 
   @SafeMethod
   public async syncChannels(discordChannels: Collection<string, GuildBasedChannel>): Promise<Channel[]> {
-    // fork de l’EM en tête de méthode
-    const em = this.orm.em.fork();
+    try {
+      // fork de l’EM en tête de méthode
+      const em = this.orm.em.fork();
 
-    if (discordChannels.size === 0) {
-      return [];
-    }
-
-    // 1) exclusion…
-    const excludeIds = new Set<string>();
-    for (const catName of this.bot.excludeCategory) {
-      // 1️⃣ On cherche la catégorie par son nom
-      const category = this.bot.guild.channels.cache
-        .find(ch => ch.type === ChannelType.GuildCategory && ch.name === catName) as CategoryChannel | undefined;
-
-      if (!category) {
-        continue;
+      if (discordChannels.size === 0) {
+        return [];
       }
 
-      category.children.cache.forEach((child: GuildChannel) => {
-        excludeIds.add(child.id);
-      });
+      // 1) exclusion…
+      const excludeIds = new Set<string>();
+      for (const catName of this.bot.excludeCategory) {
+        // 1️⃣ On cherche la catégorie par son nom
+        const category = this.bot.guild.channels.cache
+          .find(ch => ch.type === ChannelType.GuildCategory && ch.name === catName) as CategoryChannel | undefined;
+
+        if (!category) {
+          continue;
+        }
+
+        category.children.cache.forEach((child: GuildChannel) => {
+          excludeIds.add(child.id);
+        });
+      }
+
+      // 2) SELECT batch avec le EM forké
+      const ids        = discordChannels.map(ch => ch.id);
+      let existing     = await em.find(Channel, { discordId: { $in: ids } });
+      const existingIds = new Set(existing.map(c => c.discordId));
+
+      // 3) prepare toCreate…
+      const toCreate: Channel[] = [];
+      for (const ch of discordChannels.values()) {
+        if (existingIds.has(ch.id)) continue;
+        if (ch.isVoiceBased() || ch.isThread() || ch.type === ChannelType.GuildCategory || excludeIds.has(ch.id)) continue;
+
+        toCreate.push(em.create(Channel, {
+          name:      ch.name,
+          discordId: ch.id,
+        }));
+        await logger.debug(`Ajout du channel: ${ch.name}`);
+      }
+
+      // 4) persist + flush uniquement sur le fork
+      if (toCreate.length) {
+        await em.persistAndFlush(toCreate);
+        existing = await em.find(Channel, { discordId: { $in: ids } });
+      }
+
+      return existing;
+    } catch (err) {
+      await logger.error('[syncChannels] Erreur lors de la synchronisation des channels:', err);
+      if (err instanceof Error && err.stack) {
+        await logger.error('[syncChannels] Stack:', err.stack);
+      }
+      throw err;
     }
-
-    // 2) SELECT batch avec le EM forké
-    const ids        = discordChannels.map(ch => ch.id);
-    let existing     = await em.find(Channel, { discordId: { $in: ids } });
-    const existingIds = new Set(existing.map(c => c.discordId));
-
-    // 3) prepare toCreate…
-    const toCreate: Channel[] = [];
-    for (const ch of discordChannels.values()) {
-      if (existingIds.has(ch.id)) continue;
-      if (ch.isVoiceBased() || ch.isThread() || ch.type === ChannelType.GuildCategory || excludeIds.has(ch.id)) continue;
-
-      toCreate.push(em.create(Channel, {
-        name:      ch.name,
-        discordId: ch.id,
-      }));
-      logger.info(`Ajout du channel: ${ch.name}`);
-    }
-
-    // 4) persist + flush uniquement sur le fork
-    if (toCreate.length) {
-      await em.persistAndFlush(toCreate);
-      existing = await em.find(Channel, { discordId: { $in: ids } });
-    }
-
-    return existing;
   }
   
   public getEm(): EntityManager {

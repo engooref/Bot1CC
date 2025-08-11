@@ -6,10 +6,17 @@ import {
   OneToOne,
   ManyToOne,
   type Rel,
+  OneToMany,
+  ManyToMany,
+  Collection,
 } from '@mikro-orm/core';
 // ← IMPORT NORMAL pour le runtime
 import { User } from './User.js';
-import { Role } from './Role.js';
+import { RHLog } from './RHLog.js';
+import { RHAbsence } from './RHAbsence.js';
+import { RHWarning } from './RHWarning.js';
+import { Certifications } from './Certifications.js';
+import { Rank } from './Rank.js';
 
 @Entity({ tableName: 'rhmember' })
 export class RHMember {
@@ -26,14 +33,29 @@ export class RHMember {
   @Property({ type: 'datetime', nullable: false })
   lastPromotion?: Date = new Date(0);
 
-  @ManyToOne(() => Role, { inversedBy: 'rHMembers', nullable: true })
-  grade?: Rel<Role> | null = null;
-
   @Property({ type: 'datetime', nullable: false, defaultRaw: "'1970-01-01 00:00:00'" })
   dateEntree: Date = new Date(0);
 
-  @Property({ type: 'datetime', nullable: false, defaultRaw: "'1970-01-01 00:00:00'" })
-  dateDemand: Date = new Date(0);
+  @OneToMany(() => RHLog, (log: RHLog) => log.member)
+  logs = new Collection<RHLog>(this);
+
+  @OneToMany(() => RHAbsence, (absence: RHAbsence) => absence.member)
+  abscences = new Collection<RHAbsence>(this);
+
+  @OneToMany(() => RHWarning, (warning: RHWarning) => warning.member)
+  warnings = new Collection<RHWarning>(this);
+
+  @Property({ type: 'json', nullable: true })
+  jsonEntrer?: any[];
+
+  @ManyToOne(() => Rank, { inversedBy: 'rHMembers', nullable: true })
+  grade?: Rel<Rank> | null = null;
+
+  @ManyToMany(() => Certifications, certification => certification.rHMembers, { owner: true, pivotTable: 'rhmember_certifications' })
+  certifications = new Collection<Certifications>(this);
+
+  @ManyToOne(() => Rank, { inversedBy: 'memberApproval', nullable: true })
+  pendingApproval?: Rel<Rank> | null = null;
 
 
 }

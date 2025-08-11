@@ -1,0 +1,24 @@
+[
+  {
+    "name": "db",
+    "description": "Commandes de gestion de la base de données (privé)",
+    "options": [
+      {
+        "type": "SUB_COMMAND",
+        "name": "purge",
+        "description": "Met à jour la base de données en supprimant les entrées obsolètes"
+      },
+      {
+        "type": "SUB_COMMAND",
+        "name": "sync_users",
+        "description": "Met à jour la base de données en synchronisant les utilisateurs"
+      },
+      {
+        "type": "SUB_COMMAND",
+        "name": "sync_events",
+        "description": "Synchronise les events"
+      }
+    ],
+    "handler": "handleDatabaseCommand"
+  }
+]

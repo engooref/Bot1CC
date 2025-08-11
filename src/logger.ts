@@ -26,7 +26,7 @@ const baseOptions: LoggerOptions = {
     err: stdSerializers.err,
   },
   base: {
-    service: 'my-discord-bot',
+    service: 'discord-bot',
     env: process.env.NODE_ENV || 'dev',
   },
 };

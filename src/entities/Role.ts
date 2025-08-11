@@ -3,16 +3,19 @@ import {
   Entity,
   PrimaryKey,
   Property,
-  OneToMany,
   ManyToMany,
   Collection,
+  OneToOne,
+  Rel,
 } from '@mikro-orm/core';
-import { RHMember }  from './RHMember.js';
 import { Parameter } from './Parameter.js';
 import { User }      from './User.js';
+import { Rank } from './Rank.js';
 
 @Entity({ tableName: 'role' })
 export class Role {
+  @OneToOne(() => Rank, rank => rank.roleDiscord, { nullable: true })
+  rank?: Rel<Rank>;
 
   @PrimaryKey()
   id!: number;
@@ -23,13 +26,6 @@ export class Role {
 
   @Property({ length: 255 })
   name!: string;
-
-  @Property({ type: 'boolean' })
-  isGrade: boolean = false;
-
-  /** Profils RH liés (One-To-Many) */
-  @OneToMany(() => RHMember, rh => rh.grade)
-  rHMembers = new Collection<RHMember>(this);
 
   /** Paramètres associés (Many-To-Many) */
   @ManyToMany(() => Parameter, parameter => parameter.roles)
@@ -42,12 +38,11 @@ export class Role {
   /**
    * @param name       Nom du rôle
    * @param discordId  ID Discord (string ou number)
-   * @param isGrade    Indique s’il s’agit d’un grade RH
    */
-  constructor(name: string, discordId: string | number, isGrade = false) {
+  constructor(name: string, discordId: string | number) {
     this.name      = name;
     this.discordId = String(discordId);
-    this.isGrade   = isGrade;
+
   }
 
   /** Comparaison basée sur l’ID Discord */
@@ -63,4 +58,5 @@ export class Role {
   toString(): string {
     return this.name;
   }
+
 }

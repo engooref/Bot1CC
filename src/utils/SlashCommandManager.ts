@@ -142,10 +142,14 @@ export default class SlashCommandManager {
    */
   public async registerAll() {
     try {
-      await this.bot.guild!.commands.set(this.commandsJSON)
-      logger.info("SlashCommandManager → Commandes enregistrées en guild.");
+      const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN!);
+      await rest.put(
+        Routes.applicationCommands(this.bot.user!.id),
+        { body: this.commandsJSON }
+      );
+      await logger.debug("SlashCommandManager → Commandes enregistrées en global.");
     } catch (err) {
-      logger.error("SlashCommandManager → Erreur enregistrement :", err);
+      await logger.error("SlashCommandManager → Erreur enregistrement global :", (err as Error).message || err);
     }
   }
 
@@ -160,15 +164,15 @@ export default class SlashCommandManager {
     const name = interaction.commandName; // ex. "ping" ou "user"
     const entry = this.commands.get(name);
     if (!entry) {
-      logger.error(`[SlashCommandManager] Commande non trouvée : ${name}`);
+      await logger.error(`[SlashCommandManager] Commande non trouvée : ${name}`);
       return;
     }
 
     try {
       // L’exécution du handler (pingHandler ou userHandler)
       await entry.execute(interaction as ChatInputCommandInteraction);
-    } catch (err) {
-      logger.error(`[SlashCommandManager] Erreur exécution '${name}' :`, err);
+    } catch (err: Error | any) {
+      await logger.error(`[SlashCommandManager] Erreur exécution '${name}' :`, err.message || err);
       if (interaction.replied || interaction.deferred) {
         await interaction.followUp({ content: "⚠️ Une erreur est survenue.", ephemeral: true });
       } else {
@@ -191,10 +195,10 @@ export default class SlashCommandManager {
         if (Array.isArray(jsonContent)) {
           this.commandsDefinition.push(...jsonContent);
         } else {
-          logger.warn(`[loadJSONCommands] Le fichier ${file} n’exporte pas un tableau.`);
+          await logger.warn(`[loadJSONCommands] Le fichier ${file} n’exporte pas un tableau.`);
         }
       } catch (err) {
-        logger.error(`[loadJSONCommands] Erreur parsing ${file} :`, err);
+        await logger.error(`[loadJSONCommands] Erreur parsing ${file} :`, err);
         throw err;
       }
     }

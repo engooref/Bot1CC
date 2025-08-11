@@ -24,7 +24,7 @@ export default class UserManager {
   @SafeMethod
   public async deleteUser(user: UserEntity): Promise<void> {
     try {
-      logger.info(`Suppression des informations de l'utilisateur : ${user.username}`);
+      await logger.info(`Suppression des informations de l'utilisateur : ${user.username}`);
       // reset des données dans l'entité
       user.reset();
       await this.em.persistAndFlush(user);
@@ -44,9 +44,9 @@ export default class UserManager {
         await this.em.removeAndFlush(user);
       }
 
-      logger.info('Suppression effectuée');
+      await logger.debug('Suppression effectuée');
     } catch (e) {
-      logger.error(`Erreur lors de la suppression des infos de l'utilisateur ${user.username} → ${e}`);
+      await logger.error(`Erreur lors de la suppression des infos de l'utilisateur ${user.username} → ${e}`);
       throw e;
     }
   }
@@ -73,21 +73,11 @@ export default class UserManager {
           user,
           status: '',
           dateEntree: new Date(0),
-          dateDemand: new Date(0),
           grade: null,
           lastPromotion: new Date(0),
+          pendingApproval: null,
       });
     }
-
-    // synchronise d’abord tous les rôles Discord en BDD
-    await this.bot.dbMgr.syncRoles(guildMember.roles.cache);
-
-    // attribue le grade principal
-    const dbRoles = user.rolesDiscord.getItems?.() ?? user.rolesDiscord.toArray();
-    memberRh.grade =
-      dbRoles.find(r => r.isGrade && r.discordId !== this.bot.roleMember!.id) ??
-      dbRoles.find(r => r.discordId === this.bot.roleMember!.id) ??
-      undefined;
 
     if (isNew) {
       memberRh.dateEntree = new Date();
@@ -132,7 +122,7 @@ export default class UserManager {
 
       return { success: true };
     } catch (e: any) {
-      logger.error(`Erreur lors de l'acceptation de la candidature: id Candidat -> ${idCand} Erreur -> {e}`);
+      await logger.error(`Erreur lors de l'acceptation de la candidature: id Candidat -> ${idCand} Erreur -> {e}`);
       return { success: false, error: e };
     }
   }

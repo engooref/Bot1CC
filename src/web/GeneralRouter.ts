@@ -4,21 +4,19 @@ import  BotManager  from '../BotManager.js';
 export function createGeneralRouter(bot: BotManager): Router {
     const router = Router();
 
-    const updateParamHandler: RequestHandler = async (_req, res, next) => {
+    router.post('/updateParam', async (_req, res, next) => {
         try {
-        await bot.refreshParameters();
-        res.json({});
+            await bot.refreshParameters();
+            res.json({});
         } catch (err) {
-        next(err);
+            next(err);
         }
-    };
+    });
     
-    const pingHandler: RequestHandler = (_req, res) => {
-        res.json({});
-    };
 
-    router.get('/updateParam',updateParamHandler);
-    router.get('/ping', pingHandler);
+    router.get('/ping', (_req, res) => {
+        res.json({});
+    });
 
     return router;
 }

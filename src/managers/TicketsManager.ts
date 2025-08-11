@@ -26,7 +26,7 @@ export class TicketManager {
     }
 
     public async init() {
-        logger.info('Initialisation des tickets')
+        await logger.debug('Initialisation des tickets')
         this.types = await this.em.findAll(TicketType);
 
         const channel = await this.ensureCreationChannel();
@@ -210,7 +210,7 @@ export class TicketManager {
         );
  
         await interaction.update({ content: `Votre ticket a été créé dans <#${channel.id}>`, components: [] });
-        logger.info(`Ticket n°${ticket.id} Créer`)
+        await logger.debug(`Ticket n°${ticket.id} Créer`)
 
         await this.em.nativeDelete(InteractionContext, {messageId: interaction.message.id});
 
@@ -293,7 +293,7 @@ export class TicketManager {
         } catch {}
         
 
-        logger.info(`Ticket n°${ticket.id} Cloturé -> ${ticket.closedMessage}`)
+        await logger.debug(`Ticket n°${ticket.id} Cloturé -> ${ticket.closedMessage}`)
 
         this.em.nativeDelete(InteractionContext, {messageId: interaction.message?.id})
     }

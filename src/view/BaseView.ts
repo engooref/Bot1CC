@@ -115,7 +115,7 @@ export abstract class BaseComponentView {
             return edited;
         } catch (err: any) {
             if (err.code === 10008) {
-                logger.warn(`Message ${message.id} introuvable`);
+                await logger.warn(`Message ${message.id} introuvable`);
                 return message;
             }
             throw err;

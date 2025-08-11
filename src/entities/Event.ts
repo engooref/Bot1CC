@@ -34,19 +34,19 @@ import {
     @Property({ type: 'datetime' })
     end!: string;
   
-    @Property({ length: 255, default: '' })
+    @Property({ length: 255, nullable: false })
     name: string = '';
   
     @ManyToOne(() => EventType, { nullable: true })
     type?: EventType;
   
-    @Property({ type: 'text', fieldName: 'object1_cc', default: '' })
+    @Property({ type: 'longtext', default: '', fieldName: 'object1_cc' }) // pour object1Cc, objectAdv, commentaire
     object1Cc: string = '';
   
-    @Property({ type: 'text', default: '' })
+    @Property({ type: 'longtext', default: '' })
     objectAdv: string = '';
   
-    @Property({ type: 'text', default: '' })
+    @Property({ type: 'longtext', default: '' })
     commentaire: string = '';
   
     @Property({ length: 255, default: '' })
@@ -55,7 +55,7 @@ import {
     @Property({ length: 255, default: '' })
     lieuEvent: string = '';
   
-    @Property({ length: 255, nullable: true, default: '' })
+    @Property({ length: 255, nullable: true, default: null })
     picture?: string = '';
   
     @Property({ length: 255, default: '' })
@@ -82,13 +82,13 @@ import {
     @Property({ type: 'bigint', nullable: true })
     attributionDiscordId?: string;
   
-    @Property({ type: 'text', nullable: true, default: '' })
+    @Property({ type: 'longtext', nullable: true, default: null }) // pour description
     description: string = '';
   
     @Property({ type: 'boolean', default: false })
     appelMsgDiscord: boolean = false;
   
-    @Property({ length: 255, nullable: true, default: '' })
+    @Property({ length: 255, nullable: true, default: null })
     briefingTemplateName: string = '';
   
     @Property({ length: 255, default: '' })
@@ -105,6 +105,12 @@ import {
   
     @ManyToOne(() => User, { nullable: false })
     userOrig!: Rel<User>;
+  
+    @Property({ type: 'longtext', nullable: true, default: null })
+    dataReport?: string = '';
+  
+    @Property({ type: 'boolean', nullable: false, default: false })
+    rapportEnv: boolean = false;
   
     constructor(init?: Partial<Event>) {
       if (init) {

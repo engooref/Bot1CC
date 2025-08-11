@@ -9,8 +9,8 @@ export function SafeMethod(
   descriptor.value = async function (...args: any[]) {
     try {
       return await original.apply(this, args);
-    } catch (err) {
-      logger.error(new Error(`Erreur dans ${propertyKey}:\n ${err}`));
+    } catch (err: Error | any) {
+      await logger.error(new Error(`Erreur dans ${propertyKey}:\n ${err.message || err}`));
 
     }
   };

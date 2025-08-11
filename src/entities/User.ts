@@ -35,12 +35,6 @@ export class User {
   @Property({ length: 255 })
   avatar!: string;
 
-  @Property({ defaultRaw: '0' })
-  expPourcentage: number = 0;
-
-  @Property({ defaultRaw: '0' })
-  expLevel: number = 0;
-
   @ManyToMany(() => Role, role => role.users, {
     owner: true,
     pivotTable: 'user_role',
@@ -69,15 +63,12 @@ export class User {
     this.discordId     = String(discordId);
     this.avatar        = avatar;
     this.rolesDiscord  = new Collection(this, rolesDiscord);
-    this.expPourcentage = expPour;
-    this.expLevel      = expLevel;
+
   }
 
   reset(): void {
     this.rolesJson = [];
     this.avatar = '';
-    this.expPourcentage = 0;
-    this.expLevel = 0;
     this.rolesDiscord.removeAll();
     this.username = this.username.replace(/\[[^\]]*\]/g, '');
   }

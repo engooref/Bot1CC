@@ -11,13 +11,14 @@ import {
   AttachmentBuilder,
   MessageReaction,
   User,
+  MessageFlags,
 } from 'discord.js';
+import fs from 'fs';
 import path from 'path';
 import BotManager from '../BotManager.js';
 import { CreationOperationView, OperationState, OperationView } from '../view/OperationView.js';
 import { JSONConfigManager } from '../utils/JSONConfigManager.js';
 import logger from '../logger.js';
-import fs from 'fs';
 import { SCLocations } from '../entities/SCLocations.js';
 import { SVGManager } from '../utils/SVGManager.js';
 import mime from 'mime';
@@ -25,6 +26,7 @@ import mime from 'mime';
 const CATEGORY_NAME = 'Opérations';
 const FOLDER_NAME = "Operations";
 const BASE = path.resolve('config');
+const PENDING_LINKS_PATH = path.join(BASE, 'pendingLinks.json');
 
 export class OperationModule {
   public roleConfig: JSONConfigManager<Record<string,string>>;
@@ -50,7 +52,7 @@ export class OperationModule {
   }
 
   public async init(): Promise<void> {
-    logger.info('Initialisation des opérations')
+    await logger.debug('Initialisation des opérations')
     const channel = await this.ensureCreationChannel();
     const fetched = await channel.messages.fetch({ limit: 50 });
     const existing = fetched.find(m => m.author.id === this.bot.user!.id && m.components.length > 0) || null;
@@ -60,6 +62,7 @@ export class OperationModule {
     this.roleConfig.watch();
 
     await this.ensureCreationOperationsChannels();
+    this.resumePendingLinks(); // Ajout de la reprise des liens en attente
   }
 
   public async ensureCategory(): Promise<CategoryChannel> {
@@ -151,7 +154,7 @@ export class OperationModule {
       ephemeral: true,
     });
 
-    logger.info("Envoi du formulaire Opération à " + user.displayName);
+    await logger.debug("Envoi du formulaire Opération à " + user.displayName);
 
   }
 
@@ -190,21 +193,15 @@ export class OperationModule {
       outputPngPath: path.join('Data', FOLDER_NAME, `${interaction.user.username}_${role.name}.png`),
       baseDir: path.join('Data', FOLDER_NAME)
     };
-    
-   const mins = Number(state.minutes) || 0;
 
-    // 2. Construire directement un timestamp ms dans le futur
+    const mins = Number(state.minutes) || 0;
     const futureDate = new Date(Date.now() + mins * 60_000);
-
-    // 3) On formate l’heure pour Paris
     const timeString = new Intl.DateTimeFormat('fr-FR', {
       hour12: false,
       hour:   '2-digit',
       minute: '2-digit',
       timeZone: 'Europe/Paris'
     }).format(futureDate);
-
-    // formattage date “DIMANCHE 25/05/2025”
     let dateString = new Intl.DateTimeFormat('fr-FR', {
       weekday: 'long',
       day:     '2-digit',
@@ -214,39 +211,25 @@ export class OperationModule {
     }).format(futureDate).toUpperCase();
 
     const indices = state.location.split('.').map((n: string) => parseInt(n, 10));
-
     const names: string[] = [];
-
-    // 2) Pour chaque indice, on récupère la liste des enfants triés, puis on prend l’enfant à l’index donné
     for (const idx of indices) {
       if (idx == 0) break;
-      // Récupère tous les enfants du parent courant, triés par id (ou un autre champ souhaité)
       const entity: SCLocations | null = await this.bot.dbMgr.getEm().findOne(SCLocations, { id: idx });
-
       if(!entity) break;
       names.push(entity.name);
     }
-    
     const entete = `[${timeString}] OPÉRATION ${role.name.toUpperCase().split('-')[1]} - RESPONSABLE: ${interaction.user.displayName}`;
 
-    let dataUri = null
+    let dataUri = null;
     if (state.type === this.bot.opMgr.roleConfig.get('🎮')) {
-      // 1) Chemin vers l'image
       const imgPath = path.join(config.baseDir, 'MG', state.games + '.png');
-
-      // 2) Lecture du fichier en Buffer
       const fileBuffer = fs.readFileSync(imgPath);
-
-      // 3) Détection du mime-type à partir de l'extension
       const contentType = mime.lookup(imgPath) || 'application/octet-stream';
-
-      // 4) Conversion en base64
       const base64    = fileBuffer.toString('base64');
       dataUri   = `data:${contentType};base64,${base64}`;
     }
 
     const materiel = (state.type === this.bot.opMgr.roleConfig.get('🎮')) ? (this.gameConfig.get(state.games!)) : (state.equip ? `Equipement: ${state.equip}` : '');
-    
     const data = {
       description: state.description ? state.description : '',
       materiel: materiel,
@@ -260,46 +243,146 @@ export class OperationModule {
     const SVGMgr = new SVGManager(data, config);
     await SVGMgr.generateImage();
 
-
     let channel = this.bot.guild.channels.cache.find(
       (c) => c.type === ChannelType.GuildText && c.name === role.name.replace(' ', '-').toLowerCase()
     ) as TextChannel | undefined;
-
     if (!channel) {
       await this.ensureCreationOperationsChannels();       
       const allChannels = await this.bot.guild.channels.fetch(); // récupère depuis l’API
       channel = allChannels.find(
         (c) => c!.type === ChannelType.GuildText && c!.name === role.name.replace(' ', '-').toLowerCase()
       ) as TextChannel | undefined;
-      
     }
 
     const attachment = new AttachmentBuilder(config.outputPngPath);
     const emoji = this.bot.guild.emojis.cache.get('1213915551210930306') ?? "👍";
 
+    // --- Envoi du message Discord ---
     const message = await channel!.send({
-      content: `${role}\nPour valider votre présence interagissez avec l'emoji ${emoji}`,
+      content: `\nPour valider votre présence interagissez avec l'emoji ${emoji}`,
       files: [attachment]
-    })
-
-    await message.react(emoji);
-  
-    const thread = await message.startThread({
-      name: `Discussion - ${role.name.toUpperCase().split('-')[1]}`,               // nom du thread
-      autoArchiveDuration: 1440,        // auto-archivage après 60 minutes d’inactivité
     });
-
+    await message.react(emoji);
+    const thread = await message.startThread({
+      name: `Discussion - ${role.name.toUpperCase().split('-')[1]}`,
+      autoArchiveDuration: 1440,
+    });
     await thread.send({
       content: "👋 **Bienvenue dans le fil de discussion de cette opération !**\n📌 Discutez des stratégies, rôles et détails ici.\n" + (state.url ? `Une URL a été partagé: ${state.url}` : '') 
     });
 
-    logger.info("Envoi de l'opération créer par " + interaction.user.displayName);
+        // --- Ajout de la requête HTTP vers le site Symfony pour générer le lien temporaire ---
+    let tempUrl = null;
+    let tempUrlExpires = null;
+
+    // Ajoute ce bloc pour ignorer la génération du lien si c'est une opération multigaming
+    if (state.type !== this.bot.opMgr.roleConfig.get('🎮')) {
+      try {
+        // Remplace l'URL par celle de ton site
+        const siteUrl = 'https://www.1ercorpscolonial.fr/bot/operation/generate-temp-url';
+        // Prépare les paramètres
+        const params = new URLSearchParams({
+          user_id: interaction.user.id,
+          operation_id: message.id,
+          responsable: interaction.user.displayName,
+          start_at: futureDate.toISOString(),
+          channel_id: channel!.id,
+          thread_id: thread.id,
+        });
+
+        const response = await fetch(`${siteUrl}?${params.toString()}`);
+        if (response.ok) {
+          let json;
+          try {
+            json = await response.json();
+          } catch (jsonErr) {
+            const text = await response.text();
+            await logger.error('Réponse non JSON du site:', text);
+            throw jsonErr;
+          }
+          tempUrl = json.temp_url;
+          tempUrlExpires = json.expires_at;
+        } else {
+          const text = await response.text();
+          await logger.warn('Erreur lors de la génération du lien temporaire: ' + response.statusText + ' Body: ' + text);
+        }
+      } catch (err) {
+        await logger.error('Erreur lors de la requête vers le site Symfony:', err);
+      }
+    }
+
+
+    await logger.debug("Envoi de l'opération créer par " + interaction.user.displayName);
     await interaction.followUp({
-      content: '✅ Opération créée !',
+      content: '✅ Opération créée ! Vous pouvez la retrouver dans le salon ' + channel!.toString() + '.',
       ephemeral: true,
     });
 
-    
+    if (tempUrl) {
+      const now = Date.now();
+      const startAt = futureDate.getTime();
+      const delay = Math.max(0, startAt + 60 * 60 * 1000 - now);
+
+      // Ajoute à la file d'attente persistante
+      this.addPendingLink({
+        id: message.id,
+        userId: interaction.user.id,
+        tempUrl,
+        sendAt: now + delay
+      });
+
+      setTimeout(async () => {
+        try {
+          const dm = await interaction.user.createDM();
+          await dm.send(`Le rapport d'opération est prêt, voici le lien temporaire valable 2 jours :\n${tempUrl}`);
+          this.removePendingLink(message.id);
+        } catch (err) {
+          await logger.warn('Impossible d\'envoyer le lien temporaire en DM:', err);
+        }
+      }, delay);
+    }
+  }
+
+  /** Gestion des liens temporaires en attente */
+  public loadPendingLinks(): any[] {
+    try {
+      return JSON.parse(fs.readFileSync(PENDING_LINKS_PATH, 'utf-8'));
+    } catch {
+      return [];
+    }
+  }
+
+  public savePendingLinks(links: any[]) {
+    fs.writeFileSync(PENDING_LINKS_PATH, JSON.stringify(links, null, 2));
+  }
+
+  public addPendingLink(link: any) {
+    const links = this.loadPendingLinks();
+    links.push(link);
+    this.savePendingLinks(links);
+  }
+
+  public removePendingLink(id: string) {
+    let links = this.loadPendingLinks();
+    links = links.filter(l => l.id !== id);
+    this.savePendingLinks(links);
+  }
+
+  public resumePendingLinks() {
+    const links = this.loadPendingLinks();
+    for (const link of links) {
+      const delay = Math.max(0, link.sendAt - Date.now());
+      setTimeout(async () => {
+        try {
+          const user = await this.bot.guild.members.fetch(link.userId);
+          const dm = await user.createDM();
+          await dm.send(`Voici ton lien temporaire d'accès au rapport d'opération :\n${link.tempUrl}`);
+          this.removePendingLink(link.id);
+        } catch (err) {
+          await logger.warn('Impossible d\'envoyer le lien temporaire en DM:', err);
+        }
+      }, delay);
+    }
   }
 }
 
@@ -384,7 +467,7 @@ export class OperationRoleManager {
           try {
             member = await guild.members.fetch(user.id);
           } catch {
-            logger.warn(`Membre ${user.id} introuvable.`);
+            await logger.warn(`Membre ${user.id} introuvable.`);
             return;
           }
         }
@@ -392,9 +475,9 @@ export class OperationRoleManager {
         // Ajoute le rôle
         try {
           await member.roles.add(roleId);
-          logger.info(`Ajout du rôle ${roleId} à ${user.tag} pour l'émoji ${emoji}.`);
+          await logger.debug(`Ajout du rôle ${roleId} à ${user.tag} pour l'émoji ${emoji}.`);
         } catch (err) {
-          logger.error(`Impossible d'ajouter le rôle ${roleId} à ${user.tag}:`, err);
+          await logger.error(`Impossible d'ajouter le rôle ${roleId} à ${user.tag}:`, err);
         }
       });
 
@@ -410,9 +493,9 @@ export class OperationRoleManager {
         
         try {
           await member.roles.remove(roleId);
-          logger.info(`Retrait du rôle ${roleId} pour ${user.tag} suite au retrait de ${emoji}`);
+          await logger.debug(`Retrait du rôle ${roleId} pour ${user.tag} suite au retrait de ${emoji}`);
         } catch (err) {
-          logger.error(`Impossible de retirer le rôle :`, err);
+          await logger.error(`Impossible de retirer le rôle :`, err);
         }
       });
     }

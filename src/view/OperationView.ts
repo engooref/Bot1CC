@@ -361,7 +361,7 @@ export class OperationView extends BaseComponentView {
           }));
         }
       } catch (err) {
-        logger.warn("Impossible de nettoyer anciens messages :", err);
+        await logger.warn("Impossible de nettoyer anciens messages :", err);
       }
 
       await this.renderHeader(channel, null);
@@ -519,7 +519,7 @@ export class OperationView extends BaseComponentView {
             // on trie par date ascendante
             msgs = Array.from(fetched.values()).sort((a, b) => a.createdTimestamp - b.createdTimestamp);
           } catch (err) {
-            logger.warn("Impossible de fetcher les messages pour suppression :", err);
+            await logger.warn("Impossible de fetcher les messages pour suppression :", err);
             return;
           }
 
@@ -538,12 +538,12 @@ export class OperationView extends BaseComponentView {
             try {
               await msg.delete();
             } catch (delErr) {
-              logger.warn(`Impossible de supprimer le message ${msg.id}`, delErr);
+              await logger.warn(`Impossible de supprimer le message ${msg.id}`, delErr);
             }
             try {
               await this.em.nativeDelete(InteractionContext, { messageId: msg.id });
             } catch (dbErr) {
-              logger.warn(`Impossible de supprimer les contexts pour ${msg.id}`, dbErr);
+              await logger.warn(`Impossible de supprimer les contexts pour ${msg.id}`, dbErr);
             }
           }));
 
@@ -554,7 +554,7 @@ export class OperationView extends BaseComponentView {
           break;  
         default:
           // customId inconnu
-          logger.warn(`Unhandled customId in OperationView: ${cid}`);
+          await logger.warn(`Unhandled customId in OperationView: ${cid}`);
           break;
       }
     }
