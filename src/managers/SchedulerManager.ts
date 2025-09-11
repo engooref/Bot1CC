@@ -187,8 +187,8 @@ export class SchedulerEvent {
     if (ev.appelMsgDiscord) return;
 
     const channel = this.bot.evMgr.getChannel(ev);
-    if (!ev.discordId) return;
-    const msg = await channel.messages.fetch(ev.discordId).catch(() => null);
+    if (!ev.discord.messageId) return;
+    const msg = await channel.messages.fetch(ev.discord.messageId).catch(() => null);
     if (!msg) return;
     
     const resps = await this.bot.evMgr.em.getRepository(Response).find({
@@ -274,7 +274,7 @@ export class SchedulerEvent {
     });
 
     // Stocke l'ID de la catégorie et du vocal parent dans l'event
-    ev.vocalParentId = eventCategory.id;
+    ev.discord.vocalParentId = eventCategory.id;
     await this.bot.evMgr.em.persistAndFlush(ev);
 
     // Planifie la suppression du channel vocal parent à la fin de l'event
@@ -286,9 +286,9 @@ export class SchedulerEvent {
     }
     const cleanupTimeout = setTimeout(async () => {
       try {
-        if (ev.vocalParentId) {
+        if (ev.discord.vocalParentId) {
           // On récupère la catégorie de l'event
-          const category = await this.bot.guild.channels.fetch(ev.vocalParentId).catch(() => null);
+          const category = await this.bot.guild.channels.fetch(ev.discord.vocalParentId).catch(() => null);
           if (category && category.type === ChannelType.GuildCategory) {
             // On cherche le channel vocal parent (le "créateur de channel") et le channel Briefing dans cette catégorie
             const childrenManager = category.children ?? category.guild.channels.cache.filter(ch => ch.parentId === category.id);

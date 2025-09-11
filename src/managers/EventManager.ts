@@ -64,7 +64,7 @@ export default class EventManager {
       calUrl.searchParams.set('text', event.name);
       calUrl.searchParams.set('dates', `${startISO}/${startISO}`);
 
-      const lancServDate = this.combineDateAndTime(event.start, event.lancServ);
+      const lancServDate = this.combineDateAndTime(event.start, event.launchServer);
       const lancServTimestamp = lancServDate ? `<t:${Math.floor(lancServDate.getTime() / 1000)}:R>` : '';
       
       // 2) Embed principal
@@ -73,12 +73,16 @@ export default class EventManager {
         .addFields(
           { name: 'Regroupement', value: `\`\`\`${this.formatDateTime(event.start)}\`\`\``, inline: false },
           { 
-          name: 'Lancement',    
-          value: `\`\`\`${this.formatTime(event.lancServ)}\`\`\`\n${lancServTimestamp}`, 
-          inline: false 
-            },
+            name: 'Lancement',    
+            value: `\`\`\`${this.formatTime(event.launchServer)}\`\`\`\n${lancServTimestamp}`, 
+            inline: false 
+          },
           { name: 'Spawn',        value: event.spawn || '—', inline: false },
           { name: 'Type event',   value: (event.type?.name ?? 'Aucun'), inline: false },
+          ...(event.type?.name?.toLowerCase() === 'certification' && event.certifications
+            ? [{ name: 'Certifications', value: Array.isArray(event.certifications) ? event.certifications.join(', ') : String(event.certifications), inline: false }]
+            : []),
+          { name: 'Responsable'   , value: event.responsable || '—', inline: false },
           { name: 'Description',  value: event.description || '—', inline: false },
           { name: 'Lien',         value: `[Ajouter au calendrier Google](${calUrl})`, inline: false },
           { name: `Accepted (0)`,  value: 'Aucun', inline: true },
@@ -97,11 +101,11 @@ export default class EventManager {
         embed.setImage(picUrl.toString());
       }
 
-      const view = new InviteView(this.bot, event.id, event.roleDispo != '[]');
+      const view = new InviteView(this.bot, event.id, event.availableRoles.length > 0);
       let msg: Message | null = null;
-      if (event.discordId) {
+      if (event.discord.messageId) {
         try {
-          msg = await channel.messages.fetch(event.discordId);
+          msg = await channel.messages.fetch(event.discord.messageId);
         } catch {
           const channelIds = [
             this.bot.getParameter('CHANNEL_GROS_EVENT') as string,
@@ -115,7 +119,7 @@ export default class EventManager {
             const ch = this.bot.guild.channels.cache.get(chId) as TextChannel | undefined;
             if (!ch) continue;
             try {
-              const candidateMsg = await ch.messages.fetch(event.discordId);
+              const candidateMsg = await ch.messages.fetch(event.discord.messageId);
               // Supprimer le thread associé si présent
               if (candidateMsg.hasThread) {
                 const thread = candidateMsg.thread;
@@ -133,7 +137,7 @@ export default class EventManager {
       }
 
       const sent = await view.sendOrEdit(channel, msg, { embeds: [embed] });
-      event.discordId = sent.id;
+      event.discord.messageId = sent.id;
 
       if(!sent.hasThread) {
         const thread = await sent.startThread(
@@ -170,7 +174,7 @@ export default class EventManager {
   async updateEvent(event: Event) {
     try {
       const channel = this.getChannel(event);
-      const message = await channel.messages.fetch(event.discordId!);
+      const message = await channel.messages.fetch(event.discord.messageId!);
       const embed   = EmbedBuilder.from(message.embeds[0]);
 
       const lists: { accepted: string[]; declined: string[]; tentative: string[] } = {
@@ -212,8 +216,8 @@ export default class EventManager {
   async suppEvent(event: Event) {
     try {
       const channel = this.getChannel(event);
-      if (!event.discordId) return;
-      const message = await channel.messages.fetch(event.discordId).catch(() => null);
+      if (!event.discord.messageId) return;
+      const message = await channel.messages.fetch(event.discord.messageId).catch(() => null);
       if (!message) return;
       // Supprimer les replies du bot
       for await (const msg of channel.messages.cache.values()) {
@@ -227,7 +231,7 @@ export default class EventManager {
       if (channel?.name.endsWith('📅'))
         await channel?.setName(channel?.name.slice(0, -1))
       
-      if (event.briefingDiscordId) {
+      if (event.discord.briefingMessageId) {
         // Supprimer le briefing s’il existe
         const forum = /** @type {ForumChannel} */ (
           this.bot.guild.channels.cache.get(this.bot.getParameter('CHANNEL_BRIEFING') as string)
@@ -235,7 +239,7 @@ export default class EventManager {
         if (forum && forum.type === ChannelType.GuildForum) {
           for (const thread of forum.threads.cache.values()) {
             try {
-              const msg = await thread.messages.fetch(event.briefingDiscordId);
+              const msg = await thread.messages.fetch(event.discord.briefingMessageId);
               await msg.delete();
               break;
             } catch {
@@ -245,7 +249,7 @@ export default class EventManager {
         }
       }
 
-      if (event.attributionDiscordId) {
+      if (event.discord.attributionMessageId) {
         // Supprimer l’attribution s’il existe
         const forum = /** @type {ForumChannel} */ (
           this.bot.guild.channels.cache.get(this.bot.getParameter('CHANNEL_BRIEFING') as string)
@@ -253,7 +257,7 @@ export default class EventManager {
         if (forum && forum.type === ChannelType.GuildForum) {
           for (const thread of forum.threads.cache.values()) {
             try {
-              const msg = await thread.messages.fetch(event.attributionDiscordId);
+              const msg = await thread.messages.fetch(event.discord.attributionMessageId);
               await msg.delete();
               break;
             } catch {
@@ -263,8 +267,8 @@ export default class EventManager {
         }
       }
 
-      if (event.vocalParentId) {
-        const category = channel.guild.channels.cache.get(event.vocalParentId);
+      if (event.discord.vocalParentId) {
+        const category = channel.guild.channels.cache.get(event.discord.vocalParentId);
         if (category && category.type === ChannelType.GuildCategory) {
           // Delete all children channels in the category
           for (const child of category.children.cache.values()) {
@@ -293,10 +297,10 @@ export default class EventManager {
 
       // 1) Si on a un briefing, on cherche d’abord le thread associé
       let targetThread: ThreadChannel | null = null;
-      if (event.briefingDiscordId) {
+      if (event.discord.briefingMessageId) {
         for (const thread of forum.threads.cache.values()) {
           try {
-            const message = await thread.messages.fetch(event.briefingDiscordId);
+            const message = await thread.messages.fetch(event.discord.briefingMessageId);
             targetThread = thread;
             break;
           } catch {
@@ -305,12 +309,12 @@ export default class EventManager {
         }
       }
 
-      if (event.attributionDiscordId) {
+      if (event.discord.attributionMessageId) {
         // si on n’a pas trouvé le thread briefing, on peut quand même tenter de supprimer
         // l’ancienne attribution depuis tous les threads
         for (const thread of forum.threads.cache.values()) {
           try {
-            const oldMsg = await thread.messages.fetch(event.attributionDiscordId);
+            const oldMsg = await thread.messages.fetch(event.discord.attributionMessageId);
             await oldMsg.delete();
             if (!targetThread) targetThread = thread
             break;
@@ -349,8 +353,8 @@ export default class EventManager {
         msg = await thread.fetchStarterMessage();
       }
 
-        event.attributionDiscordId = msg!.id;
-      
+        event.discord.attributionMessageId = msg!.id;
+
       await this.em.persistAndFlush(event);
       
     } catch (err) {
@@ -394,13 +398,12 @@ export default class EventManager {
       await this.em.persistAndFlush(response);
     }
 
-    const roleDispoList: string[] = JSON.parse(event.roleDispo);
     const roleDemandList: string[] = response?.roleDemand ?? [];
 
     await this.updateEvent(event);
 
     if (
-      roleDispoList.length > 0 &&
+      event.availableRoles.length > 0 &&
       (
         (data.responseType === 'role' && response?.typeRep === 'accepted') ||
         data.responseType === 'accepted'
@@ -417,7 +420,7 @@ export default class EventManager {
           value: 'Pas de préférence',
           select: roleDemandList.includes('Pas de préférence'),
         },
-        ...roleDispoList.map(role => ({
+        ...event.availableRoles.map(role => ({
           value: role,
           select: roleDemandList.includes(role),
         })),
@@ -452,7 +455,7 @@ export default class EventManager {
     const outputPath = path.join(outDir, fileName);
 
     // Exemple d'utilisation
-    const baseDir = path.join('Data', templatesDir, event.briefingTemplateName.replace(/ /g, '_'))
+    const baseDir = path.join('Data', templatesDir, event.briefingTemplateName!.replace(/ /g, '_'))
     const config = {
       svgTemplatePath: path.join(baseDir, 'template.svg'),
       xsltPath: path.join(baseDir,  'template.xslt'),
@@ -466,26 +469,26 @@ export default class EventManager {
       name: event.name,
       start_date: event.startDate,            // format JJ/MM/AAAA
       start_time: event.startTime,            // HH:MM
-      lanc_serv: event.lancServ,              // HH:MM:SS
-      lanc_scen: event.lancScen,              // HH:MM:SS
+      lanc_serv: event.launchServer,              // HH:MM:SS
+      lanc_scen: event.launchScenario,              // HH:MM:SS
       end: event.end,
       type: event.type?.name || '',
-      object1Cc: event.object1Cc,
+      object1Cc: event.object1CC,
       objectAdv: event.objectAdv,
       commentaire: event.commentaire,
       spawn: event.spawn,
-      lieu_event: event.lieuEvent,
+      lieu_event: event.location,
       nb_resp: event.nbResp,
       respawn: event.respawn,
-      regequi_infanterie: event.regleQui.Infanterie || '',
-      regequi_aerien: event.regleQui.Aerien || '',
-      regequi_vehicules: event.regleQui.Vehicules || '',
-      regleenga_infanterie: event.regleEnga.Infanterie || '',
-      regleenga_aerien: event.regleEnga.Aerien || '',
-      regleenga_vehicules: event.regleEnga.Vehicules || '',
-      reglevehicule_infanterie: event.regleVehicule.Infanterie || '',
-      reglevehicule_aerien: event.regleVehicule.Aerien || '',
-      reglevehicule_vehicules: event.regleVehicule.Vehicules || '',
+      regequi_infanterie: event.equipmentRules.Infanterie || '',
+      regequi_aerien: event.equipmentRules.Aerien || '',
+      regequi_vehicules: event.equipmentRules.Vehicules || '',
+      regleenga_infanterie: event.engagementRules.Infanterie || '',
+      regleenga_aerien: event.engagementRules.Aerien || '',
+      regleenga_vehicules: event.engagementRules.Vehicules || '',
+      reglevehicule_infanterie: event.vehicleRules.Infanterie || '',
+      reglevehicule_aerien: event.vehicleRules.Aerien || '',
+      reglevehicule_vehicules: event.vehicleRules.Vehicules || '',
     };
 
     const SVGMgr = new SVGManager(data, config)
@@ -498,10 +501,10 @@ export default class EventManager {
 
     let message = null;
     // 2. Si on a déjà un ID de message à rafraîchir, on cherche d’abord dedans
-    if (event.briefingDiscordId) {
+    if (event.discord.briefingMessageId) {
       for (const thread of threads.values()) {
         try {
-          const existingMsg = await thread.messages.fetch(event.briefingDiscordId);
+          const existingMsg = await thread.messages.fetch(event.discord.briefingMessageId);
           // Cas 3 : message trouvé, on le supprime et on renvoie le nouveau dans le même thread
           await existingMsg.delete();
           message = await thread.send({ files: [file] });
@@ -529,8 +532,8 @@ export default class EventManager {
 
     }
 
-    event.briefingDiscordId = message!.id;
-    
+    event.discord.briefingMessageId = message!.id;
+
     await fsp.unlink(config.outputPngPath).catch(() => {});
 
 
@@ -679,7 +682,7 @@ export default class EventManager {
     }
 
     // Récupère l'event lié à la catégorie du vocal
-    const event = await this.em.findOne(Event, { vocalParentId: voice.parentId });
+    const event = await this.em.findOne(Event, { discord: { vocalParentId: voice.parentId } });
     if (!event) {
       await interaction.reply({ content: "Aucun event associé à cette catégorie.", ephemeral: true });
       return;
@@ -694,7 +697,7 @@ export default class EventManager {
 
     // Crée un channel par membre (exemple simple, à adapter pour des équipes)
     const createdChannels: string[] = [];
-    const category = interaction.guild!.channels.cache.get(event.vocalParentId!);
+    const category = interaction.guild!.channels.cache.get(event.discord.vocalParentId!);
     if (!category || category.type !== ChannelType.GuildCategory) {
       await interaction.reply({ content: "Catégorie d'équipe introuvable.", ephemeral: true });
       return;
@@ -711,7 +714,7 @@ export default class EventManager {
         teamChannel = await interaction.guild!.channels.create({
           name: `Équipe ${m.displayName}`,
           type: ChannelType.GuildVoice,
-          parent: event.vocalParentId,
+          parent: event.discord.vocalParentId!,
           reason: `Dispatch équipe pour ${event.name}`,
         });
         createdChannels.push(teamChannel.name);
@@ -736,14 +739,12 @@ export default class EventManager {
   /**
    * Combine la date de event.start et l'heure de lancServ ("HH:mm:ss") pour obtenir un Date complet.
    */
-  combineDateAndTime(date: Date, time: string): Date | null {
-    const [hour, minute, second] = time.split(':').map(Number);
-    if (
-      isNaN(hour) || isNaN(minute) || isNaN(second) ||
-      !(date instanceof Date) || isNaN(date.getTime())
-    ) return null;
+  combineDateAndTime(date: Date, time: Date): Date | null {
+    if (!(date instanceof Date) || isNaN(date.getTime()) || !(time instanceof Date) || isNaN(time.getTime())) {
+      return null;
+    }
     const combined = new Date(date);
-    combined.setHours(hour, minute, second, 0);
+    combined.setHours(time.getHours(), time.getMinutes(), time.getSeconds(), time.getMilliseconds());
     return combined;
   }
 }

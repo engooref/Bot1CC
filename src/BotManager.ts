@@ -511,7 +511,7 @@ export default class BotManager extends Client {
     // Helper: get event by parentId
     const getEventByParentId = async (parentId: string | null) => {
       if (!parentId) return null;
-      return await em.findOne(Event, { vocalParentId: parentId });
+      return await em.findOne(Event, { discord: { vocalParentId: parentId } });
     };
 
     // Helper: get or create VoicePresence
@@ -610,7 +610,7 @@ export default class BotManager extends Client {
 
     // 5. Liste des channels d'équipe
     const allTeamChannels = channel.guild.channels.cache
-      .filter(ch => ch.type === ChannelType.GuildVoice && ch.parentId === event.vocalParentId)
+      .filter(ch => ch.type === ChannelType.GuildVoice && ch.parentId === event.discord.vocalParentId)
       .map(ch => ch.id);
 
     const isIn  = newState.channelId && allTeamChannels.includes(newState.channelId);
@@ -622,11 +622,11 @@ export default class BotManager extends Client {
     }
 
     // 9. Si l'utilisateur est dans une équipe, on le move dans le channel équipe
-    if (isIn && newState.channelId === event.vocalParentId) {
+    if (isIn && newState.channelId === event.discord.vocalParentId) {
       if (resp.team) {
-        await moveToTeamChannel(event.vocalParentId, resp.team.name, newState, event.id);
+        await moveToTeamChannel(event.discord.vocalParentId!, resp.team.name, newState, event.id);
       } else {
-        await moveToNoTeamChannel(event.vocalParentId, newState, event.id);
+        await moveToNoTeamChannel(event.discord.vocalParentId!, newState, event.id);
       }
     }
 

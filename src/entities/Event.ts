@@ -1,142 +1,196 @@
 // src/entities/Event.ts
 import {
-    Entity,
-    PrimaryKey,
-    Property,
-    ManyToOne,
-    ManyToMany,
-    OneToMany,
-    Collection,
-    type Rel,
-  } from '@mikro-orm/core';
-  import { EventType } from './EventType.js';
-  import { Response }  from './Response.js';
-  import { User }      from './User.js';
+  Entity,
+  PrimaryKey,
+  Property,
+  ManyToOne,
+  ManyToMany,
+  OneToMany,
+  Collection,
+  Embedded,
+  Index,
+  Enum,
+  type Rel,
+} from '@mikro-orm/core';
+
+import { EventType } from './EventType.js';
+import { Response as ResponseEvent } from './Response.js';
+import { User } from './User.js';
+import { VoicePresence } from './VoicePresence.js';
+import { Certifications } from './Certifications.js';
+import { DiscordMeta } from './DiscordMeta.js';
+
+export enum EventStatus {
+  DRAFT = 'DRAFT',
+  PUBLISHED = 'PUBLISHED',
+  PROGRAMMED = 'PROGRAMMED',
+}
+
+export enum EventVisibility {
+  PUBLIC = 'PUBLIC',
+  PRIVATE = 'PRIVATE',
+}
+
+
+@Entity({ tableName: 'event' })
+@Index({ name: 'idx_event_start', properties: ['start'] })
+@Index({ name: 'idx_event_status', properties: ['status'] })
+@Index({ name: 'idx_event_visibility', properties: ['visibility'] })
+export class Event {
+
+  // === Identité ===
+  @PrimaryKey()
+  id!: number;
+
+  // === Métadonnées Discord (embeddable, prefix déjà posé dans DiscordMeta) ===
+  @Embedded(() => DiscordMeta)
+  discord = new DiscordMeta();
+
+  // === Données principales ===
+  @Property({ length: 255 })
+  name: string = '';
+
+  @ManyToOne(() => EventType, { nullable: true })
+  type?: Rel<EventType>;
+
+  // Doctrine: DateTimeImmutable -> JS: Date (UTC en DB)
+  @Property({ type: 'datetime', nullable: false })
+  start!: Date;
+
+  @Property({ type: 'datetime', nullable: false })
+  end!: Date;
+
+  // Heures de lancement (on unifie: datetime pour éviter date+time séparées)
+  @Property({ type: 'datetime', nullable: false })
+  launchServer!: Date;
+
+  @Property({ type: 'datetime', nullable: false })
+  launchScenario!: Date;
+
+  // Lieu / serveur / illustration
+  @Property({ length: 255, nullable: true })
+  location?: string | null; // ancien "lieuEvent"
+
+  @Property({ length: 255, nullable: true })
+  spawn?: string | null;
+
+  @Property({ length: 255, nullable: true })
+  picture?: string | null;
+
+  // Objectifs / commentaires / description
+  @Property({ type: 'text', nullable: true })
+  object1CC?: string | null;
+
+  @Property({ type: 'text', nullable: true })
+  objectAdv?: string | null;
+
+  @Property({ type: 'text', nullable: true })
+  commentaire?: string | null;
+
+  @Property({ type: 'text', nullable: true })
+  description?: string | null;
+
+  // Règles, rôles, comptages (JSON)
+  @Property({ type: 'json' })
+  vehicleRules: Record<string, unknown> = {
+    aerien: '',
+    vehicules: '',
+    infanterie: '',
+  };
+
+  @Property({ type: 'json' })
+  engagementRules: Record<string, unknown> = {
+    aerien: '',
+    vehicules: '',
+    infanterie: '',
+  };
+
+  @Property({ type: 'json' })
+  equipmentRules: Record<string, unknown> = {
+    aerien: '',
+    vehicules: '',
+    infanterie: '',
+  };
+
+  /**
+   * Structure: [{ roleId: number, count: number }, ...]
+   */
+  @Property({ type: 'json' })
+  availableRoles: string[] = [];
+
+  @Property({ length: 255 })
+  nbResp: string = '';
+
+  // Statut & visibilité
+  @Enum({ items: () => EventStatus, nativeEnumName: 'event_status_enum' })
+  status: EventStatus = EventStatus.DRAFT;
+
+  @Enum({ items: () => EventVisibility, nativeEnumName: 'event_visibility_enum' })
+  visibility: EventVisibility = EventVisibility.PUBLIC;
+
+  // Divers
+  @Property({ length: 255, nullable: true })
+  briefingTemplateName?: string | null;
+
+  @Property({ length: 255, nullable: true })
+  respawn?: string | null;
+
+  @Property({ type: 'boolean' })
+  appelMsgDiscord: boolean = false;
+
+  @Property({ type: 'boolean' })
+  rapportEnv: boolean = false;
+
+  // Publication
+  @Property({ type: 'datetime', nullable: true })
+  publishAt?: Date | null;
+
+  @Property({ type: 'datetime', nullable: true })
+  publishedAt?: Date | null;
+
+  @Property({ length: 255, nullable: true })
+  responsable?: string | null;
+
+  // === Relations ===
+  @OneToMany(() => ResponseEvent, (resp: ResponseEvent) => resp.event, { orphanRemoval: true })
+  responses = new Collection<ResponseEvent>(this);
+
+  @ManyToMany(() => User, (user) => user.events, { owner: true, pivotTable: 'event_user' })
+  users = new Collection<User>(this);
+
+  @ManyToOne(() => User, { nullable: false })
+  userOrig!: Rel<User>;
+
+  @OneToMany(() => VoicePresence, (vp) => vp.event)
+  voicePresences = new Collection<VoicePresence>(this);
+
+  @ManyToMany(() => Certifications, undefined, { owner: true })
+  certifications = new Collection<Certifications>(this);
+
   
-  @Entity({ tableName: 'event' })
-  export class Event {
-  
-    @PrimaryKey()
-    id!: number;
-  
-    @Property({ type: 'bigint', nullable: true })
-    discordId?: string;
-  
-    @Property({ type: 'datetime' })
-    start!: Date;
-  
-    @Property({ type: 'time' })
-    lancServ!: string;
-  
-    @Property({ type: 'time' })
-    lancScen!: string;
-  
-    @Property({ type: 'datetime' })
-    end!: string;
-  
-    @Property({ length: 255, nullable: false })
-    name: string = '';
-  
-    @ManyToOne(() => EventType, { nullable: true })
-    type?: EventType;
-  
-    @Property({ type: 'longtext', default: '', fieldName: 'object1_cc' }) // pour object1Cc, objectAdv, commentaire
-    object1Cc: string = '';
-  
-    @Property({ type: 'longtext', default: '' })
-    objectAdv: string = '';
-  
-    @Property({ type: 'longtext', default: '' })
-    commentaire: string = '';
-  
-    @Property({ length: 255, default: '' })
-    spawn: string = '';
-  
-    @Property({ length: 255, default: '' })
-    lieuEvent: string = '';
-  
-    @Property({ length: 255, nullable: true, default: null })
-    picture?: string = '';
-  
-    @Property({ length: 255, default: '' })
-    nbResp: string = '';
-  
-    @Property({ type: 'json', default: '{}', name: 'reglevehicule' })
-    regleVehicule: Record<string, any> = {};
-  
-    @Property({ type: 'json', default: '{}', name: 'regleenga' })
-    regleEnga: Record<string, any> = {};
-  
-    @Property({ type: 'json', default: '{}', name: 'regequi' })
-    regleQui: Record<string, any> = {};
-  
-    @Property({ type: 'boolean', default: false })
-    isValid: boolean = false;
-  
-    @Property({ length: 255, default: '' })
-    respawn: string = '';
-  
-    @Property({ type: 'bigint', nullable: true })
-    briefingDiscordId?: string;
-  
-    @Property({ type: 'bigint', nullable: true })
-    attributionDiscordId?: string;
-  
-    @Property({ type: 'longtext', nullable: true, default: null }) // pour description
-    description: string = '';
-  
-    @Property({ type: 'boolean', default: false })
-    appelMsgDiscord: boolean = false;
-  
-    @Property({ length: 255, nullable: true, default: null })
-    briefingTemplateName: string = '';
-  
-    @Property({ length: 255, default: '' })
-    roleDispo: string = '';
-  
-    @Property({ length: 255, nullable: true })
-    vocalParentId?: string;
-  
-    @OneToMany(() => Response, resp => resp.event, { orphanRemoval: true })
-    responses = new Collection<Response>(this);
-  
-    @ManyToMany(() => User, user => user.events, { owner: true, pivotTable: 'event_user' })
-    users = new Collection<User>(this);
-  
-    @ManyToOne(() => User, { nullable: false })
-    userOrig!: Rel<User>;
-  
-    @Property({ type: 'boolean', nullable: false, default: false })
-    rapportEnv: boolean = false;
-  
-    constructor(init?: Partial<Event>) {
-      if (init) {
-        Object.assign(this, init);
-        if (Array.isArray(init.responses)) {
-          this.responses = new Collection<Response>(this, init.responses);
-        }
-        if (Array.isArray(init.users)) {
-          this.users = new Collection<User>(this, init.users);
-        }
-      }
-    }
-  
-    get startDate(): string {
-      const d = this.start;
-      return d
-        ? `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`
-        : '';
-    }
-  
-    get startTime(): string {
-      const d = this.start;
-      return d
-        ? `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
-        : '';
-    }
-  
-    toString(): string {
-      return this.name;
-    }
-  
+  /** True si publié au moins sur un canal Discord. */
+  get isSend(): boolean {
+    return !!(this.discord?.messageId || this.discord?.briefingMessageId || this.discord?.attributionMessageId);
   }
+
+  /** URL publique (utile bot). */
+  getUrl(): string {
+    const base = process.env.APP_URL ?? 'https://www.1ercorpscolonial.fr';
+    return `${base.replace(/\/$/, '')}/event/${this.id}`;
+  }
+
+  // Helpers d’affichage (optionnels)
+  get startDate(): string {
+    const d = this.start;
+    return d ? `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}` : '';
+  }
+
+  get startTime(): string {
+    const d = this.start;
+    return d ? `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}` : '';
+  }
+
+  toString(): string {
+    return this.name;
+  }
+}
