@@ -106,9 +106,6 @@ import {
     @ManyToOne(() => User, { nullable: false })
     userOrig!: Rel<User>;
   
-    @Property({ type: 'longtext', nullable: true, default: null })
-    dataReport?: string = '';
-  
     @Property({ type: 'boolean', nullable: false, default: false })
     rapportEnv: boolean = false;
   

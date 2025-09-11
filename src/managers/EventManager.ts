@@ -64,12 +64,19 @@ export default class EventManager {
       calUrl.searchParams.set('text', event.name);
       calUrl.searchParams.set('dates', `${startISO}/${startISO}`);
 
+      const lancServDate = this.combineDateAndTime(event.start, event.lancServ);
+      const lancServTimestamp = lancServDate ? `<t:${Math.floor(lancServDate.getTime() / 1000)}:R>` : '';
+      
       // 2) Embed principal
       const embed = new EmbedBuilder()
         .setTitle(event.name)
         .addFields(
           { name: 'Regroupement', value: `\`\`\`${this.formatDateTime(event.start)}\`\`\``, inline: false },
-          { name: 'Lancement',    value: `\`\`\`${this.formatTime(event.lancServ)}\`\`\``, inline: false },
+          { 
+          name: 'Lancement',    
+          value: `\`\`\`${this.formatTime(event.lancServ)}\`\`\`\n${lancServTimestamp}`, 
+          inline: false 
+            },
           { name: 'Spawn',        value: event.spawn || '—', inline: false },
           { name: 'Type event',   value: (event.type?.name ?? 'Aucun'), inline: false },
           { name: 'Description',  value: event.description || '—', inline: false },
@@ -96,6 +103,31 @@ export default class EventManager {
         try {
           msg = await channel.messages.fetch(event.discordId);
         } catch {
+          const channelIds = [
+            this.bot.getParameter('CHANNEL_GROS_EVENT') as string,
+            this.bot.getParameter('CHANNEL_TRAINING') as string,
+            ...['CHANNEL_LUNDI', 'CHANNEL_MARDI', 'CHANNEL_MERCREDI', 'CHANNEL_JEUDI', 'CHANNEL_VENDREDI', 'CHANNEL_SAMEDI', 'CHANNEL_DIMANCHE']
+              .map(day => this.bot.getParameter(day) as string)
+          ];
+
+          let found = false;
+          for (const chId of channelIds) {
+            const ch = this.bot.guild.channels.cache.get(chId) as TextChannel | undefined;
+            if (!ch) continue;
+            try {
+              const candidateMsg = await ch.messages.fetch(event.discordId);
+              // Supprimer le thread associé si présent
+              if (candidateMsg.hasThread) {
+                const thread = candidateMsg.thread;
+                if (thread) await thread.delete().catch(() => null);
+              }
+              await candidateMsg.delete().catch(() => null);
+              found = true;
+              break;
+            } catch {
+              continue;
+            }
+          }
           msg = null;
         }
       }
@@ -128,8 +160,8 @@ export default class EventManager {
       // 6) Sauvegarde en base
       await this.em.persistAndFlush(event);
       await this.updateEvent(event);
-    } catch (err) {
-      await logger.error('setEvent error', err);
+    } catch (err: Error | any) {
+      await logger.error('setEvent error', err.message);
     }
   }
 
@@ -699,5 +731,19 @@ export default class EventManager {
     return {
           eventHandler : this.handleDispatch.bind(this) as CommandHandler, 
     };
+  }
+
+  /**
+   * Combine la date de event.start et l'heure de lancServ ("HH:mm:ss") pour obtenir un Date complet.
+   */
+  combineDateAndTime(date: Date, time: string): Date | null {
+    const [hour, minute, second] = time.split(':').map(Number);
+    if (
+      isNaN(hour) || isNaN(minute) || isNaN(second) ||
+      !(date instanceof Date) || isNaN(date.getTime())
+    ) return null;
+    const combined = new Date(date);
+    combined.setHours(hour, minute, second, 0);
+    return combined;
   }
 }

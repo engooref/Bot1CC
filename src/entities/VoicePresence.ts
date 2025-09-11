@@ -13,15 +13,10 @@ export class VoicePresence {
   @ManyToOne(() => User)
   user!: User;
 
-  @Property({ type: 'datetime' })
-  lastJoin!: Date;
-
-  @Property({ type: 'bigint', nullable: false, defaultRaw: '0' })
-  totalMs: number = 0;
-
+  
   @Property({ type: 'int', nullable: false })
-  xpMan: number = 0;
+  xp: number = 0;
 
   @Property()
-  isInChannel: boolean = false;
+  presence: boolean = false;
 }

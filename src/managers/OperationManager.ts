@@ -259,7 +259,7 @@ export class OperationModule {
 
     // --- Envoi du message Discord ---
     const message = await channel!.send({
-      content: `\nPour valider votre présence interagissez avec l'emoji ${emoji}`,
+      content: `${role}\nPour valider votre présence interagissez avec l'emoji ${emoji}`,
       files: [attachment]
     });
     await message.react(emoji);
@@ -333,9 +333,12 @@ export class OperationModule {
 
       setTimeout(async () => {
         try {
-          const dm = await interaction.user.createDM();
-          await dm.send(`Le rapport d'opération est prêt, voici le lien temporaire valable 2 jours :\n${tempUrl}`);
-          this.removePendingLink(message.id);
+          const reaction = message.reactions.cache.get(typeof emoji === 'string' ? emoji : emoji.id);
+          if (reaction && reaction.count > 2) {
+            const dm = await interaction.user.createDM();
+            await dm.send(`Le rapport d'opération est prêt, voici le lien temporaire valable 2 jours :\n${tempUrl}`);
+            this.removePendingLink(message.id);
+          }
         } catch (err) {
           await logger.warn('Impossible d\'envoyer le lien temporaire en DM:', err);
         }

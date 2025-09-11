@@ -505,7 +505,6 @@ export default class BotManager extends Client {
   private async _onVoiceStateUpdate(oldState: VoiceState, newState: VoiceState) {
     const em = this.evMgr.em;
     const userId = newState.id;
-    const now = new Date();
     const channel = newState.channel ?? oldState.channel;
     if (!channel) return;
 
@@ -516,29 +515,18 @@ export default class BotManager extends Client {
     };
 
     // Helper: get or create VoicePresence
-    const getOrCreatePresence = async (event: Event, user: User, isInChannel: boolean) => {
-      let presence = await em.findOne(VoicePresence, { event, user }) as InstanceType<typeof VoicePresence> | null;
+    const getOrCreatePresence = async (event: Event, user: User) => {
+      let presence = await em.findOne(VoicePresence, { event: event, user: user }) as InstanceType<typeof VoicePresence> | null;
       if (!presence) {
         presence = em.create(VoicePresence, {
           event,
           user,
-          lastJoin: now,
-          totalMs: 0,
-          isInChannel,
-          xpMan: 0,
+          xp: 0,
+          presence: true,
         });
         em.persist(presence);
       }
       return presence;
-    };
-
-    // Helper: update presence on leave
-    const handleLeave = async (presence: InstanceType<typeof VoicePresence>) => {
-      if (presence.isInChannel) {
-        presence.totalMs += now.getTime() - presence.lastJoin.getTime();
-        presence.isInChannel = false;
-        await em.persistAndFlush(presence);
-      }
     };
 
     // Helper: move user to team channel
@@ -608,9 +596,8 @@ export default class BotManager extends Client {
     // 1. Récupère l'event via parentId du channel (si newState.channel, sinon oldState.channel)
     let event = await getEventByParentId(channel.parentId);
     // 2. Si pas d'event avec newState, c'est qu'il a quitté la catégorie (on traite le leave)
-    if (!event && oldState.channel && oldState.channel.parentId) {
-      event = await getEventByParentId(oldState.channel.parentId);
-    }
+    if (!event && oldState.channel && oldState.channel.parentId) event = await getEventByParentId(oldState.channel.parentId);
+    
     if (!event) return;
 
     // 3. Récupère l'utilisateur
@@ -626,20 +613,11 @@ export default class BotManager extends Client {
       .filter(ch => ch.type === ChannelType.GuildVoice && ch.parentId === event.vocalParentId)
       .map(ch => ch.id);
 
-    // 6. Détermine l'état AVANT/APRÈS
-    const wasIn = oldState.channelId && allTeamChannels.includes(oldState.channelId);
     const isIn  = newState.channelId && allTeamChannels.includes(newState.channelId);
 
-    // 7. Récupère ou crée la présence
-    let presence = await getOrCreatePresence(event, user, isIn || false);
-
     // 8. Si l'utilisateur quitte le channel d'un event et sort de la catégorie
-    if (wasIn && !isIn) {
-      await handleLeave(presence);
-    } else if (!wasIn && isIn) {
-      // Si il vient d'entrer, on met isInChannel à true et lastJoin à now
-      presence.lastJoin = now;
-      presence.isInChannel = true;
+    if (isIn) {
+      let presence = await getOrCreatePresence(event, user);
       await em.persistAndFlush(presence);
     }
 
