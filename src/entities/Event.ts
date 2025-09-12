@@ -16,7 +16,6 @@ import {
 import { EventType } from './EventType.js';
 import { Response as ResponseEvent } from './Response.js';
 import { User } from './User.js';
-import { VoicePresence } from './VoicePresence.js';
 import { Certifications } from './Certifications.js';
 import { DiscordMeta } from './DiscordMeta.js';
 
@@ -24,6 +23,7 @@ export enum EventStatus {
   DRAFT = 'DRAFT',
   PUBLISHED = 'PUBLISHED',
   PROGRAMMED = 'PROGRAMMED',
+  
 }
 
 export enum EventVisibility {
@@ -78,7 +78,7 @@ export class Event {
   picture?: string | null;
 
   // Objectifs / commentaires / description
-  @Property({ type: 'text', nullable: true })
+  @Property({ type: 'text', nullable: true, name: 'object1_cc' })
   object1CC?: string | null;
 
   @Property({ type: 'text', nullable: true })
@@ -160,9 +160,6 @@ export class Event {
 
   @ManyToOne(() => User, { nullable: false })
   userOrig!: Rel<User>;
-
-  @OneToMany(() => VoicePresence, (vp) => vp.event)
-  voicePresences = new Collection<VoicePresence>(this);
 
   @ManyToMany(() => Certifications, undefined, { owner: true })
   certifications = new Collection<Certifications>(this);

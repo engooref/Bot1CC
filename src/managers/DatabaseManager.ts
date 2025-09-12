@@ -50,6 +50,7 @@ export default class DatabaseManager {
 
     const sub = interaction.options.getSubcommand();
     if (sub === 'purge') {
+
       try {
         const purge = new PurgeManager(this.getEm(), this.bot);
 
@@ -59,9 +60,11 @@ export default class DatabaseManager {
 
         await interaction.followUp({ content: '✅ Purge des utilisateurs, rôles et canaux invalides effectuée.', ephemeral: true });
       } catch (err) {
-        await logger.error('Erreur lors de la purge :', (err instanceof Error ? err.message : String(err)));
+
+        await logger.error({ msg: 'Erreur lors de la purge :', err });
         await interaction.followUp({ content: '❌ Une erreur est survenue lors de la purge.', ephemeral: true });
       }
+
     } else if (sub === 'sync_users') {
       try {
         const discordMembers = await this.bot.guild.members.fetch();
@@ -118,7 +121,7 @@ export default class DatabaseManager {
 
         await interaction.followUp({ content: '✅ Synchronisation des utilisateurs terminée.', ephemeral: true });
       } catch (err) {
-        logger.error('Erreur lors de la synchronisation des utilisateurs :', (err instanceof Error ? err.message : String(err)));
+        await logger.error({ msg: 'Erreur lors de la synchronisation des utilisateurs :', err });
         await interaction.followUp({ content: '❌ Une erreur est survenue lors de la synchronisation des utilisateurs.', ephemeral: true });
       }
     } else if (sub === "sync_events") {
@@ -126,7 +129,7 @@ export default class DatabaseManager {
         await this.bot.schedMgr.appEvent.sendEventsWeek();
         await interaction.followUp({ content: '✅ Synchronisation des événements terminée.', ephemeral: true });
       } catch (err) {
-        await logger.error('Erreur lors de la synchronisation des événements :', (err instanceof Error ? err.message : String(err)));
+  await logger.error({ msg: 'Erreur lors de la synchronisation des événements :', err });
         await interaction.followUp({ content: '❌ Une erreur est survenue lors de la synchronisation des événements.', ephemeral: true });
       }
     }
@@ -293,9 +296,9 @@ export default class DatabaseManager {
 
       return existing;
     } catch (err) {
-      await logger.error('[syncChannels] Erreur lors de la synchronisation des channels:', err);
+  await logger.error({ msg: '[syncChannels] Erreur lors de la synchronisation des channels:', err });
       if (err instanceof Error && err.stack) {
-        await logger.error('[syncChannels] Stack:', err.stack);
+  await logger.error({ msg: '[syncChannels] Stack:', stack: err.stack });
       }
       throw err;
     }

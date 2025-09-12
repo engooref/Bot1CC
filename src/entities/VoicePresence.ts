@@ -18,5 +18,5 @@ export class VoicePresence {
   xp: number = 0;
 
   @Property()
-  presence: boolean = false;
+  present: boolean = false;
 }

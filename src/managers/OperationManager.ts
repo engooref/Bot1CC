@@ -297,7 +297,7 @@ export class OperationModule {
             json = await response.json();
           } catch (jsonErr) {
             const text = await response.text();
-            await logger.error('Réponse non JSON du site:', text);
+            await logger.error({ msg: 'Réponse non JSON du site:', text });
             throw jsonErr;
           }
           tempUrl = json.temp_url;
@@ -307,7 +307,7 @@ export class OperationModule {
           await logger.warn('Erreur lors de la génération du lien temporaire: ' + response.statusText + ' Body: ' + text);
         }
       } catch (err) {
-        await logger.error('Erreur lors de la requête vers le site Symfony:', err);
+  await logger.error({ msg: 'Erreur lors de la requête vers le site Symfony:', err });
       }
     }
 
@@ -340,7 +340,7 @@ export class OperationModule {
             this.removePendingLink(message.id);
           }
         } catch (err) {
-          await logger.warn('Impossible d\'envoyer le lien temporaire en DM:', err);
+          await logger.warn({ msg: 'Impossible d\'envoyer le lien temporaire en DM:', err });
         }
       }, delay);
     }
@@ -382,7 +382,7 @@ export class OperationModule {
           await dm.send(`Voici ton lien temporaire d'accès au rapport d'opération :\n${link.tempUrl}`);
           this.removePendingLink(link.id);
         } catch (err) {
-          await logger.warn('Impossible d\'envoyer le lien temporaire en DM:', err);
+          await logger.warn({ msg: "Impossible d'envoyer le lien temporaire en DM:", err });
         }
       }, delay);
     }
@@ -480,7 +480,7 @@ export class OperationRoleManager {
           await member.roles.add(roleId);
           await logger.debug(`Ajout du rôle ${roleId} à ${user.tag} pour l'émoji ${emoji}.`);
         } catch (err) {
-          await logger.error(`Impossible d'ajouter le rôle ${roleId} à ${user.tag}:`, err);
+          await logger.error({ msg: `Impossible d'ajouter le rôle ${roleId} à ${user.tag}:`, err });
         }
       });
 
@@ -498,7 +498,7 @@ export class OperationRoleManager {
           await member.roles.remove(roleId);
           await logger.debug(`Retrait du rôle ${roleId} pour ${user.tag} suite au retrait de ${emoji}`);
         } catch (err) {
-          await logger.error(`Impossible de retirer le rôle :`, err);
+          await logger.error({ msg: "Impossible de retirer le rôle :", err });
         }
       });
     }

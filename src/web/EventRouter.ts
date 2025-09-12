@@ -64,6 +64,20 @@ export function createEventRouter(bot: BotManager): Router {
     }
   });
 
+  router.post('/refreshEvent', upload.none(), async (req: Request<{}, {}, CreateEventDto>, res, next) => {
+    const { eventId } = req.body;
+    try {
+      const event = await getEventFromReq(eventId, bot)
+
+      await bot.schedMgr.appEvent.updateOrCancelProgrammedEvent(event);
+      res.json({});
+    } catch (err) {
+      await logger.error(`Erreur lors de /refreshEvent: ${err} / params: eventId -> ${eventId}`)
+
+      next(err);
+    }
+  });
+
   // POST /searchUserAttribution
   router.post('/searchUserAttribution', upload.none(), (req: Request<{}, {}, CreateEventDto>, res) => {
     const result = bot.evMgr.searchUserAttribution(req.body.search || '');

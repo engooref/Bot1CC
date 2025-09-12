@@ -4,7 +4,6 @@ import { promises as fsp } from 'fs';
 
 import path from 'path';
 import { URL } from 'url';
-import sharp from 'sharp';
 import { 
   EmbedBuilder, 
   AttachmentBuilder, 
@@ -21,7 +20,7 @@ import {
 } from 'discord.js';
 
 import BotManager from '../BotManager.js';
-import {Event} from '../entities/Event.js';
+import {Event, EventStatus} from '../entities/Event.js';
 import { Response } from '../entities/Response.js';
 import { InviteView } from '../view/InviteView.js';
 import { EventView } from '../view/EventView.js';
@@ -66,7 +65,8 @@ export default class EventManager {
 
       const lancServDate = this.combineDateAndTime(event.start, event.launchServer);
       const lancServTimestamp = lancServDate ? `<t:${Math.floor(lancServDate.getTime() / 1000)}:R>` : '';
-      
+
+      const certification = event.certifications.map(c => c.name + ' (' + c.categorie.name + ')').join(', ');
       // 2) Embed principal
       const embed = new EmbedBuilder()
         .setTitle(event.name)
@@ -77,13 +77,15 @@ export default class EventManager {
             value: `\`\`\`${this.formatTime(event.launchServer)}\`\`\`\n${lancServTimestamp}`, 
             inline: false 
           },
-          { name: 'Spawn',        value: event.spawn || '—', inline: false },
-          { name: 'Type event',   value: (event.type?.name ?? 'Aucun'), inline: false },
-          ...(event.type?.name?.toLowerCase() === 'certification' && event.certifications
-            ? [{ name: 'Certifications', value: Array.isArray(event.certifications) ? event.certifications.join(', ') : String(event.certifications), inline: false }]
-            : []),
-          { name: 'Responsable'   , value: event.responsable || '—', inline: false },
-          { name: 'Description',  value: event.description || '—', inline: false },
+          { name: 'Spawn',        value: event.spawn || '', inline: false },
+          { name: 'Type event',   value: (event.type?.name ?? 'Aucun'), inline: false }
+        );
+
+        if (event.type?.name?.toLowerCase() === 'certification') embed.addFields({name: 'Certifications', value: certification, inline: false });
+
+        embed.addFields(
+          { name: 'Responsable'   , value: event.responsable || event.userOrig.username, inline: false },
+          { name: 'Description',  value: event.description || '', inline: false },
           { name: 'Lien',         value: `[Ajouter au calendrier Google](${calUrl})`, inline: false },
           { name: `Accepted (0)`,  value: 'Aucun', inline: true },
           { name: `Declined (0)`,  value: 'Aucun', inline: true },
@@ -137,6 +139,8 @@ export default class EventManager {
       }
 
       const sent = await view.sendOrEdit(channel, msg, { embeds: [embed] });
+      
+      event.publishedAt = new Date();
       event.discord.messageId = sent.id;
 
       if(!sent.hasThread) {
@@ -162,6 +166,7 @@ export default class EventManager {
       }
 
       // 6) Sauvegarde en base
+      event.status = EventStatus.PUBLISHED;
       await this.em.persistAndFlush(event);
       await this.updateEvent(event);
     } catch (err: Error | any) {
@@ -203,7 +208,7 @@ export default class EventManager {
 
       await message.edit({ embeds: [embed] });
     } catch (err) {
-      await logger.error('updateEvent error', err);
+  await logger.error({ msg: 'updateEvent error', err });
     } finally {
       if (!event.appelMsgDiscord) {
         this.bot.schedMgr.event.updateEvent(event);
@@ -280,7 +285,7 @@ export default class EventManager {
       }
 
     } catch (err) {
-      await logger.error('suppEvent error', err);
+  await logger.error({ msg: 'suppEvent error', err });
     }
   }
 
@@ -358,7 +363,7 @@ export default class EventManager {
       await this.em.persistAndFlush(event);
       
     } catch (err) {
-      await logger.error('attributionEvent error', err);
+  await logger.error({ msg: 'attributionEvent error', err });
     }
   }
 

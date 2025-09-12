@@ -1,6 +1,6 @@
 // src/managers/SchedulerManager.ts
 import  BotManager  from '../BotManager.js';
-import { Event }      from '../entities/Event.js';
+import { Event, EventStatus, EventVisibility }      from '../entities/Event.js';
 import { Response }   from '../entities/Response.js';
 import { addDays, startOfDay, endOfDay } from 'date-fns';
 import { AttachmentBuilder, ChannelType, EmbedBuilder, GuildMember, TextChannel, ThreadAutoArchiveDuration, ThreadChannel } from 'discord.js';
@@ -47,6 +47,8 @@ export class SchedulerAppEvent {
   private readonly hourMinute: string;
   private readonly dayIndex: number;
 
+  private programmedTasks = new Map<number, NodeJS.Timeout>();
+
   constructor(private bot: BotManager) {
     // lit DAY_EVENT (0=lundi) et HOURS_EVENT ("HH:mm")
     this.dayIndex    = parseInt(process.env.DAY_EVENT || '1', 10);  // défaut lundi
@@ -54,6 +56,7 @@ export class SchedulerAppEvent {
 
 
     this.startScheduler();
+    this.scheduleProgrammedEvents();
     logger.debug(`✔ Scheduled weekly send: ${DAY_NAMES[this.dayIndex]} at ${this.hourMinute}`);
   }
 
@@ -89,14 +92,15 @@ export class SchedulerAppEvent {
 
     // version $between
     const events = await this.bot.evMgr.em.getRepository(Event).find({
-        start: { 
-          $gte: monday,
-          $lte: sunday, 
-        },
+      start: { 
+        $gte: monday,
+        $lte: sunday, 
+      },
+      status: { $ne: EventStatus.PROGRAMMED },
+      visibility: EventVisibility.PUBLIC,
     }, {
       populate: ['*', 'responses.users'],
     });
-
 
     for (const day of DAY_NAMES) {
       const id = this.bot.getParameter("CHANNEL_" + day.toUpperCase()) as string;
@@ -106,7 +110,6 @@ export class SchedulerAppEvent {
 
     }
 
-    
     const countTraining = await this.countEventsByType('ENTRAINEMENT COMPÉTITION');
     let channel = this.bot.guild.channels.cache.get(this.bot.getParameter("CHANNEL_TRAINING") as string);
     if (channel?.name.endsWith('📅') && countTraining === 0)
@@ -130,6 +133,62 @@ export class SchedulerAppEvent {
       start: { $gte: startOfDay(new Date()) },
       type: { name: { $like: `%${typeLike}%` } }
     });
+  }
+
+  /** Planifie tous les events PROGRAMMED à leur date publishAt */
+  public async scheduleProgrammedEvents(): Promise<void> {
+    const events = await this.bot.evMgr.em.getRepository(Event).find({
+      status: EventStatus.PROGRAMMED,
+      publishAt: { $ne: null }
+    });
+
+    for (const ev of events) {
+      if (!ev.publishAt) continue;
+      const now = Date.now();
+      const publishTime = new Date(ev.publishAt).getTime();
+      const delay = publishTime - now;
+      if (delay <= 0) {
+        // Si la date est passée, lance tout de suite
+        await this.bot.evMgr.setEvent(ev);
+        continue;
+      }
+      // Si déjà planifié, skip
+      if (this.programmedTasks.has(ev.id)) continue;
+      const timeout = setTimeout(async () => {
+        await this.bot.evMgr.setEvent(ev);
+        this.programmedTasks.delete(ev.id);
+      }, delay);
+      this.programmedTasks.set(ev.id, timeout);
+    }
+  }
+
+  /**
+   * Met à jour ou annule la tâche programmée pour un event.
+   * À appeler quand un event est modifié ou supprimé.
+   */
+  public async updateOrCancelProgrammedEvent(ev: Event): Promise<void> {
+    // Annule la tâche si elle existe
+    if (this.programmedTasks.has(ev.id)) {
+      clearTimeout(this.programmedTasks.get(ev.id));
+      this.programmedTasks.delete(ev.id);
+    }
+
+    // Si l'event est supprimé ou n'est plus PROGRAMMED, on ne reprogramme pas
+    if (!ev || ev.status !== EventStatus.PROGRAMMED || !ev.publishAt) return;
+
+    // Reprogramme si la date est dans le futur
+    const now = Date.now();
+    const publishTime = new Date(ev.publishAt).getTime();
+    const delay = publishTime - now;
+    if (delay <= 0) {
+      await this.bot.evMgr.setEvent(ev);
+      return;
+    }
+    const timeout = setTimeout(async () => {
+      await this.bot.evMgr.setEvent(ev);
+      this.programmedTasks.delete(ev.id);
+    }, delay);
+    this.programmedTasks.set(ev.id, timeout);
   }
 }
 

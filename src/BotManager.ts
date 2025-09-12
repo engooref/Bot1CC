@@ -157,7 +157,6 @@ export default class BotManager extends Client {
       this.roleMember = this.guild.roles.cache.get(roleId);
     }
 
-
     const me = await this.guild.members.fetchMe();
     await this.dbMgr.insertAndGetUser(me);
     
@@ -170,7 +169,6 @@ export default class BotManager extends Client {
     await this.dbMgr.syncChannels(this.guild.channels.cache);
 
     await sendEnga(this);
-
 
     await logger.info(`Discord connecté en tant que ${this.user?.tag}`);
   }

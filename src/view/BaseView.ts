@@ -399,7 +399,7 @@ export function getDefinitions(definitionsPath: string) {
         const raw = fs.readFileSync(absolutePath, 'utf-8');
         definitions = JSON.parse(raw);
     } catch (err) {
-        logger.error(`Impossible de lire ou parser le fichier JSON : ${absolutePath}`, err);
+    logger.error({ msg: `Impossible de lire ou parser le fichier JSON : ${absolutePath}`, err });
         definitions = [];
     }
     return definitions;

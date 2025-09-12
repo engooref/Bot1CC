@@ -1,5 +1,6 @@
-import { Entity, PrimaryKey, ManyToMany, Collection, Property } from '@mikro-orm/core';
+import { Entity, PrimaryKey, ManyToMany, Collection, Property, ManyToOne, type Rel } from '@mikro-orm/core';
 import { RHMember } from './RHMember.js';
+import { CertifCat } from './CertifCat.js';
 
 @Entity({ tableName: 'certifications' })
 export class Certifications {
@@ -12,6 +13,6 @@ export class Certifications {
   @Property({ length: 255 })
   name!: string;
 
-  @Property({ type: 'text' })
-  description!: string;
+  @ManyToOne(() => CertifCat, { nullable: false })
+  categorie!: Rel<CertifCat>;
 }

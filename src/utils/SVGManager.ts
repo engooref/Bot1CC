@@ -9,7 +9,7 @@ export class SVGManager {
 
     // 2. Appliquer le XSLT via la commande système xsltproc
     public async transformSvgWithXsltproc(svgTemplatePath: string, xsltPath: string): Promise<string> {
-        await logger.debug(`Transformation du SVG via xsltproc avec template ${svgTemplatePath}`);
+  await logger.debug({ msg: `Transformation du SVG via xsltproc avec template ${svgTemplatePath}` });
     
         const absXsltPath = path.resolve(xsltPath);
         const absSvgPath  = path.resolve(svgTemplatePath);
@@ -116,13 +116,13 @@ export class SVGManager {
     
           const transformedSvg = await this.transformSvgWithXsltproc(svgTemplatePath, xsltPath);
           fs.writeFileSync(outputSvgPath, transformedSvg, 'utf-8');
-          await logger.debug(`SVG généré: ${outputSvgPath}`);
+          await logger.debug({ msg: `SVG généré: ${outputSvgPath}` });
     
           // Convertir en PNG
           await this.svgToPng(transformedSvg, outputPngPath);
           
         } catch (err) {
-          await logger.error('Erreur lors de la génération de l\'image :', err);
+          await logger.error({ msg: "Erreur lors de la génération de l'image :", err });
     
         }
       }
