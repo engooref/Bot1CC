@@ -23,10 +23,12 @@ export function createUserRouter(bot: BotManager): Router {
 
   router.use(async (req, res, next) => {
     try {
+      if (req.path === '/candidature') {
+        return next();
+      }
       await bot.refreshParameters();
       const param = bot.getParameter('PARAM_DISCORD');
-      const discordUpdate = req.body?.discordUpdate ?? 'N';
-      if (param !== 'O' || discordUpdate !== 'O') {
+      if (param !== 'O' ) {
         res.status(403).json({ success: false, message: 'Modifications Discord désactivées par configuration.' });
         return;
       }
