@@ -1,13 +1,13 @@
 import { ButtonInteraction, GuildMember, TextChannel } from 'discord.js';
-import BotManager from '../BotManager.js';
+import { BotManager } from '../BotManager.js';
+import type { InteractionData } from '../types/interaction.js';
 import { getManagerLogger } from '../logger.js';
 import { SafeMethod } from '../exception/Safe.js';
 import { ComponentInteraction } from '../view/BaseView.js';
-import { LeaderboardDuel, LeaderboardDuelStatus } from '../entities/LeaderboardDuel.js';
-import { channel } from 'diagnostics_channel';
+import { LeaderboardDuel, LeaderboardDuelStatus } from '../entities/leaderboard/LeaderboardDuel.js';
 import { EntityManager } from '@mikro-orm/core';
-import { LeaderboardRating } from '../entities/LeaderboardRating.js';
-import { LeaderboardDuelLog } from '../entities/LeaderboardDuelLog.js';
+import { LeaderboardRating } from '../entities/leaderboard/LeaderboardRating.js';
+import { LeaderboardDuelLog } from '../entities/leaderboard/LeaderboardDuelLog.js';
 
 // filepath: /home/work/Bot1CC/src/managers/DuelManager.ts
 
@@ -27,21 +27,22 @@ interface Duel {
     } | null;
 }
 
-export default class DuelManager {
+export class DuelManager {
     private bot: BotManager;
     private em: EntityManager;
     private logger = getManagerLogger('DuelManager');
 
     constructor(bot: BotManager) {
         this.bot = bot;
-        this.em = bot.dbMgr.getEm();
+        this.em = bot.db.getEm();
     }
 
     @SafeMethod
-    public async handleDuelCommand(interaction: ButtonInteraction, data: any): Promise<void> {
+    public async handleDuelCommand(interaction: ButtonInteraction, data: InteractionData): Promise<void> {
         try {
             const idButton = interaction.customId;
-            const duelId = data.duelId;
+            const duelIdRaw = data.duelId;
+            const duelId = duelIdRaw !== undefined ? Number(duelIdRaw) : undefined;
             let res = null;
             if (!duelId) {
                 await interaction.followUp({ content: '⛔ ID de duel requis.', ephemeral: true });

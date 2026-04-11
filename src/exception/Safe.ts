@@ -1,17 +1,16 @@
 import { botLogger } from "../logger.js";
 
 export function SafeMethod(
-  _target: any,
+  _target: object,
   propertyKey: string,
   descriptor: PropertyDescriptor
 ) {
-  const original = descriptor.value as (...args: any[]) => Promise<any>;
-  descriptor.value = async function (...args: any[]) {
+  const original = descriptor.value as (...args: unknown[]) => Promise<unknown>;
+  descriptor.value = async function (...args: unknown[]) {
     try {
       return await original.apply(this, args);
-    } catch (err: Error | any) {
+    } catch (err: unknown) {
       await botLogger.error({ op: "SafeMethod", method: propertyKey, err });
-
     }
   };
 }

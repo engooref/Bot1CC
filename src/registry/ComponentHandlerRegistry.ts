@@ -1,12 +1,13 @@
 // src/utils/ComponentHandlerRegistry.ts
 import { Interaction} from 'discord.js';
+import type { InteractionData } from '../types/interaction.js';
 
 /**
  * Type générique pour gérer interactions de composants (bouton ou select)
  */
 export type ComponentHandler = (
   interaction: Interaction,
-  data: any,
+  data: InteractionData,
 ) => Promise<void>;
 
 class ComponentHandlerRegistry {

@@ -22,11 +22,11 @@ import {
   StringSelectMenuInteraction,
 } from 'discord.js';
 import { BaseComponentView, ViewHandlers } from './BaseView.js';
-import BotManager from '../BotManager.js';
-import { ComponentType, InteractionContext } from '../entities/ViewContext.js';
+import { BotManager } from '../BotManager.js';
+import { ComponentType, InteractionContext } from '../entities/ui/ViewContext.js';
 import { EntityManager } from '@mikro-orm/core';
-import { StarSystem } from '../entities/StarSystem.js';
-import { CelestialBody, CelestialBodyType } from '../entities/CelestialBody.js';
+import { StarSystem } from '../entities/operations/StarSystem.js';
+import { CelestialBody, CelestialBodyType } from '../entities/operations/CelestialBody.js';
 import { getManagerLogger } from '../logger.js';
 import { JSONComponent, JSONTypeComponent } from '../utils/Type.js';
 import { SafeMethod } from '../exception/Safe.js';
@@ -66,7 +66,7 @@ export class OperationView extends BaseComponentView {
       []
     );
 
-    this.em = bot.dbMgr.getEm();
+    this.em = bot.db.getEm();
     this.state = { minutes: '0', location: '0.0.0' };
     this.customIds = customIds
   }
@@ -86,7 +86,7 @@ export class OperationView extends BaseComponentView {
   }> {
     const allRows: ActionRowBuilder<MessageActionRowComponentBuilder>[] = [];
     
-    let data: Record<string, string> | undefined = this.bot.opMgr.opeConfig.get(this.state.type ?? 'def') as Record<string, string> | undefined
+    let data: Record<string, string> | undefined = this.bot.operationManager.opeConfig.get(this.state.type ?? 'def') as Record<string, string> | undefined
     
     // 1️⃣ TYPE
     allRows.push(
@@ -286,7 +286,7 @@ export class OperationView extends BaseComponentView {
     }
 
     // 2️⃣ Selon le type de l’opération
-    if (this.state.type === String(this.bot.opMgr.roleConfig.get('🎮'))) {
+    if (this.state.type === String(this.bot.operationManager.roleConfig.get('🎮'))) {
       return !!this.state.games;
     } else {
       // Cas “Galaxie” : au moins l’étoile (location.split('.')[0] !== '0')
@@ -302,8 +302,8 @@ export class OperationView extends BaseComponentView {
     channel: TextBasedChannel,
     existingMessage: Message | null
   ): Promise<void> {
-    const roleEmojis = this.bot.opMgr.roleConfig.getAll();
-    const listGames  = this.bot.opMgr.gameConfig.getAll();
+    const roleEmojis = this.bot.operationManager.roleConfig.getAll();
+    const listGames  = this.bot.operationManager.gameConfig.getAll();
     const { headerRows } = await this.buildRowsSplit(roleEmojis, listGames);
 
     // Embed d’en-tête
@@ -330,8 +330,8 @@ export class OperationView extends BaseComponentView {
     channel: TextBasedChannel,
     existingMessage: Message | null
   ): Promise<void> {
-    const roleEmojis = this.bot.opMgr.roleConfig.getAll();
-    const listGames  = this.bot.opMgr.gameConfig.getAll();
+    const roleEmojis = this.bot.operationManager.roleConfig.getAll();
+    const listGames  = this.bot.operationManager.gameConfig.getAll();
     const { detailRows } = await this.buildRowsSplit(roleEmojis, listGames);
 
     // Pas d’embed ici, juste les components
@@ -519,7 +519,7 @@ export class OperationView extends BaseComponentView {
 
         // 9️⃣ Valider → appeler ton manager pour créer l’opération
         case this.customIds[8]:
-          await this.bot.opMgr.createOperation(interaction,this.state);
+          await this.bot.operationManager.createOperation(interaction,this.state);
 
         // 🔟 Annuler → supprimer le message et ses contexts
         case this.customIds[9]:
@@ -579,7 +579,7 @@ export class OperationView extends BaseComponentView {
     protected async onModalSubmit(interaction: ModalSubmitInteraction): Promise<void> {
       if (interaction.customId == this.customIds[10]) {
         this.state.description = interaction.fields.getTextInputValue('description');
-        if (this.state.type !== this.bot.opMgr.roleConfig.get('🎮')) {
+        if (this.state.type !== this.bot.operationManager.roleConfig.get('🎮')) {
           this.state.equip       = interaction.fields.getTextInputValue('equip');
           this.state.reward      = interaction.fields.getTextInputValue('reward');
         }
@@ -679,7 +679,7 @@ export class OperationView extends BaseComponentView {
 
       modal.addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(descriptionInput));
 
-      if (this.state.type !== this.bot.opMgr.roleConfig.get('🎮') as string) {
+      if (this.state.type !== this.bot.operationManager.roleConfig.get('🎮') as string) {
 
         // 2️⃣ Équipement (court)
         const equipInput = new TextInputBuilder()

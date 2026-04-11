@@ -15,8 +15,8 @@ import {
 
 import { EventType } from './EventType.js';
 import { Response as ResponseEvent } from './Response.js';
-import { User } from './User.js';
-import { Certifications } from './Certifications.js';
+import { User } from './../core/User.js';
+import { Certifications } from './../certifications/Certifications.js';
 import { DiscordMeta } from './DiscordMeta.js';
 
 export enum EventStatus {

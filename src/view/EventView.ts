@@ -9,8 +9,8 @@ import {
   ButtonInteraction,
   MessageComponentInteraction,
 } from 'discord.js';
-import BotManager from '../BotManager.js';
-import { Response } from '../entities/Response.js';
+import { BotManager } from '../BotManager.js';
+import { Response } from '../entities/event/Response.js';
 
 interface OptionData {
   value: string;
@@ -111,7 +111,7 @@ export class EventView {
 
     // Mise à jour du message sans interaction.update
     
-    const em = this.bot.dbMgr.getEm();
+    const em = this.bot.db.getEm();
     const raw = this.selectMenu.options.map(o => o.toJSON());
     const selected = raw.filter(o => o.default).map(o => o.value);
 

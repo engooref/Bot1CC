@@ -1,6 +1,6 @@
 import { Router, Request, Response, NextFunction } from 'express';
-import BotManager from '../../BotManager.js';
-import { Event } from '../../entities/Event.js';
+import { BotManager } from '../../BotManager.js';
+import { Event } from '../../entities/event/Event.js';
 import { httpLogger } from '../../logger.js';
 import multer from 'multer';
 
@@ -23,7 +23,7 @@ async function getEventFromReq(bot: BotManager, req: Request<{}, {}, CreateEvent
   const eventId = parseNumberOpt((req.body as any).eventId);
   if (!eventId) throw new Error('eventId manquant');
 
-  const em = bot.dbMgr.getEm();
+  const em = bot.db.getEm();
   return await em.findOneOrFail(
     Event, 
     { 
@@ -41,7 +41,7 @@ export default function createEventRouter(bot: BotManager): Router {
   router.post('/setEvent', upload.none(), async (req: Request<{}, {}, CreateEventDto>, res, next) => {
     try {
       const event = await getEventFromReq(bot, req);
-      await bot.evMgr.setEvent(event);
+      await bot.eventManager.setEvent(event);
       res.json({ success: true });
     } catch (err) {
       next(err);
@@ -51,7 +51,7 @@ export default function createEventRouter(bot: BotManager): Router {
   router.post('/suppEvent', upload.none(), async (req: Request<{}, {}, CreateEventDto>, res, next) => {
     try {
       const event = await getEventFromReq(bot, req);
-      await bot.evMgr.suppEvent(event);
+      await bot.eventManager.suppEvent(event);
       res.json({ success: true });
     } catch (err) {
       next(err);
@@ -61,7 +61,7 @@ export default function createEventRouter(bot: BotManager): Router {
   router.post('/refreshEvent', upload.none(), async (req: Request<{}, {}, CreateEventDto>, res, next) => {
     try {
       const event = await getEventFromReq(bot, req);
-      await bot.schedMgr.appEvent.updateOrCancelProgrammedEvent(event);
+      await bot.schedulerManager.appEvent.updateOrCancelProgrammedEvent(event);
       res.json({ success: true });
     } catch (err) {
       next(err);
@@ -71,7 +71,7 @@ export default function createEventRouter(bot: BotManager): Router {
   router.post('/searchUserAttribution', upload.none(), (req: Request<{}, {}, CreateEventDto>, res) => {
     try {
       const search = String((req.body as any).search ?? '').trim();
-      const result = bot.evMgr.searchUserAttribution(search);
+      const result = bot.eventManager.searchUserAttribution(search);
       res.json(result);
     } catch (err: any) {
       res.status(500).json({ success: false, error: err.message });
@@ -91,7 +91,7 @@ export default function createEventRouter(bot: BotManager): Router {
           ...(filesMap['files[]'] ?? []),
         ];
 
-        await bot.evMgr.attributionEvent(event, files);
+        await bot.eventManager.attributionEvent(event, files);
         res.json({ success: true });
       } catch (err) {
         next(err);
@@ -105,7 +105,7 @@ export default function createEventRouter(bot: BotManager): Router {
       const candId = parseNumberOpt(candIdRaw);
       if (candId == null) throw new Error('idCand manquant');
 
-      const result = await bot.usrMgr.acceptCandidature(candId);
+      const result = await bot.userManager.acceptCandidature(candId);
       res.json(result);
     } catch (err) {
       await httpLogger.error({ msg: 'EventRouter → acceptCandidatures error:', err, candId: candIdRaw });

@@ -1,5 +1,5 @@
 import { Router, RequestHandler } from 'express';
-import  BotManager  from '../../BotManager.js';
+import { BotManager } from '../../BotManager.js';
 
 export default function createGeneralRouter(bot: BotManager): Router {
     const router = Router();

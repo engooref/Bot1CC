@@ -1,8 +1,8 @@
 import { Router, Request } from 'express';
-import BotManager from '../../BotManager.js';
-import { User } from '../../entities/User.js';
+import { BotManager } from '../../BotManager.js';
+import { User } from '../../entities/core/User.js';
 import multer from 'multer';
-import { Role } from '../../entities/Role.js';
+import { Role } from '../../entities/core/Role.js';
 
 
 export interface UserDto {
@@ -56,7 +56,7 @@ export default function createUserRouter(bot: BotManager): Router {
     try {
       const discordId = parseStringField((req.body as any).discordId, 'discordId');
 
-      const em = bot.dbMgr.getEm();
+      const em = bot.db.getEm();
       const syncResult = await syncUserRoles(discordId, em);
       if (!syncResult.success) throw new Error(syncResult.error);
 
@@ -79,7 +79,7 @@ export default function createUserRouter(bot: BotManager): Router {
       const discordIds = parseStringArrayField((req.body as any).discordIds, 'discordIds');
       if (!discordIds.length) throw new Error('discordIds array required');
 
-      const em = bot.dbMgr.getEm();
+      const em = bot.db.getEm();
       const results: Record<string, any> = {};
 
       for (const discordId of discordIds) {
@@ -96,7 +96,7 @@ export default function createUserRouter(bot: BotManager): Router {
     try {
       const discordId = parseStringField((req.body as any).discordId, 'discordId');
 
-      const em = bot.dbMgr.getEm();
+      const em = bot.db.getEm();
       const syncResult = await syncUserRoles(discordId, em);
       if (!syncResult.success) throw new Error(syncResult.error);
 

@@ -1,11 +1,11 @@
 import { EntityManager } from "@mikro-orm/core";
 import { Client, Guild, TextChannel,  CategoryChannel, ChannelType, PermissionFlagsBits, ButtonInteraction, StringSelectMenuInteraction, ActionRowBuilder, ModalBuilder, TextInputBuilder, TextInputStyle, ModalSubmitInteraction, MessageFlags, OverwriteResolvable, PermissionsBitField } from "discord.js";
-import BotManager from "../BotManager.js";
+import { BotManager } from "../BotManager.js";
 import TicketTypeSelectView, { CloseTicketView, Handlers, OpenTicketView } from "../view/TicketsView.js";
 import { getManagerLogger } from "../logger.js";
-import { TicketType } from "../entities/TicketType.js";
-import { TicketBots } from "../entities/TicketBots.js";
-import { ComponentType, InteractionContext } from "../entities/ViewContext.js";
+import { TicketType } from "../entities/tickets/TicketType.js";
+import { TicketBots } from "../entities/tickets/TicketBots.js";
+import { ComponentType, InteractionContext } from "../entities/ui/ViewContext.js";
 import { ViewHandlers } from "../view/BaseView.js";
 
 const CATEGORY_NAME = "Assistance";
@@ -20,7 +20,7 @@ export class TicketManager {
 
     constructor(bot: BotManager) {
         this.bot = bot;
-        this.em = bot.dbMgr.getEm();
+        this.em = bot.db.getEm();
         this.bot.excludeCategory.push(CATEGORY_NAME);
 
         

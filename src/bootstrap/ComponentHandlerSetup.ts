@@ -1,0 +1,62 @@
+import {
+  ButtonInteraction,
+  StringSelectMenuInteraction,
+} from 'discord.js';
+import { BotManager } from '../BotManager.js';
+import { componentHandlerRegistry } from '../registry/ComponentHandlerRegistry.js';
+import { ComponentInteraction, ViewHandlers } from '../view/BaseView.js';
+import { Handlers } from '../view/TicketsView.js';
+import { sendCandidatures } from '../view/EngaView.js';
+import { GithubHandlers } from '../managers/GithubManager.js';
+
+export function registerComponentHandlers(bot: BotManager): void {
+  componentHandlerRegistry.register(ViewHandlers.InviteViewHandler, async (interaction, data) => {
+    await (interaction as ButtonInteraction).deferUpdate();
+    await bot.eventManager.userResponseHandle(interaction as ButtonInteraction, data);
+  });
+
+  componentHandlerRegistry.register(ViewHandlers.OperationHandler, async (interaction, data) => {
+    if ((interaction as ButtonInteraction).customId === 'op_btn')
+      await bot.operationManager.sendForm(interaction as ButtonInteraction);
+    else
+      await bot.operationManager.handlerForm(interaction as Parameters<typeof bot.operationManager.handlerForm>[0], data);
+  });
+
+  componentHandlerRegistry.register(ViewHandlers.TicketsHandler, async (interaction, data) => {
+    if (interaction.isButton()) {
+      if (interaction.customId === Handlers.OpenTicket)
+        await bot.ticketManager.sendForm(interaction);
+      else if (interaction.customId === Handlers.CloseTicket)
+        await bot.ticketManager.closeForm(interaction, data);
+    }
+    else if ((interaction as StringSelectMenuInteraction).customId === Handlers.SelectType)
+      await bot.ticketManager.createTickets(interaction as StringSelectMenuInteraction, data);
+    else if (interaction.isModalSubmit())
+      await bot.ticketManager.modalSubmit(interaction, data);
+  });
+
+  componentHandlerRegistry.register(ViewHandlers.EngaHandler, async (interaction, _) => {
+    if (interaction.isButton())
+      await sendCandidatures(interaction, bot);
+  });
+
+  componentHandlerRegistry.register(ViewHandlers.ScreenHandler, async (interaction, data) => {
+    await bot.screenManager.handlerForm(interaction as ComponentInteraction, data);
+  });
+
+  componentHandlerRegistry.register(ViewHandlers.PromotionsHandler, async (interaction, _) => {
+    await bot.userManager.removePromotion(interaction as ComponentInteraction);
+  });
+
+  componentHandlerRegistry.register(ViewHandlers.DuelHandler, async (interaction, data) => {
+    await (interaction as ButtonInteraction).deferUpdate();
+    await bot.duelManager.handleDuelCommand(interaction as ButtonInteraction, data);
+  });
+
+  componentHandlerRegistry.register(ViewHandlers.GithubHandler, async (interaction, data) => {
+    if (interaction.isStringSelectMenu() && interaction.customId === GithubHandlers.SelectRepo)
+      await bot.githubManager.handleSelectRepo(interaction as StringSelectMenuInteraction, data);
+    else if (interaction.isModalSubmit())
+      await bot.githubManager.handleModalSubmit(interaction, data);
+  });
+}

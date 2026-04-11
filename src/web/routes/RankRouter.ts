@@ -1,13 +1,13 @@
 import { Router, Request } from 'express';
-import BotManager from '../../BotManager.js';
+import { BotManager } from '../../BotManager.js';
 import multer from 'multer';
 import { TextBasedChannel, TextChannel } from 'discord.js';
-import { User } from '../../entities/User.js';
+import { User } from '../../entities/core/User.js';
 import { Role } from 'discord.js';
 import PromotionsView from '../../view/PromotionsView.js';
-import { Rank } from '../../entities/Rank.js';
+import { Rank } from '../../entities/core/Rank.js';
 import { httpLogger } from '../../logger.js';
-import { RHMember } from '../../entities/RHMember.js';
+import { RHMember } from '../../entities/hr/RHMember.js';
 
 
 export interface UserPromotionDto {
@@ -60,7 +60,7 @@ export default function createRankRouter(bot: BotManager): Router {
         try {
             const promotions = parsePromotionsField((req.body as any).promotions);
 
-            const em = bot.dbMgr.getEm();
+            const em = bot.db.getEm();
             // Récupère le channel RH nommé Promotions
             const channelRh = bot.guild.channels.cache.get(bot.getParameter('CHANNEL_RH') as string) as TextChannel;
             
@@ -146,7 +146,7 @@ export default function createRankRouter(bot: BotManager): Router {
             const discordIds = parseStringArrayField((req.body as any).discordIds, 'discordIds');
             if (!discordIds.length) throw new Error('discordIds array required');
 
-            const em = bot.dbMgr.getEm();
+            const em = bot.db.getEm();
             const ranksDb = await em.find(Rank, {}, { populate: ['roleDiscord'] });
 
             for (const discordId of discordIds) {

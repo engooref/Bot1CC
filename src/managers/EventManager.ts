@@ -19,9 +19,9 @@ import {
   VoiceChannel,
 } from 'discord.js';
 
-import BotManager from '../BotManager.js';
-import {Event, EventStatus} from '../entities/Event.js';
-import { Response } from '../entities/Response.js';
+import { BotManager } from '../BotManager.js';
+import {Event, EventStatus} from '../entities/event/Event.js';
+import { Response } from '../entities/event/Response.js';
 import { InviteView } from '../view/InviteView.js';
 import { EventView } from '../view/EventView.js';
 import { EntityManager } from '@mikro-orm/core';
@@ -29,11 +29,10 @@ import { SafeMethod } from '../exception/Safe.js';
 import { getManagerLogger } from '../logger.js';
 import { nanoid } from 'nanoid';
 import { SVGManager } from '../utils/SVGManager.js';
-import { stdin } from 'process';
 import { CommandHandler } from '../utils/SlashCommandManager.js';
 
 
-export default class EventManager {
+export class EventManager {
   private bot: BotManager;
   private urlSite : string;
   public fem!: EntityManager ;
@@ -47,7 +46,7 @@ export default class EventManager {
 
   get em(): EntityManager {
     if (!this.fem)
-      this.fem = this.bot.dbMgr.getEm();
+      this.fem = this.bot.db.getEm();
     
     return this.fem;
   }
@@ -220,7 +219,7 @@ export default class EventManager {
   await this.logger.error({ msg: 'updateEvent error', err });
     } finally {
       if (!event.appelMsgDiscord) {
-        this.bot.schedMgr.event.updateEvent(event);
+        this.bot.schedulerManager.event.updateEvent(event);
       }
     }
   }
@@ -380,7 +379,7 @@ export default class EventManager {
   async userResponseHandle(interaction: ButtonInteraction, data: Record<string, any>) {
 
     // récupère ou crée l’utilisateur en BDD
-    const userEntity = await this.bot.dbMgr.insertAndGetUser((interaction.member! instanceof GuildMember) ? interaction.member! as GuildMember : interaction.member!.user)
+    const userEntity = await this.bot.db.insertAndGetUser((interaction.member! instanceof GuildMember) ? interaction.member! as GuildMember : interaction.member!.user)
     if (!userEntity) return;
 
     // met à jour l’affichage de l’événement
@@ -779,7 +778,7 @@ export default class EventManager {
       await interaction.followUp({ content: 'Seuls les administrateurs peuvent utiliser cette sous-commande.', ephemeral: true });
       return;
     }
-    const count = await this.bot.schedMgr.appEvent.sendEventsWeek();
+    const count = await this.bot.schedulerManager.appEvent.sendEventsWeek();
     await interaction.followUp(`Les événements planifiés de la semaine ont été lancés. (${count} événements)`);
   }
 

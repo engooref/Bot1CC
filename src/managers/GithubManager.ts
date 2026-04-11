@@ -11,9 +11,9 @@ import {
     EmbedBuilder,
     TextChannel,
 } from 'discord.js';
-import BotManager from '../BotManager.js';
+import { BotManager } from '../BotManager.js';
 import { getManagerLogger } from '../logger.js';
-import { ComponentType, InteractionContext } from '../entities/ViewContext.js';
+import { ComponentType, InteractionContext } from '../entities/ui/ViewContext.js';
 import { ViewHandlers } from '../view/BaseView.js';
 import { JSONConfigManager } from '../utils/JSONConfigManager.js';
 import path from 'path';
@@ -41,7 +41,7 @@ export class GithubManager {
 
     constructor(bot: BotManager) {
         this.bot = bot;
-        this.em = bot.dbMgr.getEm();
+        this.em = bot.db.getEm();
         this.config = new JSONConfigManager<GithubConfig>(
             path.join('config', 'github.json')
         );

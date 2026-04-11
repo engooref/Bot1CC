@@ -1,10 +1,11 @@
 import { Router, Request } from 'express';
-import BotManager from '../../BotManager.js';
+import { BotManager } from '../../BotManager.js';
+import { httpLogger } from '../../logger.js';
 import multer from 'multer';
-import { LeaderboardDuel } from '../../entities/LeaderboardDuel.js';
+import { LeaderboardDuel } from '../../entities/leaderboard/LeaderboardDuel.js';
 import DuelView from '../../view/DuelView.js';
 import { TextChannel } from 'discord.js';
-import { LeaderboardRating } from '../../entities/LeaderboardRating.js';
+import { LeaderboardRating } from '../../entities/leaderboard/LeaderboardRating.js';
 
 
 export interface DuelDto {
@@ -49,7 +50,7 @@ export default function createLeaderboardsRouter(bot: BotManager): Router {
     router.post('/annonce', upload.none(), async (req: Request<{}, {}, DuelDto>, res, next) => {
         try {
             const duelId = parseNumberField((req.body as any).duelId, 'duelId');
-            const em = bot.dbMgr.getEm();
+            const em = bot.db.getEm();
 
             // ---- Ton fonctionnement existant (inchangé)
             const duel = await em.findOneOrFail(LeaderboardDuel, { id: duelId }, { populate: ['player1', 'player2'] });
@@ -157,11 +158,11 @@ export default function createLeaderboardsRouter(bot: BotManager): Router {
     router.post('/accept', upload.none(), async (req: Request<{}, {}, DuelDto>, res, next) => {
         try {
             const duelId = parseNumberField((req.body as any).duelId, 'duelId');
-            const em = bot.dbMgr.getEm();
+            const em = bot.db.getEm();
 
             const duel = await em.findOneOrFail(LeaderboardDuel, { id: duelId }, { populate: ['player1', 'player2'] });
 
-            await bot.duelMgr.sendAcceptDuel(duel);
+            await bot.duelManager.sendAcceptDuel(duel);
 
             res.json({ success: true });
 
@@ -173,13 +174,13 @@ export default function createLeaderboardsRouter(bot: BotManager): Router {
     router.post('/refus', upload.none(), async (req: Request<{}, {}, DuelDto>, res, next) => {
         try {
             const duelId = parseNumberField((req.body as any).duelId, 'duelId');
-            const em = bot.dbMgr.getEm();
+            const em = bot.db.getEm();
 
             const duel = await em.findOneOrFail(LeaderboardDuel, { id: duelId }, { populate: ['player1', 'player2'] });
 
             const {player1, player2} = duel.preview;
             
-            await bot.duelMgr.sendRefusedDuel(duel, player2.penalty);
+            await bot.duelManager.sendRefusedDuel(duel, player2.penalty);
 
             res.json({ success: true });
 
@@ -214,7 +215,7 @@ export default function createLeaderboardsRouter(bot: BotManager): Router {
 
                     await (dm as unknown as TextChannel).send({ embeds: [embed] });
                 } catch (dmErr) {
-                    console.error(`Failed to send tournament invite to ${discordId}:`, dmErr);
+                    httpLogger.error({ err: dmErr, discordId }, `Failed to send tournament invite`);
                 }
             }
 

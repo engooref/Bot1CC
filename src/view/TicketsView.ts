@@ -1,8 +1,8 @@
 import { ActionRowBuilder, StringSelectMenuBuilder, ButtonInteraction, TextInputBuilder, TextInputStyle, ModalBuilder, MessageActionRowComponentBuilder, ButtonBuilder, ButtonStyle } from "discord.js";
-import BotManager from "../BotManager.js";
-import { TicketType } from "../entities/TicketType.js";
+import { BotManager } from "../BotManager.js";
+import { TicketType } from "../entities/tickets/TicketType.js";
 import { BaseComponentView, getDefinitions, ViewHandlers } from "./BaseView.js";
-import { ComponentType } from "../entities/ViewContext.js";
+import { ComponentType } from "../entities/ui/ViewContext.js";
 import { JSONComponent, JSONTypeComponent } from "../utils/Type.js";
 
 export enum Handlers {

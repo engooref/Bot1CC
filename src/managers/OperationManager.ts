@@ -1,29 +1,32 @@
-// src/managers/OperationRoleManager.ts
+// src/managers/OperationManager.ts
 import {
   ChannelType,
   PermissionFlagsBits,
   CategoryChannel,
   TextChannel,
-  EmbedBuilder,
   ButtonInteraction,
+  StringSelectMenuInteraction,
+  ModalSubmitInteraction,
   TextBasedChannel,
   Message,
   AttachmentBuilder,
-  MessageReaction,
-  User,
-  GuildMember,
-  MessageFlags,
 } from 'discord.js';
+
+/** Interactions possibles dans handlerForm — exclut ChatInputCommandInteraction (pas de customId) */
+type FormInteraction = ButtonInteraction | StringSelectMenuInteraction | ModalSubmitInteraction;
+import type { PendingLink } from '../types/operation.js';
+import type { InteractionData } from '../types/interaction.js';
 import fs from 'fs';
 import path from 'path';
-import BotManager from '../BotManager.js';
+import { BotManager } from '../BotManager.js';
 import { CreationOperationView, OperationState, OperationView } from '../view/OperationView.js';
 import { JSONConfigManager } from '../utils/JSONConfigManager.js';
 import { getManagerLogger } from '../logger.js';
-import { StarSystem } from '../entities/StarSystem.js';
-import { CelestialBody, CelestialBodyType } from '../entities/CelestialBody.js';
+import { StarSystem } from '../entities/operations/StarSystem.js';
+import { CelestialBody, CelestialBodyType } from '../entities/operations/CelestialBody.js';
 import { SVGManager } from '../utils/SVGManager.js';
 import { lookup } from 'mime-types';
+import { OperationRoleManager } from './OperationRoleManager.js';
 
 const CATEGORY_NAME = 'Opérations';
 const FOLDER_NAME = "Operations";
@@ -127,7 +130,7 @@ export class OperationModule {
 
     // Salon création-opération
     let creationChannel = guild.channels.cache.find(
-      c => 
+      c =>
         c.parentId === category.id &&
         c.type === ChannelType.GuildText &&
         c.name === 'création-opération'
@@ -151,7 +154,7 @@ export class OperationModule {
       if(!role) continue;
 
       const channel = guild.channels.cache.find(
-        c => 
+        c =>
           c.parentId === category.id &&
           c.type === ChannelType.GuildText &&
           c.name === role.name.replace(' ', '-').toLowerCase()
@@ -201,7 +204,7 @@ export class OperationModule {
       throw new Error('location invalide, une lune nécessite une planète');
     }
 
-    const em = this.bot.dbMgr.getEm();
+    const em = this.bot.db.getEm();
     const star = await em.findOne(StarSystem, { id: starId });
     if (!star) {
       throw new Error('étoile invalide');
@@ -247,6 +250,7 @@ export class OperationModule {
     if (!roleIds.includes(normalized.type)) {
       throw new Error('type invalide');
     }
+
     if (!ALLOWED_START_DELAYS.includes(normalized.minutes)) {
       throw new Error(`minutes invalide, valeurs autorisées: ${ALLOWED_START_DELAYS.join(', ')}`);
     }
@@ -335,19 +339,19 @@ export class OperationModule {
     const [starId, planetId, moonId] = validatedState.location.split('.').map((n: string) => parseInt(n, 10));
     const names: string[] = [];
     if (starId > 0) {
-      const star = await this.bot.dbMgr.getEm().findOne(StarSystem, { id: starId });
+      const star = await this.bot.db.getEm().findOne(StarSystem, { id: starId });
       if (star) {
         names.push(star.name);
       }
     }
     if (planetId > 0) {
-      const planet = await this.bot.dbMgr.getEm().findOne(CelestialBody, { id: planetId });
+      const planet = await this.bot.db.getEm().findOne(CelestialBody, { id: planetId });
       if (planet) {
         names.push(planet.name);
       }
     }
     if (moonId > 0) {
-      const moon = await this.bot.dbMgr.getEm().findOne(CelestialBody, { id: moonId });
+      const moon = await this.bot.db.getEm().findOne(CelestialBody, { id: moonId });
       if (moon) {
         names.push(moon.name);
       }
@@ -357,7 +361,7 @@ export class OperationModule {
 
     let dataUri: string | null = null;
 
-    if (validatedState.type === this.bot.opMgr.roleConfig.get('🎮')) {
+    if (validatedState.type === this.bot.operationManager.roleConfig.get('🎮')) {
       const imgPath = path.join(config.baseDir, 'MG', `${validatedState.games}.png`);
       const fileBuffer = fs.readFileSync(imgPath);
 
@@ -369,7 +373,7 @@ export class OperationModule {
       dataUri = `data:${contentType};base64,${base64}`;
     }
 
-    const materiel = (validatedState.type === this.bot.opMgr.roleConfig.get('🎮')) ? this.gameConfig.get(validatedState.games!) : (validatedState.equip ? `Equipement: ${validatedState.equip}` : '');
+    const materiel = (validatedState.type === this.bot.operationManager.roleConfig.get('🎮')) ? this.gameConfig.get(validatedState.games!) : (validatedState.equip ? `Equipement: ${validatedState.equip}` : '');
     const data = {
       description: validatedState.description ? validatedState.description : '',
       materiel: materiel,
@@ -377,7 +381,7 @@ export class OperationModule {
       localisation: names.join(' >> '),
       info: operationInfo,
       date: dateString,
-      imgMG: (validatedState.type === this.bot.opMgr.roleConfig.get('🎮')) ? dataUri : ''
+      imgMG: (validatedState.type === this.bot.operationManager.roleConfig.get('🎮')) ? dataUri : ''
     };
 
     const SVGMgr = new SVGManager(data, config);
@@ -431,7 +435,7 @@ export class OperationModule {
     let tempUrl: string | null = null;
     let tempUrlExpiresAt: string | null = null;
 
-    if (validatedState.type !== this.bot.opMgr.roleConfig.get('🎮')) {
+    if (validatedState.type !== this.bot.operationManager.roleConfig.get('🎮')) {
       try {
         const siteUrl = 'https://www.1ercorpscolonial.fr/bot/operation/generate-temp-url';
         const params = new URLSearchParams({
@@ -482,7 +486,7 @@ export class OperationModule {
           if (reaction && reaction.count > 2) {
             const member = await this.bot.guild.members.fetch(author.id);
             const dm = await member.createDM();
-            await dm.send(`Le rapport d’opération est prêt, voici le lien temporaire valable 2 jours ⬇️\n${tempUrl}\n\nPensez à bien le valider afin d’attribuer l’XP correspondante ⚠️`);
+            await dm.send(`Le rapport d'opération est prêt, voici le lien temporaire valable 2 jours ⬇️\n${tempUrl}\n\nPensez à bien le valider afin d'attribuer l'XP correspondante ⚠️`);
             this.removePendingLink(message.id);
           }
         } catch (err) {
@@ -526,23 +530,24 @@ export class OperationModule {
     await this.logger.debug(`Envoi du formulaire d'opération à ${user.tag}`);
   }
 
-  public async handlerForm(interaction: any, data: any) {
+  public async handlerForm(interaction: FormInteraction, data: InteractionData) {
     const view = new OperationView(this.bot);
 
-    await view.handleInteraction(interaction, data);
+    // OperationView.handleInteraction expects its own data shape; cast at the boundary
+    await view.handleInteraction(interaction, data as unknown as Parameters<typeof view.handleInteraction>[1]);
 
     let dmChannel = interaction.channel;
     if (!dmChannel) {
-      dmChannel = await this.bot.channels.fetch(interaction.channelId) as TextBasedChannel;
+      dmChannel = await this.bot.channels.fetch(interaction.channelId!) as TextBasedChannel;
     }
-    const existingMessage = interaction.message;
+    const existingMessage = 'message' in interaction ? interaction.message : null;
 
     if (!view.isSupp(interaction.customId)) {
       await view.render(dmChannel as TextBasedChannel, existingMessage as Message, interaction.customId);
     }
   }
 
-  public async createOperation(interaction: any, state: OperationState) {
+  public async createOperation(interaction: FormInteraction, state: OperationState) {
     const author = await this.getOperationAuthor(interaction.user.id);
     const result = await this.createOperationForAuthor(author, state);
 
@@ -605,121 +610,4 @@ export class OperationModule {
       }, delay);
     }
   }
-}
-
-export class OperationRoleManager {
-    private logger = getManagerLogger('OperationRoleManager');
-    
-    constructor(
-        private bot: BotManager,
-        private module: OperationModule,
-    ) {}
-    /** Crée (ou récupère) la catégorie “Opérations” et le salon “role-opération”. */
-    public async ensureRoleChannel(): Promise<TextChannel> {
-        const guild = this.bot.guild;
-
-        // Catégorie
-        const category = await this.module.ensureCategory();
-
-        // Salon role-opération
-        let roleChannel = guild.channels.cache.find(
-        c =>
-            c.parentId === category.id &&
-            c.type === ChannelType.GuildText &&
-            c.name === 'role-opération'
-        ) as TextChannel;
-        if (!roleChannel) {
-        roleChannel = await guild.channels.create({
-            name: 'role-opération',
-            type: ChannelType.GuildText,
-            parent: category.id,
-        });
-        }
-
-        return roleChannel;
-    }
-
-    public async updateRoles(): Promise<void> {
-        const roleMap = this.module.roleConfig.getAll();
-
-        const roleChannel = await this.ensureRoleChannel();
-        const embed = new EmbedBuilder()
-        .setTitle('Rôle Opération')
-        .setDescription('Réagissez aux emojis suivants pour les pings opérations:')
-        .setColor(0xff0000);
-
-        for (const [emoji, roleId] of Object.entries(roleMap)) {
-            const role = this.bot.guild.roles.cache.get(roleId);
-            if (role) 
-                embed.addFields({ name: '', value: `${emoji} : ${role.name}` , inline: false });
-        }
-
-        const fetched = await roleChannel.messages.fetch({ limit: 50 });
-        const existing = fetched.find(m => m.author.id === this.bot.user!.id && m.embeds.length);
-
-        let msg = existing!;
-        if (msg) await msg.edit({ embeds: [embed] });
-        else    msg = await roleChannel.send({ embeds: [embed] });
-
-        for (const emoji of Object.keys(roleMap)) {
-            await msg.react(emoji).catch(() => null);
-        }
-
-        const filter = (reaction: MessageReaction, user: User) =>
-          roleMap.hasOwnProperty(reaction.emoji.name!)  && !user.bot;
-
-      const collector = msg.createReactionCollector({ filter, dispose:true }); // 1h
-
-      collector.on('collect', async (reaction, user) => {
-        // Ignore les bots
-        if (user.bot) return;
-
-        // Récupère l’émoji comme clé
-        const emoji = reaction.emoji.name!;
-        // roleEmoji est ton mapping emoji → roleId
-        const roleId = roleMap[emoji];
-        if (!roleId) return;  // pas de rôle associé à cet émoji
-
-        // Récupère le membre de la guilde
-        const guild = reaction.message.guild;
-        if (!guild) return;
-
-        let member = guild.members.cache.get(user.id);
-        // Si pas en cache, fetch le membre
-        if (!member) {
-          try {
-            member = await guild.members.fetch(user.id);
-          } catch {
-            await this.logger.warn(`Membre ${user.id} introuvable.`);
-            return;
-          }
-        }
-
-        // Ajoute le rôle
-        try {
-          await member.roles.add(roleId);
-          await this.logger.debug(`Ajout du rôle ${roleId} à ${user.tag} pour l'émoji ${emoji}.`);
-        } catch (err) {
-          await this.logger.error({ msg: `Impossible d'ajouter le rôle ${roleId} à ${user.tag}:`, err });
-        }
-      });
-
-      collector.on('remove', async (reaction, user) => {
-        if (user.bot) return;
-        const emoji = reaction.emoji.name!;
-        const roleId = roleMap[emoji];
-        if (!roleId) return;
-        
-        const guild = reaction.message.guild;
-        if (!guild) return;
-        let member = guild.members.cache.get(user.id) || await guild.members.fetch(user.id);
-        
-        try {
-          await member.roles.remove(roleId);
-          await this.logger.debug(`Retrait du rôle ${roleId} pour ${user.tag} suite au retrait de ${emoji}`);
-        } catch (err) {
-          await this.logger.error({ msg: "Impossible de retirer le rôle :", err });
-        }
-      });
-    }
 }

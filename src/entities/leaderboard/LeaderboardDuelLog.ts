@@ -1,6 +1,6 @@
 import { Entity, PrimaryKey, Property, ManyToOne, Index, Cascade } from '@mikro-orm/core';
 import { LeaderboardDuel } from './LeaderboardDuel.js';
-import { User } from './User.js';
+import { User } from './../core/User.js';
 
 @Index({ properties: ['createdAt'], name: 'idx_ldlog_created_at' })
 @Index({ properties: ['action'], name: 'idx_ldlog_action' })

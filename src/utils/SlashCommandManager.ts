@@ -1,7 +1,7 @@
 import { REST, Routes, SlashCommandBuilder, Collection, Interaction, SlashCommandSubcommandBuilder, RESTPostAPIApplicationCommandsJSONBody, ChatInputCommandInteraction, MessageFlags } from "discord.js";
 import fs from "fs";
 import path from "path";
-import BotManager from "../BotManager.js";
+import { BotManager } from "../BotManager.js";
 import { getManagerLogger } from "../logger.js";
 
 
@@ -35,7 +35,7 @@ export interface CommandDefinition {
 export type CommandHandler = (interaction: Interaction) => Promise<void>;
 
 
-export default class SlashCommandManager {
+export class SlashCommandManager {
   private commands: Map<string, CommandEntry> = new Map();
   private commandsJSON: RESTPostAPIApplicationCommandsJSONBody[] = [];
   private commandsDefinition: CommandDefinition[] = [];

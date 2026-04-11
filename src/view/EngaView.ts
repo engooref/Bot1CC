@@ -1,7 +1,7 @@
 import { AttachmentBuilder, ButtonInteraction, EmbedBuilder, GuildMemberRoleManager, MessageFlags, Role, TextChannel } from "discord.js";
-import BotManager from "../BotManager.js";
+import { BotManager } from "../BotManager.js";
 import { BaseComponentView, ViewHandlers } from "./BaseView.js";
-import { ComponentType } from "../entities/ViewContext.js";
+import { ComponentType } from "../entities/ui/ViewContext.js";
 import { getManagerLogger } from "../logger.js";
 
 
@@ -71,7 +71,7 @@ export async function sendCandidatures(interaction: ButtonInteraction, bot: BotM
         }
 
         // Chargement / création de l'entité en base
-        const memberRh = await bot.usrMgr.initMemberRh(interaction.user.id);
+        const memberRh = await bot.userManager.initMemberRh(interaction.user.id);
         if (memberRh.status === 'Candidatures') {
             interaction.editReply('Vous avez déjà une demande en cours.');
             return 
@@ -79,7 +79,7 @@ export async function sendCandidatures(interaction: ButtonInteraction, bot: BotM
 
         memberRh.status = 'Candidatures';
         memberRh.dateEntree = new Date();
-        await bot.usrMgr.em.persist(memberRh).flush();
+        await bot.userManager.em.persist(memberRh).flush();
 
         await interaction.followUp({
         content: `Bravo, tu viens de franchir la première étape de ta candidature !

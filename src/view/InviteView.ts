@@ -1,7 +1,7 @@
-import BotManager from "../BotManager.js";
+import { BotManager } from "../BotManager.js";
 import { ButtonStyle, ButtonBuilder, ActionRowBuilder } from "discord.js";
 import { BaseComponentView, getDefinitions, ViewHandlers } from "./BaseView.js";
-import { ComponentType} from "../entities/ViewContext.js";
+import { ComponentType} from "../entities/ui/ViewContext.js";
 import { JSONComponent } from "../utils/Type.js";
 
 /**

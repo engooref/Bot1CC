@@ -1,13 +1,13 @@
 import { EntityManager } from '@mikro-orm/core';
 import { getManagerLogger } from '../logger.js';
-import { User } from '../entities/User.js';
-import BotManager from '../BotManager.js';
-import { Channel } from '../entities/Channel.js';
-import { Role } from '../entities/Role.js';
-import { RHMember } from '../entities/RHMember.js';
+import { User } from '../entities/core/User.js';
+import { BotManager } from '../BotManager.js';
+import { Channel } from '../entities/core/Channel.js';
+import { Role } from '../entities/core/Role.js';
+import { RHMember } from '../entities/hr/RHMember.js';
 import { EmbedBuilder, TextChannel } from 'discord.js';
 
-export default class PurgeManager {
+export class PurgeManager {
   private logger = getManagerLogger('PurgeManager');
   constructor(private em: EntityManager, private bot: BotManager) {}
 
@@ -35,7 +35,7 @@ export default class PurgeManager {
       }
 
       // L'utilisateur est un membre valide, synchronisation des rôles
-      const roles = await this.bot.dbMgr.syncRoles(discordMember.roles.cache, this.em);
+      const roles = await this.bot.db.syncRoles(discordMember.roles.cache, this.em);
       dbUser.rolesDiscord.set(roles);
       await this.em.persist(dbUser).flush();
       await this.logger.debug(`Rôles mis à jour pour l'utilisateur : ${dbUser.username}`);

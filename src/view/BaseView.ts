@@ -27,15 +27,14 @@ import {
     ThreadChannel,
 
 } from 'discord.js';
-import { InteractionContext, ComponentType } from '../entities/ViewContext.js';
+import { InteractionContext, ComponentType } from '../entities/ui/ViewContext.js';
 import fs, { cp } from 'fs';
-import BotManager from '../BotManager.js';
+import { BotManager } from '../BotManager.js';
 import { SafeMethod } from '../exception/Safe.js';
 import { getManagerLogger } from '../logger.js';
 import { JSONComponent, JSONTypeComponent, ModalField } from '../utils/Type.js';
 import path from 'path';
 import { JSONConfigManager } from '../utils/JSONConfigManager.js';
-import { channel } from 'diagnostics_channel';
 
 const logger = getManagerLogger('BaseComponentView');
 
@@ -210,7 +209,7 @@ export abstract class BaseComponentView {
     }
 
     protected async persistContexts(messageId: string, channelId: string) {
-        const em = this.bot.dbMgr.getEm();
+        const em = this.bot.db.getEm();
 
         // 1️⃣ Extrait les customIds présents dans this.rows
         let presentIds = this.rows.flatMap(row =>
@@ -383,7 +382,7 @@ export abstract class BaseComponentView {
             return { actionRows, modal };
         }
         catch (err) {
-            console.log(err)
+            logger.error({ err }, 'Erreur buildComponents');
             throw err;
         }
     }

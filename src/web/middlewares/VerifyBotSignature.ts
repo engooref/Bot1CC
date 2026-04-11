@@ -1,5 +1,6 @@
 import type { Request, Response, NextFunction } from "express";
 import crypto from "crypto";
+import { httpLogger } from "../../logger.js";
 
 function timingSafeEqual(a: string, b: string): boolean {
   const ba = Buffer.from(a);
@@ -23,11 +24,11 @@ export function verifyBotSignature(req: Request, res: Response, next: NextFuncti
   const bodyHash = (req.header("X-Body-Hash") || "").trim();
 
   if (!requestId || !signature) {
-    console.log("AUTH FAIL: missing requestId or signature");
+    httpLogger.warn({ requestId, path: req.path }, "AUTH FAIL: missing requestId or signature");
     return res.status(401).json({ success:false, message:"Missing X-Request-Id or X-Signature" });
   }
   if (!bodyHash) {
-    console.log("AUTH FAIL: missing X-Body-Hash");
+    httpLogger.warn({ requestId, path: req.path }, "AUTH FAIL: missing X-Body-Hash");
     return res.status(401).json({ success:false, message:"Missing X-Body-Hash" });
   }
 

@@ -1,7 +1,7 @@
 import { Entity, PrimaryKey, Property, ManyToOne, ManyToMany, Collection, type Rel } from '@mikro-orm/core';
 import { Event } from './Event.js';
-import { User } from './User.js';
-import { Certifications } from './Certifications.js';
+import { User } from './../core/User.js';
+import { Certifications } from './../certifications/Certifications.js';
 
 @Entity({ tableName: 'voice_presence' })
 export class VoicePresence {

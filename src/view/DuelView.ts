@@ -1,6 +1,6 @@
-import BotManager from "../BotManager.js";
+import { BotManager } from "../BotManager.js";
 import { BaseComponentView, ViewHandlers } from "./BaseView.js";
-import { ComponentType } from "../entities/ViewContext.js";
+import { ComponentType } from "../entities/ui/ViewContext.js";
 
 export default class DuelView extends BaseComponentView {
     duelId: number;

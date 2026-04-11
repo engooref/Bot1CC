@@ -1,7 +1,7 @@
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, MessageActionRowComponentBuilder} from "discord.js";
-import BotManager from "../BotManager.js";
+import { BotManager } from "../BotManager.js";
 import { BaseComponentView, injectDefaults, ViewHandlers } from "./BaseView.js";
-import { ComponentType } from "../entities/ViewContext.js";
+import { ComponentType } from "../entities/ui/ViewContext.js";
 import { JSONConfigManager } from "../utils/JSONConfigManager.js";
 import { JSONComponent, JSONTypeComponent } from "../utils/Type.js";
 import fs from 'fs';

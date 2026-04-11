@@ -1,15 +1,14 @@
-
-import { User as UserEntity } from '../entities/User.js';
-import { RHMember as RHMemberEntity } from '../entities/RHMember.js';
-import BotManager from '../BotManager.js';
+import { User as UserEntity } from '../entities/core/User.js';
+import { RHMember as RHMemberEntity } from '../entities/hr/RHMember.js';
+import { BotManager } from '../BotManager.js';
 import { getManagerLogger } from '../logger.js';
-import { Response } from '../entities/Response.js';
+import { Response } from '../entities/event/Response.js';
 import { EntityManager } from '@mikro-orm/core';
 import { SafeMethod } from '../exception/Safe.js';
-import { InteractionContext } from '../entities/ViewContext.js';
+import { InteractionContext } from '../entities/ui/ViewContext.js';
 
 
-export default class UserManager {
+export class UserManager {
   public fem!: EntityManager ;
   private logger = getManagerLogger('UserManager');
   
@@ -17,7 +16,7 @@ export default class UserManager {
 
   get em(): EntityManager {
     if (!this.fem)
-      this.fem = this.bot.dbMgr.getEm();
+      this.fem = this.bot.db.getEm();
     
     return this.fem;
   }
@@ -65,7 +64,7 @@ export default class UserManager {
     if (!guildMember) throw new Error('Membre non trouvé sur Discord');
 
     // insère ou récupère l’utilisateur en BDD
-    let user = await this.bot.dbMgr.insertAndGetUser(guildMember);
+    let user = await this.bot.db.insertAndGetUser(guildMember);
     if (!user) throw new Error('Utilisateur non enregistré en BDD');
 
     // cherche ou crée le profil RH

@@ -1,5 +1,5 @@
 import { Entity, PrimaryKey, OneToMany, Collection, Property, OneToOne, Rel } from '@mikro-orm/core';
-import { RHMember } from './RHMember.js';
+import { RHMember } from './../hr/RHMember.js';
 import { Role } from './Role.js';
 
 @Entity({ tableName: 'rank' })

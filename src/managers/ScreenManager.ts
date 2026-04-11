@@ -1,12 +1,12 @@
 import { Channel, ChatInputCommandInteraction, ComponentType, DMChannel, GuildMemberRoleManager, Message, MessageFlags, ModalSubmitInteraction, PermissionFlagsBits, StringSelectMenuInteraction, TextBasedChannel, TextChannel } from "discord.js";
-import BotManager from "../BotManager";
+import { BotManager } from "../BotManager";
 import { CommandHandler } from "../utils/SlashCommandManager.js";
 import ScreenConfigView, { Handlers, ScreenConfig2View } from "../view/ScreenView.js";
 import { ComponentInteraction, ViewHandlers } from "../view/BaseView.js";
 import { JSONConfigManager } from "../utils/JSONConfigManager.js";
 import path from "path";
 import { SafeMethod } from "../exception/Safe.js";
-import { InteractionContext } from "../entities/ViewContext.js";
+import { InteractionContext } from "../entities/ui/ViewContext.js";
 
 
 
@@ -26,7 +26,7 @@ export const defaultConfig: Record<string, string> = {
 };
 
 const BASE = path.resolve('config');
-export default class ScreenManager {
+export class ScreenManager {
 
     public configFile: JSONConfigManager<Record<string,string>>;
 
@@ -68,7 +68,7 @@ export default class ScreenManager {
                 embeds: [view.embed],
             })
 
-            await this.bot.dbMgr.getEm().nativeUpdate(InteractionContext,  {
+            await this.bot.db.getEm().nativeUpdate(InteractionContext,  {
                 messageId: message.id,
                 channelId: message.channelId,
                 handlerKey: ViewHandlers.ScreenHandler
@@ -113,7 +113,7 @@ export default class ScreenManager {
                 const modal = view.modal?.find(mod => mod.data.custom_id === view.buttonTarget[interaction.customId]);
                 await interaction.showModal(modal!)
                 message = await view.sendOrEdit(interaction.channel as TextChannel, message, {content: ""})
-                this.bot.dbMgr.getEm().nativeUpdate(InteractionContext, {
+                this.bot.db.getEm().nativeUpdate(InteractionContext, {
                     channelId: channel.id,
                     handlerKey: ViewHandlers.ScreenHandler
                 }, {
@@ -127,7 +127,7 @@ export default class ScreenManager {
                 if (interaction.customId === "config_validate")
                     await this.configFile.copy(config);
                 
-                await this.bot.dbMgr.getEm().nativeDelete(InteractionContext, {
+                await this.bot.db.getEm().nativeDelete(InteractionContext, {
                     channelId: interaction.channelId,
                     messageId: [data.message2Id, data.message1Id],
                     handlerKey: ViewHandlers.ScreenHandler
@@ -152,13 +152,13 @@ export default class ScreenManager {
                 if (view.onlyModal()) {
                     await (interaction as StringSelectMenuInteraction).showModal(view.modal![0]!);
                     message = await view.sendOrEdit(interaction.channel as TextChannel, message, {content: ""})
-                    this.bot.dbMgr.getEm().nativeUpdate(InteractionContext, {
+                    this.bot.db.getEm().nativeUpdate(InteractionContext, {
                         channelId: channel.id,
                         handlerKey: ViewHandlers.ScreenHandler
                     }, {
                         data: {"config":  JSON.stringify(config.getAll(), null, 2), "message1Id": data.message1Id, "message2Id": message.id}
                     })
-                    this.bot.dbMgr.getEm().nativeUpdate(InteractionContext, {
+                    this.bot.db.getEm().nativeUpdate(InteractionContext, {
                         messageId: message.id,
                         channelId: channel.id,
                         customId: view.modal![0].data.custom_id!,
@@ -208,7 +208,7 @@ export default class ScreenManager {
 
 
             if(message) {
-                this.bot.dbMgr.getEm().nativeDelete(InteractionContext, {
+                this.bot.db.getEm().nativeDelete(InteractionContext, {
                     channelId: message.channel!.id,
                     messageId: message.id,
                     handlerKey: ViewHandlers.ScreenHandler
@@ -216,7 +216,7 @@ export default class ScreenManager {
             }
 
             message = await view.sendOrEdit(interaction.channel as TextChannel, message, {content: ""})
-            this.bot.dbMgr.getEm().nativeUpdate(InteractionContext, {
+            this.bot.db.getEm().nativeUpdate(InteractionContext, {
                 channelId: channel.id,
                 handlerKey: ViewHandlers.ScreenHandler
             }, {

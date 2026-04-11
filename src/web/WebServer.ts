@@ -9,16 +9,18 @@ import createLeaderboardsRouter from "./routes/LeaderRoute.js";
 import createEventRouter from "./routes/EventRouter.js";
 import createGeneralRouter from "./routes/GeneralRouter.js";
 import createOperationRouter from "./routes/OperationRouter.js";
+import { BotManager } from "../BotManager.js";
+import { httpLogger } from "../logger.js";
 
 export default class WebServer {
   private app = express();
 
-  constructor(private readonly bot: any) {}
+  constructor(private readonly bot: BotManager) {}
 
   public start(port: number): void {
     this.setupMiddlewares();
     this.setupRoutes();
-    this.app.listen(port, () => console.log(`Bot listening on ${port}`));
+    this.app.listen(port, () => httpLogger.info({ port }, `Bot listening on ${port}`));
   }
 
   private setupMiddlewares(): void {

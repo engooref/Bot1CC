@@ -11,17 +11,17 @@ import {
 
 import { MikroORM, EntityManager,  } from '@mikro-orm/core';
 import { getManagerLogger }            from '../logger.js';
-import { User }          from '../entities/User.js';
-import { Role }          from '../entities/Role.js';
-import { Channel  } from '../entities/Channel.js';
+import { User }          from '../entities/core/User.js';
+import { Role }          from '../entities/core/Role.js';
+import { Channel  } from '../entities/core/Channel.js';
 import config from '../mikro-orm.config.js';
-import BotManager from '../BotManager.js';
+import { BotManager } from '../BotManager.js';
 import { SafeMethod } from '../exception/Safe.js';
-import PurgeManager from './PurgeManager.js';
-import { RHMember } from '../entities/RHMember.js';
-import { Rank } from '../entities/Rank.js';
+import { PurgeManager } from './PurgeManager.js';
+import { RHMember } from '../entities/hr/RHMember.js';
+import { Rank } from '../entities/core/Rank.js';
 
-export default class DatabaseManager {
+export class DatabaseManager {
   /**
    * Retourne les handlers pour SlashCommandManager
    */
@@ -130,7 +130,7 @@ export default class DatabaseManager {
       }
     } else if (sub === "sync_events") {
       try {
-        await this.bot.schedMgr.appEvent.sendEventsWeek();
+        await this.bot.schedulerManager.appEvent.sendEventsWeek();
         await interaction.followUp({ content: '✅ Synchronisation des événements terminée.', ephemeral: true });
       } catch (err) {
         await this.logger.error({ msg: 'Erreur lors de la synchronisation des événements :', err });

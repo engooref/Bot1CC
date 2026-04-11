@@ -1,5 +1,5 @@
 import { Entity, PrimaryKey, Property, ManyToOne } from '@mikro-orm/core';
-import { User } from './User.js';
+import { User } from './../core/User.js';
 
 @Entity()
 export class FleetLink {

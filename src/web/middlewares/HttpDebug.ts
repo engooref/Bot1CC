@@ -1,9 +1,9 @@
 import type { Request, Response, NextFunction } from "express";
-import { logHttpIn, logHttpOut } from "../../logger.js";
+import { logHttpIn, logHttpOut, httpLogger } from "../../logger.js";
 
 export function httpDebug(req: Request, res: Response, next: NextFunction) {
   const start = Date.now();
-  
+
   logHttpIn({
     reqId: req.header("X-Request-Id") || "no-id",
     method: req.method,
@@ -12,28 +12,28 @@ export function httpDebug(req: Request, res: Response, next: NextFunction) {
     signature: !!req.header("X-Signature"),
     bodySize: req.socket.bytesRead,
   });
-  console.log("────────────────────────────────────");
-  console.log("📥 BOT HTTP IN");
-  console.log("➡️ ", req.method, req.originalUrl);
-  console.log("🔑 Request-Id:", req.header("X-Request-Id"));
-  console.log("🔐 Signature:", req.header("X-Signature") ? "yes" : "no");
-  console.log("📦 Content-Type:", req.header("content-type"));
-
-
-  // Attention: en multipart, req.body peut être vide ici (multer passe après)
-  console.log("📄 Raw body (pre-route):", req.body);
-  
+  httpLogger.debug({
+    direction: "in",
+    method: req.method,
+    url: req.originalUrl,
+    requestId: req.header("X-Request-Id"),
+    signature: req.header("X-Signature") ? "yes" : "no",
+    contentType: req.header("content-type"),
+    // Attention: en multipart, req.body peut être vide ici (multer passe après)
+    body: req.body,
+  }, "BOT HTTP IN");
 
   res.on("finish", () => {
-    console.log("⬅️ BOT HTTP OUT");
-    console.log("⏱️ ", Date.now() - start, "ms");
-    console.log("📤 Status:", res.statusCode);
-    console.log("────────────────────────────────────");
     logHttpOut({
       reqId: req.header("X-Request-Id") || "no-id",
       status: res.statusCode,
       durationMs: Date.now() - start,
     });
+    httpLogger.debug({
+      direction: "out",
+      status: res.statusCode,
+      durationMs: Date.now() - start,
+    }, "BOT HTTP OUT");
   });
 
   next();

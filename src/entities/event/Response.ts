@@ -8,7 +8,7 @@ import {
     Collection,
     type Rel,
   } from '@mikro-orm/core';
-  import { User }         from './User.js';
+  import { User }         from './../core/User.js';
   import { Event }        from './Event.js';
   import { ResponseTeam } from './ResponseTeam.js';
   import { ResponseRoles }from './ResponseRoles.js';

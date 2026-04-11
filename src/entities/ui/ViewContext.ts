@@ -29,5 +29,5 @@ export class InteractionContext {
   componentType!: ComponentType;
 
   @Property({ type: 'json', columnType: 'text' })
-  data!: Record<string, any>;
+  data!: Record<string, unknown>;
 }

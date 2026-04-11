@@ -1,5 +1,5 @@
 import { Router, Request } from 'express';
-import BotManager from '../../BotManager.js';
+import { BotManager } from '../../BotManager.js';
 import { WebOperationCreateInput } from '../../managers/OperationManager.js';
 import multer from 'multer';
 
@@ -60,7 +60,7 @@ export default function createOperationRouter(bot: BotManager): Router {
   router.post('/create', upload.none(), async (req: Request<{}, {}, CreateOperationBody>, res, next) => {
     try {
       const payload = parseCreateOperationBody(req.body as CreateOperationBody);
-      const operation = await bot.opMgr.createOperationFromWeb(payload);
+      const operation = await bot.operationManager.createOperationFromWeb(payload);
       res.json({ success: true, operation });
     } catch (err) {
       next(err);

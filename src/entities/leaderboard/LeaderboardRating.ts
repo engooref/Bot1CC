@@ -9,7 +9,7 @@ import {
   Index,
   Cascade,
 } from '@mikro-orm/core';
-import { User } from './User.js';
+import { User } from './../core/User.js';
 
 // Adapte selon ton enum existant (tu as déjà duel.type côté bot)
 export enum LeaderboardDuelType {

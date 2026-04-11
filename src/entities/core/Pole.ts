@@ -1,7 +1,7 @@
 import { Entity, PrimaryKey, Property, ManyToMany, OneToMany, ManyToOne, type Rel } from '@mikro-orm/core';
 import { Collection } from '@mikro-orm/core';
-import { Certifications } from "./Certifications.js";
-import { RHMember } from "./RHMember.js";
+import { Certifications } from "./../certifications/Certifications.js";
+import { RHMember } from "./../hr/RHMember.js";
 import { Channel } from "./Channel.js";
 
 @Entity()
