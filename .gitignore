@@ -4,4 +4,4 @@ dist
 Data
 config
 migrations
-logs/bot.log
+logs/
