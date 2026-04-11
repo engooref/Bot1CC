@@ -2,12 +2,13 @@
 import { EventEmitter } from 'events';
 import fs from 'fs';
 import path from 'path';
-import logger from '../logger.js';
+import { getManagerLogger } from '../logger.js';
 
 export class JSONConfigManager<T extends Record<string, any>> extends EventEmitter {
   private filePath: string | null;
   private data: Partial<T> = {};
   private isWatching = false;
+  private logger = getManagerLogger('JSONConfigManager');
 
   constructor(filePath: string);
   constructor(jsonString: string, isString: true);
@@ -68,7 +69,7 @@ export class JSONConfigManager<T extends Record<string, any>> extends EventEmitt
         fs.writeFileSync(this.filePath!, '{}', 'utf-8');
         this.data = {};
       } else {
-        logger.error(err);
+        this.logger.error({ message: `Erreur lors du chargement du fichier JSON`, error: err });
       }
     }
   }

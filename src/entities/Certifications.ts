@@ -1,6 +1,9 @@
-import { Entity, PrimaryKey, ManyToMany, Collection, Property, ManyToOne, type Rel } from '@mikro-orm/core';
+import { Entity, PrimaryKey, ManyToMany, Collection, Property, ManyToOne, type Rel, OneToMany } from '@mikro-orm/core';
 import { RHMember } from './RHMember.js';
 import { CertifCat } from './CertifCat.js';
+import { VoicePresence } from './VoicePresence.js';
+import { Pole } from './Pole.js';
+import { CertifRequest } from './CertifRequest.js';
 
 @Entity({ tableName: 'certifications' })
 export class Certifications {
@@ -15,4 +18,13 @@ export class Certifications {
 
   @ManyToOne(() => CertifCat, { nullable: false })
   categorie!: Rel<CertifCat>;
+
+  @ManyToMany(() => VoicePresence, voicePresence => voicePresence.certifications, { nullable: true })
+  voicePresences = new Collection<VoicePresence>(this);
+
+  @ManyToOne(() => Pole, { nullable: false })
+  pole!: Rel<Pole>;
+
+  @OneToMany(() => CertifRequest, (req) => req.certification)
+  certifRequests = new Array<CertifRequest>();
 }

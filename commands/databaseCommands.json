@@ -17,6 +17,11 @@
         "type": "SUB_COMMAND",
         "name": "sync_events",
         "description": "Synchronise les events"
+      },
+      {
+        "type": "SUB_COMMAND",
+        "name": "sync_ranks",
+        "description": "Synchronise les grades"
       }
     ],
     "handler": "handleDatabaseCommand"

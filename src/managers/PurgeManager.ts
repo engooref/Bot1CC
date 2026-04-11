@@ -1,12 +1,14 @@
 import { EntityManager } from '@mikro-orm/core';
-import logger from '../logger.js';
+import { getManagerLogger } from '../logger.js';
 import { User } from '../entities/User.js';
 import BotManager from '../BotManager.js';
 import { Channel } from '../entities/Channel.js';
 import { Role } from '../entities/Role.js';
 import { RHMember } from '../entities/RHMember.js';
+import { EmbedBuilder, TextChannel } from 'discord.js';
 
 export default class PurgeManager {
+  private logger = getManagerLogger('PurgeManager');
   constructor(private em: EntityManager, private bot: BotManager) {}
 
   /**
@@ -35,8 +37,8 @@ export default class PurgeManager {
       // L'utilisateur est un membre valide, synchronisation des rôles
       const roles = await this.bot.dbMgr.syncRoles(discordMember.roles.cache, this.em);
       dbUser.rolesDiscord.set(roles);
-      await this.em.persistAndFlush(dbUser);
-      await logger.debug(`Rôles mis à jour pour l'utilisateur : ${dbUser.username}`);
+      await this.em.persist(dbUser).flush();
+      await this.logger.debug(`Rôles mis à jour pour l'utilisateur : ${dbUser.username}`);
     }
   }
 
@@ -53,16 +55,25 @@ export default class PurgeManager {
 
       // Supprimer les transactions associées uniquement si RHMember existe
       await this.em.nativeDelete('XpTransaction', { rHMember: rhMember.id });
+      await this.em.nativeDelete('ObjectifsAward', { member: rhMember.id });
+
+      await this.em.nativeDelete('RHLog', { member: rhMember.id });
     }
+
+    await this.em.nativeDelete('VoicePresence', { user: user.id });
+    await this.em.nativeDelete('FleetLink', { user: user.id });
+
 
     // Supprimer les réponses aux événements associées
     await this.em.nativeDelete('Response', { users: user.id });
 
     await this.em.nativeDelete('Traces', { user: user.id });
 
+    await this.purgeContract(user);
+
     // Supprimer l'utilisateur
-    await this.em.removeAndFlush(user);
-    await logger.debug(`Utilisateur supprimé : ${user.username}`);
+    await this.em.remove(user).flush();
+    await this.logger.debug(`Utilisateur supprimé : ${user.username}`);
   }
 
   /**
@@ -80,8 +91,8 @@ export default class PurgeManager {
         await this.em.flush();
 
         // Supprimer le rôle
-        await this.em.removeAndFlush(dbRole);
-        await logger.debug(`Rôle supprimé : ${dbRole.name}`);
+        await this.em.remove(dbRole).flush();
+        await this.logger.debug(`Rôle supprimé : ${dbRole.name}`);
       }
     }
   }
@@ -100,8 +111,67 @@ export default class PurgeManager {
 
         // Supprimer le canal
         await this.em.removeAndFlush(dbChannel);
-        await logger.debug(`Canal supprimé : ${dbChannel.name}`);
+        await this.logger.debug(`Canal supprimé : ${dbChannel.name}`);
       }
     }
+  }
+
+  
+  public async purgeContract(user: User): Promise<void> {
+    type ContractDiscordRow = {
+      id: number;
+      discord_message_id: string | null;
+      discord_thread_id: string | null;
+    };
+    
+    const em = this.em;
+
+    const rows = await em.getConnection().execute<ContractDiscordRow[]>(
+      `SELECT id, discord_message_id, discord_thread_id
+      FROM contract
+      WHERE discord_message_id <> '' AND discord_thread_id <> '' AND responsable_id = ?`,
+      [user.id],
+    );
+
+    const channelId = '1452771277080100874';
+    const channel = await this.bot.guild.channels.fetch(channelId) as TextChannel;
+
+
+    for (const row of rows) {
+      try {
+        if (row.discord_thread_id) {
+          const thread = await channel?.threads.fetch(row.discord_thread_id);
+          if (thread) {
+            await thread.setLocked(true, 'Purge des contrats pour l\'utilisateur supprimé');
+            await this.logger.debug(`Thread de contrat verrouillé : ${row.discord_thread_id}`);
+          }
+        }
+
+        if (row.discord_message_id) {
+          const message = await channel?.messages.fetch(row.discord_message_id);
+          
+          if (message) {
+            const embed = message.embeds[0];
+
+            if (embed) {
+              const eb = EmbedBuilder.from(embed);
+
+              eb.setDescription('⛔ **Contrat Inactif**');
+              eb.setColor(0xFF0000);
+
+              await message.edit({ embeds: [eb] });
+            } else {
+              await message.edit({ content: '⛔ Contrat Inactif' });
+            }
+
+            await this.logger.debug(`Message de contrat modifié : ${row.discord_message_id}`);
+          }
+        }
+      } catch (error) {
+        await this.logger.error(`Erreur lors de la suppression du contrat Discord (ID: ${row.id}): ${error}`);
+      }
+    }
+
+    await em.nativeDelete('contract', { responsable_id: user.id });
   }
 }

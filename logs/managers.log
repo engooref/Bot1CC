@@ -1,0 +1,76 @@
+WARN [2026-04-07 12:50:06]: [SlashCommandManager] Handler introuvable pour 'music' | op= reqId= manager=SlashCommandManager method= url= status= duration=ms {"service":"discord-bot","env":"prod","scope":"manager","manager":"SlashCommandManager"}
+ERROR [2026-04-08 21:11:12]: Erreur lors de la requête vers le site Symfony: | op= reqId= manager=OperationModule method= url= status= duration=ms {"service":"discord-bot","env":"prod","scope":"manager","manager":"OperationModule"}
+    err: {
+      "type": "TypeError",
+      "message": "Body is unusable",
+      "stack":
+          TypeError: Body is unusable
+              at specConsumeBody (node:internal/deps/undici/undici:5560:15)
+              at _Response.text (node:internal/deps/undici/undici:5459:18)
+              at OperationModule.createOperation (file:///home/work/Bot1CC/src/managers/OperationManager.ts:307:41)
+              at processTicksAndRejections (node:internal/process/task_queues:95:5)
+              at OperationView.onSelectOrButtonMenuInteraction (file:///home/work/Bot1CC/src/view/OperationView.ts:507:11)
+              at OperationView.handleInteraction (file:///home/work/Bot1CC/src/view/OperationView.ts:408:11)
+              at OperationModule.handlerForm (file:///home/work/Bot1CC/src/managers/OperationManager.ts:170:5)
+              at file:///home/work/Bot1CC/src/BotManager.ts:129:9
+              at BotManager._onInteraction (file:///home/work/Bot1CC/src/BotManager.ts:491:20)
+              at BotManager.SafeMethod.descriptor.value (file:///home/work/Bot1CC/src/exception/Safe.ts:11:14)
+    }
+WARN [2026-04-08 23:08:00]: [SlashCommandManager] Handler introuvable pour 'music' | op= reqId= manager=SlashCommandManager method= url= status= duration=ms {"service":"discord-bot","env":"prod","scope":"manager","manager":"SlashCommandManager"}
+ERROR [2026-04-10 20:41:43]: Erreur lors de la requête vers le site Symfony: | op= reqId= manager=OperationModule method= url= status= duration=ms {"service":"discord-bot","env":"prod","scope":"manager","manager":"OperationModule"}
+    err: {
+      "type": "TypeError",
+      "message": "Body is unusable",
+      "stack":
+          TypeError: Body is unusable
+              at specConsumeBody (node:internal/deps/undici/undici:5560:15)
+              at _Response.text (node:internal/deps/undici/undici:5459:18)
+              at OperationModule.createOperation (file:///home/work/Bot1CC/src/managers/OperationManager.ts:307:41)
+              at processTicksAndRejections (node:internal/process/task_queues:95:5)
+              at OperationView.onSelectOrButtonMenuInteraction (file:///home/work/Bot1CC/src/view/OperationView.ts:507:11)
+              at OperationView.handleInteraction (file:///home/work/Bot1CC/src/view/OperationView.ts:408:11)
+              at OperationModule.handlerForm (file:///home/work/Bot1CC/src/managers/OperationManager.ts:170:5)
+              at file:///home/work/Bot1CC/src/BotManager.ts:129:9
+              at BotManager._onInteraction (file:///home/work/Bot1CC/src/BotManager.ts:491:20)
+              at BotManager.SafeMethod.descriptor.value (file:///home/work/Bot1CC/src/exception/Safe.ts:11:14)
+    }
+INFO [2026-04-10 21:00:48]: Marquage du channel avec un emoji calendrier | op= reqId= manager=EventManager method= url= status= duration=ms {"service":"discord-bot","env":"prod","scope":"manager","manager":"EventManager","channelId":"799741514615226448","channelName":"✅mardi"}
+INFO [2026-04-10 21:00:50]: Marquage du channel avec un emoji calendrier | op= reqId= manager=EventManager method= url= status= duration=ms {"service":"discord-bot","env":"prod","scope":"manager","manager":"EventManager","channelId":"957582045444472852","channelName":"✅mercredi"}
+INFO [2026-04-11 16:59:17]: Marquage du channel avec un emoji calendrier | op= reqId= manager=EventManager method= url= status= duration=ms {"service":"discord-bot","env":"prod","scope":"manager","manager":"EventManager","channelId":"862023793018011668","channelName":"✅vendredi"}
+WARN [2026-04-11 17:55:36]: [SlashCommandManager] Handler introuvable pour 'music' | op= reqId= manager=SlashCommandManager method= url= status= duration=ms {"service":"discord-bot","env":"prod","scope":"manager","manager":"SlashCommandManager"}
+ERROR [2026-04-11 17:56:21]: Erreur lors de la requête vers le site Symfony: | op= reqId= manager=OperationModule method= url= status= duration=ms {"service":"discord-bot","env":"prod","scope":"manager","manager":"OperationModule"}
+    err: {
+      "type": "TypeError",
+      "message": "Body is unusable: Body has already been read",
+      "stack":
+          TypeError: Body is unusable: Body has already been read
+              at consumeBody (node:internal/deps/undici/undici:5656:15)
+              at _Response.text (node:internal/deps/undici/undici:5606:18)
+              at OperationModule.createOperationForAuthor (file:///home/work/Bot1CC/src/managers/OperationManager.ts:452:41)
+              at processTicksAndRejections (node:internal/process/task_queues:95:5)
+              at OperationModule.createOperation (file:///home/work/Bot1CC/src/managers/OperationManager.ts:547:20)
+              at OperationView.onSelectOrButtonMenuInteraction (file:///home/work/Bot1CC/src/view/OperationView.ts:522:11)
+              at OperationView.handleInteraction (file:///home/work/Bot1CC/src/view/OperationView.ts:423:11)
+              at OperationModule.handlerForm (file:///home/work/Bot1CC/src/managers/OperationManager.ts:532:5)
+              at file:///home/work/Bot1CC/src/BotManager.ts:129:9
+              at BotManager._onInteraction (file:///home/work/Bot1CC/src/BotManager.ts:491:20)
+    }
+WARN [2026-04-11 18:39:06]: [SlashCommandManager] Handler introuvable pour 'music' | op= reqId= manager=SlashCommandManager method= url= status= duration=ms {"service":"discord-bot","env":"prod","scope":"manager","manager":"SlashCommandManager"}
+WARN [2026-04-11 18:42:04]: [SlashCommandManager] Handler introuvable pour 'music' | op= reqId= manager=SlashCommandManager method= url= status= duration=ms {"service":"discord-bot","env":"prod","scope":"manager","manager":"SlashCommandManager"}
+WARN [2026-04-11 18:44:20]: [SlashCommandManager] Handler introuvable pour 'music' | op= reqId= manager=SlashCommandManager method= url= status= duration=ms {"service":"discord-bot","env":"prod","scope":"manager","manager":"SlashCommandManager"}
+ERROR [2026-04-11 18:44:33]: Erreur lors de la requête vers le site Symfony: | op= reqId= manager=OperationModule method= url= status= duration=ms {"service":"discord-bot","env":"prod","scope":"manager","manager":"OperationModule"}
+    err: {
+      "type": "TypeError",
+      "message": "Body is unusable: Body has already been read",
+      "stack":
+          TypeError: Body is unusable: Body has already been read
+              at consumeBody (node:internal/deps/undici/undici:5656:15)
+              at _Response.text (node:internal/deps/undici/undici:5606:18)
+              at OperationModule.createOperationForAuthor (file:///home/work/Bot1CC/src/managers/OperationManager.ts:452:41)
+              at processTicksAndRejections (node:internal/process/task_queues:95:5)
+              at file:///home/work/Bot1CC/src/web/routes/OperationRouter.ts:63:25
+    }
+WARN [2026-04-11 18:55:00]: [SlashCommandManager] Handler introuvable pour 'music' | op= reqId= manager=SlashCommandManager method= url= status= duration=ms {"service":"discord-bot","env":"prod","scope":"manager","manager":"SlashCommandManager"}
+WARN [2026-04-11 19:51:02]: [SlashCommandManager] Handler introuvable pour 'music' | op= reqId= manager=SlashCommandManager method= url= status= duration=ms {"service":"discord-bot","env":"prod","scope":"manager","manager":"SlashCommandManager"}
+WARN [2026-04-11 19:52:23]: [SlashCommandManager] Handler introuvable pour 'music' | op= reqId= manager=SlashCommandManager method= url= status= duration=ms {"service":"discord-bot","env":"prod","scope":"manager","manager":"SlashCommandManager"}
+WARN [2026-04-11 19:56:20]: [SlashCommandManager] Handler introuvable pour 'music' | op= reqId= manager=SlashCommandManager method= url= status= duration=ms {"service":"discord-bot","env":"prod","scope":"manager","manager":"SlashCommandManager"}

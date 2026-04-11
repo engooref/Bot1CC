@@ -1,0 +1,15 @@
+[
+  {
+    "name": "github",
+    "description": "Commandes de gestion GitHub",
+    "options": [
+      {
+        "name": "issue",
+        "description": "Créer un issue sur un repository GitHub",
+        "type": "SUB_COMMAND",
+        "options": []
+      }
+    ],
+    "handler": "githubHandler"
+  }
+]

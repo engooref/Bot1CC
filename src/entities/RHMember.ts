@@ -17,6 +17,9 @@ import { RHAbsence } from './RHAbsence.js';
 import { RHWarning } from './RHWarning.js';
 import { Certifications } from './Certifications.js';
 import { Rank } from './Rank.js';
+import { ObjectifsAward } from './ObjectifAward.js';
+import { Pole } from './Pole.js';
+import { CertifRequest } from './CertifRequest.js';
 
 @Entity({ tableName: 'rhmember' })
 export class RHMember {
@@ -57,5 +60,17 @@ export class RHMember {
   @ManyToOne(() => Rank, { inversedBy: 'memberApproval', nullable: true })
   pendingApproval?: Rel<Rank> | null = null;
 
+  @Property({ nullable: false })
+  promotionSend: boolean = false;
+
+  @OneToMany(() => ObjectifsAward, (objectifsAward: ObjectifsAward) => objectifsAward.member)
+  @OneToMany(() => ObjectifsAward, (objectifsAward: ObjectifsAward) => objectifsAward.member, { orphanRemoval: true })
+  objectifsAwards = new Collection<ObjectifsAward>(this);
+
+  @ManyToMany(() => Pole, pole => pole.rHMembers, { owner: true, pivotTable: 'rhmember_pole' })
+  poles = new Collection<Pole>(this);
+
+  @OneToMany(() => CertifRequest, (req) => req.member)
+  certifRequests? = new Array<CertifRequest>();
 
 }

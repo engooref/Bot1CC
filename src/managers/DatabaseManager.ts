@@ -9,17 +9,17 @@ import {
   GuildChannel,
 }   from 'discord.js';
 
-import { MikroORM, EntityManager, ChangeSetType, RequestContext } from '@mikro-orm/core';
-import logger            from '../logger.js';
+import { MikroORM, EntityManager,  } from '@mikro-orm/core';
+import { getManagerLogger }            from '../logger.js';
 import { User }          from '../entities/User.js';
 import { Role }          from '../entities/Role.js';
 import { Channel  } from '../entities/Channel.js';
 import config from '../mikro-orm.config.js';
 import BotManager from '../BotManager.js';
 import { SafeMethod } from '../exception/Safe.js';
-import { runInThisContext } from 'vm';
 import PurgeManager from './PurgeManager.js';
 import { RHMember } from '../entities/RHMember.js';
+import { Rank } from '../entities/Rank.js';
 
 export default class DatabaseManager {
   /**
@@ -33,11 +33,13 @@ export default class DatabaseManager {
   public orm!: MikroORM;
   private excludeCategories: string[];
   private bot : BotManager;
+  private logger = getManagerLogger('DatabaseManager');
 
   /**
    * Handler slash pour la commande /db (privé, owner only, DM only)
    */
   public async handleDatabaseCommand(interaction: any) {
+    this.logger.info(`Commande /db reçue de ${interaction.user.tag} (${interaction.user.id})`);
     const ownerId = process.env.ENGOO_ID;
     if (interaction.user.id !== ownerId) {
       await interaction.reply({ content: '⛔ Commande réservée au propriétaire.', ephemeral: true });
@@ -61,7 +63,7 @@ export default class DatabaseManager {
         await interaction.followUp({ content: '✅ Purge des utilisateurs, rôles et canaux invalides effectuée.', ephemeral: true });
       } catch (err) {
 
-        await logger.error({ msg: 'Erreur lors de la purge :', err });
+        await this.logger.error({ msg: 'Erreur lors de la purge des utilisateurs, rôles et canaux invalides :', err });
         await interaction.followUp({ content: '❌ Une erreur est survenue lors de la purge.', ephemeral: true });
       }
 
@@ -73,6 +75,7 @@ export default class DatabaseManager {
         const reservistRoleId = process.env.RES_ID!;
 
         for (const [id, member] of discordMembers) {
+          
           if (id === this.bot.user!.id) {
             continue;
           }
@@ -102,7 +105,7 @@ export default class DatabaseManager {
             user.avatar = member.user.avatar ?? '';
           }
           user.rolesDiscord.set(roles);
-          await em.persistAndFlush(user);
+          await em.persist(user).flush();
 
           // Vérifier ou créer le profil RH
           let rhMember = await em.findOne<RHMember>('RHMember', { user: user.id });
@@ -111,17 +114,18 @@ export default class DatabaseManager {
               user,
               status: 'Actif',
               dateEntree: new Date(),
-              pendingApproval: null
+              pendingApproval: null,
+              promotionSend: false,
             });
           } else if (rhMember.status === 'Candidatures') {
             rhMember.status = 'Actif';
           }
-          await em.persistAndFlush(rhMember);
+          await em.persist(rhMember).flush();
         }
 
         await interaction.followUp({ content: '✅ Synchronisation des utilisateurs terminée.', ephemeral: true });
       } catch (err) {
-        await logger.error({ msg: 'Erreur lors de la synchronisation des utilisateurs :', err });
+        await this.logger.error({ msg: 'Erreur lors de la synchronisation des utilisateurs :', err });
         await interaction.followUp({ content: '❌ Une erreur est survenue lors de la synchronisation des utilisateurs.', ephemeral: true });
       }
     } else if (sub === "sync_events") {
@@ -129,8 +133,24 @@ export default class DatabaseManager {
         await this.bot.schedMgr.appEvent.sendEventsWeek();
         await interaction.followUp({ content: '✅ Synchronisation des événements terminée.', ephemeral: true });
       } catch (err) {
-  await logger.error({ msg: 'Erreur lors de la synchronisation des événements :', err });
+        await this.logger.error({ msg: 'Erreur lors de la synchronisation des événements :', err });
         await interaction.followUp({ content: '❌ Une erreur est survenue lors de la synchronisation des événements.', ephemeral: true });
+      }
+    } else if (sub === "sync_ranks") {
+      try {
+        await this.syncRolesRank();
+        await interaction.followUp({ content: '✅ Synchronisation des grades terminée.', ephemeral: true });
+      } catch (err) {
+        await this.logger.error({ msg: 'Erreur lors de la synchronisation des grades :', err });
+        await interaction.followUp({ content: '❌ Une erreur est survenue lors de la synchronisation des grades.', ephemeral: true });
+      }
+    } else if (sub === "sync_ranksRoles") {
+      try {
+        await this.syncRolesRank();
+        await interaction.followUp({ content: '✅ Synchronisation des grades et rôles terminée.', ephemeral: true });
+      } catch (err) {
+        await this.logger.error({ msg: 'Erreur lors de la synchronisation des grades et rôles :', err });
+        await interaction.followUp({ content: '❌ Une erreur est survenue lors de la synchronisation des grades et rôles.', ephemeral: true });
       }
     }
   }
@@ -151,7 +171,7 @@ export default class DatabaseManager {
   @SafeMethod
   public async connect(): Promise<void> {
     this.orm = await MikroORM.init(config);
-    await logger.debug('✅ MikroORM connecté');
+    await this.logger.debug('✅ MikroORM connecté');
     
   }
 
@@ -202,7 +222,7 @@ export default class DatabaseManager {
         }
       }
       
-      await em.persistAndFlush(user);
+      await em.persist(user).flush();
       id = user.id;
       // 3) Reload pour retourner un Loaded<User,'rolesDiscord'>
       return em.findOneOrFail(User,
@@ -233,11 +253,11 @@ export default class DatabaseManager {
         name:      r.name,
         discordId: r.id
       }));
-      await logger.debug(`Ajout du rôle: ${r.name}`);
+      await this.logger.debug(`Ajout du rôle: ${r.name}`);
     }
 
     if (toCreate.length) {
-      await em.persistAndFlush(toCreate);
+      await em.persist(toCreate).flush();
       existing = await em.find(Role, { discordId: { $in: ids } });
     }
 
@@ -285,25 +305,129 @@ export default class DatabaseManager {
           name:      ch.name,
           discordId: ch.id,
         }));
-        await logger.debug(`Ajout du channel: ${ch.name}`);
+        await this.logger.debug(`Ajout du channel: ${ch.name}`);
       }
 
       // 4) persist + flush uniquement sur le fork
       if (toCreate.length) {
-        await em.persistAndFlush(toCreate);
+        await em.persist(toCreate).flush();
         existing = await em.find(Channel, { discordId: { $in: ids } });
       }
 
       return existing;
     } catch (err) {
-  await logger.error({ msg: '[syncChannels] Erreur lors de la synchronisation des channels:', err });
+  await this.logger.error({ msg: '[syncChannels] Erreur lors de la synchronisation des channels:', err });
       if (err instanceof Error && err.stack) {
-  await logger.error({ msg: '[syncChannels] Stack:', stack: err.stack });
+  await this.logger.error({ msg: '[syncChannels] Stack:', stack: err.stack });
       }
       throw err;
     }
   }
   
+  @SafeMethod
+  public async syncRanks(): Promise<void> {
+  
+    const memberDiscord = await this.bot.guild.members.fetch();
+    const em = this.getEm();
+    const roleMemberId = this.bot.roleMember!.id;
+    const ranksDb = await em.find(Rank, {}, { populate: ['roleDiscord'] });
+
+
+    for (const [id, member] of memberDiscord) {
+      if (id === this.bot.user!.id) {
+        continue;
+      }
+
+      if (!member || !member.roles.cache.has(roleMemberId)) {
+        continue;
+      }
+
+      for (const rank of ranksDb) {
+        if (member.roles.cache.has(rank.roleDiscord?.discordId ?? '')) {
+          let memberRh = await em.findOne(RHMember, { user: { discordId: id } }, { populate: ['grade'] });
+          if (!memberRh) continue;
+          if (memberRh.grade?.id !== rank.id) {
+            memberRh.grade = rank;
+            memberRh.promotionSend = false;
+            await em.persist(memberRh).flush();
+            await this.logger.info(`Mise à jour du grade de ${member.displayName} -> ${rank.name}`);
+          }
+        }
+      }
+    }
+
+  }
+
+  @SafeMethod
+  public async syncRolesRank(): Promise<void> {
+    const memberDiscord = await this.bot.guild.members.fetch();
+    const em = this.getEm();
+    const ranksDb = await em.find(Rank, {}, { populate: ['roleDiscord'] });
+
+
+    for (const [id, member] of memberDiscord) {
+      try {
+          // Récupère l'utilisateur Discord
+          
+          if (!member.roles.cache.has(this.bot.roleMember!.id)) continue;
+          
+          await this.logger.debug(`Vérification des rôles pour le membre ${member.displayName} (${id})`);
+          const rank = await em.findOneOrFail(Rank, { rHMembers: { user: { discordId: id } } });
+          let changRole = !member.roles.cache.has(rank.roleDiscord?.discordId ?? '');
+
+          if (!changRole) continue;
+
+
+          await this.logger.debug(`Mise à jour des rôles pour le membre ${member.displayName} (${id})`);
+          for (const rankRole of ranksDb) {
+            
+            if (member.roles.cache.has(rankRole.roleDiscord?.discordId ?? '') && rankRole.id !== rank.id) {
+                  await member.roles.remove(rankRole.roleDiscord?.discordId ?? '', 'Changement de grade RH');
+                  changRole = true;
+              }
+          }
+
+          if (rank.roleDiscord?.discordId) {
+              await member.roles.add(rank.roleDiscord.discordId, 'Promotion RH');
+          } else {
+              throw new Error(`Le grade ${rank.name} n'a pas de rôle Discord associé`);
+          }
+          
+          const embed = {
+              title: "✅ Promotion acceptée",
+              description: `Félicitations pour ta promotion au grade de **${rank.name}** !`,
+              color: 0x00FF00, // vert
+              thumbnail: {
+                  url: member.user.displayAvatarURL({ size: 256 }), // ou ton URL custom
+              },
+              fields: [
+                  {
+                  name: "Membre",
+                  value: member.displayName,
+                  inline: false,
+                  },
+                  {
+                  name: "Nouveau Grade",
+                  value: rank.name,
+                  inline: true,
+                  },
+              ],
+              timestamp: new Date().toISOString(),
+          };  
+
+          const dmChannel = await member.createDM();
+          await dmChannel.send({ embeds: [embed] });
+          const memberRh = await em.findOneOrFail(RHMember, { user: { discordId:id } });
+          memberRh.lastPromotion = new Date();
+          memberRh.promotionSend = false;
+          await em.persist(memberRh).flush();
+      } catch (err: Error|any) {
+          await this.logger.error(`Erreur pour le membre ${member.displayName} (${id}) - ${err.message}`);
+      }
+    }
+    
+ }
+
   public getEm(): EntityManager {
     return this.orm.em.fork();
   }

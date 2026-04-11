@@ -158,8 +158,8 @@ export class Event {
   @ManyToMany(() => User, (user) => user.events, { owner: true, pivotTable: 'event_user' })
   users = new Collection<User>(this);
 
-  @ManyToOne(() => User, { nullable: false })
-  userOrig!: Rel<User>;
+  @ManyToOne(() => User, { nullable: true, deleteRule: 'set null' })
+  userOrig?: Rel<User>;
 
   @ManyToMany(() => Certifications, undefined, { owner: true })
   certifications = new Collection<Certifications>(this);

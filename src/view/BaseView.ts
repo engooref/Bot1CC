@@ -24,17 +24,20 @@ import {
     Collection,
     CategoryChannel,
     ModalSubmitInteraction,
+    ThreadChannel,
 
 } from 'discord.js';
 import { InteractionContext, ComponentType } from '../entities/ViewContext.js';
 import fs, { cp } from 'fs';
 import BotManager from '../BotManager.js';
 import { SafeMethod } from '../exception/Safe.js';
-import logger from '../logger.js';
+import { getManagerLogger } from '../logger.js';
 import { JSONComponent, JSONTypeComponent, ModalField } from '../utils/Type.js';
 import path from 'path';
 import { JSONConfigManager } from '../utils/JSONConfigManager.js';
 import { channel } from 'diagnostics_channel';
+
+const logger = getManagerLogger('BaseComponentView');
 
 export enum ViewHandlers {
     InviteViewHandler = 'InviteHandler',
@@ -42,7 +45,10 @@ export enum ViewHandlers {
     OperationHandler = 'OperationHandler',
     TicketsHandler = 'TicketsHandler',
     EngaHandler = 'EngaHandler',
-    ScreenHandler = 'ScreenHandler'
+    ScreenHandler = 'ScreenHandler',
+    PromotionsHandler = 'PromotionsHandler',
+    DuelHandler = 'DuelHandler',
+    GithubHandler = 'GithubHandler',
 }
 
 export type ComponentInteraction = ButtonInteraction | StringSelectMenuInteraction | ChatInputCommandInteraction | ModalSubmitInteraction;
@@ -63,6 +69,7 @@ export abstract class BaseComponentView {
     protected handlerKey: string;
     protected bot: BotManager;
     protected componentType: ComponentType;
+    
 
 
     constructor(
@@ -87,7 +94,7 @@ export abstract class BaseComponentView {
     }
 
     public async send(
-        channel: TextChannel,
+        channel: TextChannel | ThreadChannel,
         options: Omit<MessageCreateOptions, 'components'>,
     ): Promise<Message> {
         const msg = await channel.send({ ...options, components: this.rows as unknown as any[] });
@@ -123,7 +130,7 @@ export abstract class BaseComponentView {
     }
 
     public async sendOrEdit(
-        channel: TextChannel,
+        channel: TextChannel | ThreadChannel,
         existingMessage: Message | null | undefined,
         options: Omit<MessageCreateOptions, 'components'> & Omit<MessageEditOptions, 'components'>,
     ): Promise<Message> {

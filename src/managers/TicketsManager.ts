@@ -2,18 +2,19 @@ import { EntityManager } from "@mikro-orm/core";
 import { Client, Guild, TextChannel,  CategoryChannel, ChannelType, PermissionFlagsBits, ButtonInteraction, StringSelectMenuInteraction, ActionRowBuilder, ModalBuilder, TextInputBuilder, TextInputStyle, ModalSubmitInteraction, MessageFlags, OverwriteResolvable, PermissionsBitField } from "discord.js";
 import BotManager from "../BotManager.js";
 import TicketTypeSelectView, { CloseTicketView, Handlers, OpenTicketView } from "../view/TicketsView.js";
-import logger from "../logger.js";
+import { getManagerLogger } from "../logger.js";
 import { TicketType } from "../entities/TicketType.js";
 import { TicketBots } from "../entities/TicketBots.js";
 import { ComponentType, InteractionContext } from "../entities/ViewContext.js";
 import { ViewHandlers } from "../view/BaseView.js";
 
-const CATEGORY_NAME = "assistance";
+const CATEGORY_NAME = "Assistance";
 
 export class TicketManager {
     private em: EntityManager;
     private bot: BotManager;
     private types!: TicketType[];
+    private logger = getManagerLogger('TicketManager');
 
     private fcategory: CategoryChannel | undefined;
 
@@ -26,7 +27,7 @@ export class TicketManager {
     }
 
     public async init() {
-        await logger.debug('Initialisation des tickets')
+        await this.logger.debug('Initialisation des tickets')
         this.types = await this.em.findAll(TicketType);
 
         const channel = await this.ensureCreationChannel();
@@ -193,7 +194,7 @@ export class TicketManager {
             userId: interaction.user.id
         })
 
-        await this.em.persistAndFlush(ticket);
+        await this.em.persist(ticket).flush();
         
         const view = new CloseTicketView(this.bot, ticket.id);
 
@@ -210,7 +211,7 @@ export class TicketManager {
         );
  
         await interaction.update({ content: `Votre ticket a été créé dans <#${channel.id}>`, components: [] });
-        await logger.debug(`Ticket n°${ticket.id} Créer`)
+        await this.logger.debug(`Ticket n°${ticket.id} Créer`)
 
         await this.em.nativeDelete(InteractionContext, {messageId: interaction.message.id});
 
@@ -241,7 +242,7 @@ export class TicketManager {
 
         if (existing) {
         existing.data = data;
-        await this.em.persistAndFlush(existing);     
+        await this.em.persist(existing).flush();     
         } else {
         const ctx = this.em.create(InteractionContext, {
             messageId:   interaction.message.id,       
@@ -251,7 +252,7 @@ export class TicketManager {
             componentType: ComponentType.Modal,
             data:        data,
         });
-        await this.em.persistAndFlush(ctx);
+        await this.em.persist(ctx).flush();
         }
         await interaction.showModal(modal)
     }
@@ -264,7 +265,7 @@ export class TicketManager {
         ticket.closed = new Date();
         ticket.closedUserId = interaction.user.id;
         ticket.closedMessage = interaction.fields.getTextInputValue('select_clotureModal') !== '' ? interaction.fields.getTextInputValue('select_clotureModal') : 'Aucune raison indiquée';
-        await this.em.persistAndFlush(ticket);
+        await this.em.persist(ticket).flush();
 
         const userOpen = await this.bot.guild.members.fetch(ticket.userId);
         const embed = {
@@ -293,7 +294,7 @@ export class TicketManager {
         } catch {}
         
 
-        await logger.debug(`Ticket n°${ticket.id} Cloturé -> ${ticket.closedMessage}`)
+        await this.logger.debug(`Ticket n°${ticket.id} Cloturé -> ${ticket.closedMessage}`)
 
         this.em.nativeDelete(InteractionContext, {messageId: interaction.message?.id})
     }

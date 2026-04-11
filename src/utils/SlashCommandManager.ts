@@ -2,7 +2,7 @@ import { REST, Routes, SlashCommandBuilder, Collection, Interaction, SlashComman
 import fs from "fs";
 import path from "path";
 import BotManager from "../BotManager.js";
-import logger from "../logger.js";
+import { getManagerLogger } from "../logger.js";
 
 
 interface SimpleOption {
@@ -39,6 +39,7 @@ export default class SlashCommandManager {
   private commands: Map<string, CommandEntry> = new Map();
   private commandsJSON: RESTPostAPIApplicationCommandsJSONBody[] = [];
   private commandsDefinition: CommandDefinition[] = [];
+  private logger = getManagerLogger('SlashCommandManager');
   
   constructor(private bot: BotManager, private handlersMap: Record<string, CommandHandler>) 
   {}
@@ -47,7 +48,7 @@ export default class SlashCommandManager {
     for (const cmdDef of this.commandsDefinition) {
       // 1) Validation de base
       if (!cmdDef.name || !cmdDef.description || !cmdDef.handler) {
-  logger.warn({ msg: `[SlashCommandManager] Commande mal définie :`, cmdDef });
+        this.logger.warn({ msg: `[SlashCommandManager] Commande mal définie :`, cmdDef });
         continue;
       }
 
@@ -127,7 +128,7 @@ export default class SlashCommandManager {
       // 4) Récupérer la fonction de handler dans handlersMap
       const handlerFn = this.handlersMap[cmdDef.handler];
       if (typeof handlerFn !== "function") {
-  logger.warn({ msg: `[SlashCommandManager] Handler introuvable pour '${cmdDef.name}'` });
+        this.logger.warn({ msg: `[SlashCommandManager] Handler introuvable pour '${cmdDef.name}'` });
         continue;
       }
 
@@ -147,9 +148,9 @@ export default class SlashCommandManager {
         Routes.applicationCommands(this.bot.user!.id),
         { body: this.commandsJSON }
       );
-  await logger.debug({ msg: "SlashCommandManager → Commandes enregistrées en global." });
+      await this.logger.debug({ msg: "SlashCommandManager → Commandes enregistrées en global." });
     } catch (err) {
-  await logger.error({ msg: "SlashCommandManager → Erreur enregistrement global :", err });
+      await this.logger.error({ msg: "SlashCommandManager → Erreur enregistrement global :", err });
     }
   }
 
@@ -164,7 +165,7 @@ export default class SlashCommandManager {
     const name = interaction.commandName; // ex. "ping" ou "user"
     const entry = this.commands.get(name);
     if (!entry) {
-  await logger.error({ msg: `[SlashCommandManager] Commande non trouvée : ${name}` });
+      await this.logger.error({ msg: `[SlashCommandManager] Commande non trouvée : ${name}` });
       return;
     }
 
@@ -172,7 +173,7 @@ export default class SlashCommandManager {
       // L’exécution du handler (pingHandler ou userHandler)
       await entry.execute(interaction as ChatInputCommandInteraction);
     } catch (err: Error | any) {
-  await logger.error({ msg: `[SlashCommandManager] Erreur exécution '${name}' :`, err });
+      await this.logger.error({ msg: `[SlashCommandManager] Erreur exécution '${name}' :`, err });
       if (interaction.replied || interaction.deferred) {
         await interaction.followUp({ content: "⚠️ Une erreur est survenue.", ephemeral: true });
       } else {
@@ -195,10 +196,10 @@ export default class SlashCommandManager {
         if (Array.isArray(jsonContent)) {
           this.commandsDefinition.push(...jsonContent);
         } else {
-          await logger.warn({ msg: `[loadJSONCommands] Le fichier ${file} n’exporte pas un tableau.` });
+          await this.logger.warn({ msg: `[loadJSONCommands] Le fichier ${file} n’exporte pas un tableau.` });
         }
       } catch (err) {
-  await logger.error({ msg: `[loadJSONCommands] Erreur parsing ${file} :`, err });
+        await this.logger.error({ msg: `[loadJSONCommands] Erreur parsing ${file} :`, err });
         throw err;
       }
     }

@@ -8,6 +8,12 @@
             "description": "Répartit les membres du vocal actuel dans des channels d'équipe pour l'event",
             "type": "SUB_COMMAND",
             "options": []
+        },
+        {
+            "name": "scheduler",
+            "description": "Lance les Events planifiés de la semaine",
+            "type": "SUB_COMMAND",
+            "options": []
         }
     ],
     "handler": "eventHandler"

@@ -1,4 +1,4 @@
-import logger from "../logger.js";
+import { botLogger } from "../logger.js";
 
 export function SafeMethod(
   _target: any,
@@ -10,7 +10,7 @@ export function SafeMethod(
     try {
       return await original.apply(this, args);
     } catch (err: Error | any) {
-      await logger.error(new Error(`Erreur dans ${propertyKey}:\n ${err.message || err}`));
+      await botLogger.error({ op: "SafeMethod", method: propertyKey, err });
 
     }
   };

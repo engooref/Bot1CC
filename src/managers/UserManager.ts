@@ -2,14 +2,16 @@
 import { User as UserEntity } from '../entities/User.js';
 import { RHMember as RHMemberEntity } from '../entities/RHMember.js';
 import BotManager from '../BotManager.js';
-import logger from '../logger.js';
+import { getManagerLogger } from '../logger.js';
 import { Response } from '../entities/Response.js';
 import { EntityManager } from '@mikro-orm/core';
 import { SafeMethod } from '../exception/Safe.js';
+import { InteractionContext } from '../entities/ViewContext.js';
 
 
 export default class UserManager {
   public fem!: EntityManager ;
+  private logger = getManagerLogger('UserManager');
   
   constructor(private bot: BotManager) {}
 
@@ -24,10 +26,10 @@ export default class UserManager {
   @SafeMethod
   public async deleteUser(user: UserEntity): Promise<void> {
     try {
-      await logger.info(`Suppression des informations de l'utilisateur : ${user.username}`);
+      await this.logger.info(`Suppression des informations de l'utilisateur : ${user.username}`);
       // reset des données dans l'entité
       user.reset();
-      await this.em.persistAndFlush(user);
+      await this.em.persist(user).flush();
 
       // suppression du profil RH
       if (user.rhProfile) {
@@ -44,9 +46,9 @@ export default class UserManager {
         await this.em.removeAndFlush(user);
       }
 
-      await logger.debug('Suppression effectuée');
+      await this.logger.debug('Suppression effectuée');
     } catch (e) {
-      await logger.error(`Erreur lors de la suppression des infos de l'utilisateur ${user.username} → ${e}`);
+      await this.logger.error(`Erreur lors de la suppression de l'utilisateur ${user.username} : ${e}`);
       throw e;
     }
   }
@@ -76,6 +78,7 @@ export default class UserManager {
           grade: null,
           lastPromotion: new Date(0),
           pendingApproval: null,
+          promotionSend: false,
       });
     }
 
@@ -83,7 +86,7 @@ export default class UserManager {
       memberRh.dateEntree = new Date();
     }
 
-    await this.em.persistAndFlush(memberRh);
+    await this.em.persist(memberRh).flush();
     return memberRh;
   }
 
@@ -122,8 +125,16 @@ export default class UserManager {
 
       return { success: true };
     } catch (e: any) {
-      await logger.error(`Erreur lors de l'acceptation de la candidature: id Candidat -> ${idCand} Erreur -> {e}`);
+      await this.logger.error(`Erreur lors de l'acceptation de la candidature: id Candidat -> ${idCand} Erreur -> ${e}`);
       return { success: false, error: e };
     }
+  }
+
+  @SafeMethod
+  public async removePromotion(interaction: any): Promise<void> {
+    if (!interaction.isButton()) return;
+
+    await this.em.nativeDelete(InteractionContext, { messageId: interaction.message.id });
+    await interaction.message.delete();
   }
 }

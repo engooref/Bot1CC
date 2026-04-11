@@ -125,7 +125,7 @@ export class EventView {
       content: `✅ Choix enregistrés pour l'événement "${response.event.name}"`,
       components: [],
     });
-    await em.persistAndFlush(response);
+    await em.persist(response).flush();
 
     
   }

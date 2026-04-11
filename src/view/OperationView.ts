@@ -25,8 +25,9 @@ import { BaseComponentView, ViewHandlers } from './BaseView.js';
 import BotManager from '../BotManager.js';
 import { ComponentType, InteractionContext } from '../entities/ViewContext.js';
 import { EntityManager } from '@mikro-orm/core';
-import { SCLocations } from '../entities/SCLocations.js';
-import logger from '../logger.js';
+import { StarSystem } from '../entities/StarSystem.js';
+import { CelestialBody, CelestialBodyType } from '../entities/CelestialBody.js';
+import { getManagerLogger } from '../logger.js';
 import { JSONComponent, JSONTypeComponent } from '../utils/Type.js';
 import { SafeMethod } from '../exception/Safe.js';
 
@@ -40,12 +41,15 @@ export interface OperationState {
   equip?: string;
   reward?: string;
   url?: string;
+  miningSessionUrl?: string;
   typeSpe? : string;
+  autoCreated?: boolean;
 }
 
 export class OperationView extends BaseComponentView {
   public state: OperationState;
   private em: EntityManager;
+  private logger = getManagerLogger('OperationView');
 
   constructor(bot: BotManager) {
     const customIds = [
@@ -154,7 +158,7 @@ export class OperationView extends BaseComponentView {
     // --- Les selects étoile/planète/lune vont dans detailRows, on les build ici ---
     if (this.state.type !== String(roleEmojis['🎮'])) {
       // Galaxie : étoile
-      const stars = await this.em.find(SCLocations,{parent:null},{populate:['*']});
+      const stars = await this.em.find(StarSystem, {}, { orderBy: { name: 'asc' } });
       const [starId,planetId,moonId] = this.state.location.split('.');
 
       allRows.push(
@@ -175,7 +179,11 @@ export class OperationView extends BaseComponentView {
       // planète si étoile
       if (starId!=='0') {
         const starBdd=stars.find(s=>s.id.toString()===starId)!;
-        const planets=await this.em.find(SCLocations,{parent:starBdd},{populate:['*']});
+        const planets = await this.em.find(CelestialBody, {
+          system: starBdd,
+          parent: null,
+          type: CelestialBodyType.PLANET,
+        }, { orderBy: { name: 'asc' } });
         allRows.push(
           new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
             new StringSelectMenuBuilder()
@@ -196,9 +204,17 @@ export class OperationView extends BaseComponentView {
       // lune si planète
       if (starId!=='0' && planetId!=='0') {
         const starBdd=stars.find(s=>s.id.toString()===starId)!;
-        const planets=await this.em.find(SCLocations,{parent:starBdd},{populate:['*']});
+        const planets = await this.em.find(CelestialBody, {
+          system: starBdd,
+          parent: null,
+          type: CelestialBodyType.PLANET,
+        }, { orderBy: { name: 'asc' } });
         const planetBdd=planets.find(p=>p.id.toString()===planetId)!;
-        const moons=await this.em.find(SCLocations,{parent:planetBdd},{populate:['*']});
+        const moons = await this.em.find(CelestialBody, {
+          system: starBdd,
+          parent: planetBdd,
+          type: CelestialBodyType.MOON,
+        }, { orderBy: { name: 'asc' } });
         allRows.push(
           new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
             new StringSelectMenuBuilder()
@@ -361,7 +377,7 @@ export class OperationView extends BaseComponentView {
           }));
         }
       } catch (err) {
-  logger.warn({ msg: "Impossible de nettoyer anciens messages :", err });
+        this.logger.warn({ msg: "Impossible de nettoyer anciens messages :", err });
       }
 
       await this.renderHeader(channel, null);
@@ -519,7 +535,7 @@ export class OperationView extends BaseComponentView {
             // on trie par date ascendante
             msgs = Array.from(fetched.values()).sort((a, b) => a.createdTimestamp - b.createdTimestamp);
           } catch (err) {
-            logger.warn({ msg: "Impossible de fetcher les messages pour suppression :", err });
+            this.logger.warn({ msg: "Impossible de fetcher les messages pour suppression :", err });
             return;
           }
 
@@ -538,12 +554,12 @@ export class OperationView extends BaseComponentView {
             try {
               await msg.delete();
             } catch (delErr) {
-              logger.warn({ msg: `Impossible de supprimer le message ${msg.id}`, err: delErr });
+              this.logger.warn({ msg: `Impossible de supprimer le message ${msg.id}`, err: delErr });
             }
             try {
               await this.em.nativeDelete(InteractionContext, { messageId: msg.id });
             } catch (dbErr) {
-              logger.warn({ msg: `Impossible de supprimer les contexts pour ${msg.id}`, err: dbErr });
+              this.logger.warn({ msg: `Impossible de supprimer les contexts pour ${msg.id}`, err: dbErr });
             }
           }));
 
@@ -554,7 +570,7 @@ export class OperationView extends BaseComponentView {
           break;  
         default:
           // customId inconnu
-          await logger.warn(`Unhandled customId in OperationView: ${cid}`);
+          await this.logger.warn(`Unhandled customId in OperationView: ${cid}`);
           break;
       }
     }
@@ -572,24 +588,23 @@ export class OperationView extends BaseComponentView {
       } else {
         const query = interaction.fields.getTextInputValue('research').trim();
         // 2️⃣ Cherche l’entité en base
-        const found = await this.em.findOne(SCLocations, { name: query }, { populate: ['parent'] });
-        if (found) {
-          // 3️⃣ Détermine le type et met à jour state.location
-          // Si pas de parent → c’est une étoile
-          if (!found.parent) {
-            this.state.location = `${found.id}.0.0`;
+        const foundStar = await this.em.findOne(StarSystem, { name: query });
+        if (foundStar) {
+          this.state.location = `${foundStar.id}.0.0`;
+        } else {
+          const foundBody = await this.em.findOne(
+            CelestialBody,
+            { name: query },
+            { populate: ['system', 'parent'] }
+          );
 
-          // Si parent existe, et que son parent est null → planète
-          } else if (!found.parent.parent) {
-            const starId = found.parent.id;
-            const planetId = found.id;
-            this.state.location = `${starId}.${planetId}.0`;
-
-          // Sinon → c’est une lune
-          } else {
-            const planet = found.parent;
-            const star   = planet.parent!;
-            this.state.location = `${star.id}.${planet.id}.${found.id}`;
+          if (foundBody) {
+            const starId = foundBody.system.id;
+            if (!foundBody.parent || foundBody.type !== CelestialBodyType.MOON) {
+              this.state.location = `${starId}.${foundBody.id}.0`;
+            } else {
+              this.state.location = `${starId}.${foundBody.parent.id}.${foundBody.id}`;
+            }
           }
         }
       }
@@ -630,7 +645,7 @@ export class OperationView extends BaseComponentView {
 
       if (existing) {
         existing.data = this.getData(this.customIds[11]);
-        await this.em.persistAndFlush(existing);     
+        await this.em.persist(existing).flush();     
       } else {
         const ctx = this.em.create(InteractionContext, {
           messageId:   interaction.message.id,       
@@ -640,7 +655,7 @@ export class OperationView extends BaseComponentView {
           componentType: this.componentType,
           data:        this.getData(this.customIds[11]),
         });
-        await this.em.persistAndFlush(ctx);
+        await this.em.persist(ctx).flush();
       }
 
       return modal;
@@ -716,7 +731,7 @@ export class OperationView extends BaseComponentView {
 
       if (existing) {
         existing.data = this.getData(this.customIds[10]);
-        await this.em.persistAndFlush(existing);      // seulement persist, pas flush
+        await this.em.persist(existing).flush();      // seulement persist, pas flush
       } else {
         const ctx = this.em.create(InteractionContext, {
           messageId:   interaction.message.id,       // ou interaction.channel.messages.fetch…
@@ -726,7 +741,7 @@ export class OperationView extends BaseComponentView {
           componentType: this.componentType,
           data:        this.getData(this.customIds[10]),
         });
-        await this.em.persistAndFlush(ctx);
+        await this.em.persist(ctx).flush();
       }
 
       return modal;

@@ -1,9 +1,8 @@
-import { ActionRowBuilder, Attachment, AttachmentBuilder, ButtonBuilder, ButtonInteraction, ButtonStyle, EmbedBuilder, GuildMemberRoleManager, GuildTextBasedChannel, Message, MessageFlags, Role, TextChannel } from "discord.js";
+import { AttachmentBuilder, ButtonInteraction, EmbedBuilder, GuildMemberRoleManager, MessageFlags, Role, TextChannel } from "discord.js";
 import BotManager from "../BotManager.js";
 import { BaseComponentView, ViewHandlers } from "./BaseView.js";
 import { ComponentType } from "../entities/ViewContext.js";
-import logger from "../logger.js";
-
+import { getManagerLogger } from "../logger.js";
 
 
 export default class EngaView extends BaseComponentView {
@@ -55,6 +54,7 @@ export async function sendEnga(bot: BotManager) {
 }
 
 export async function sendCandidatures(interaction: ButtonInteraction, bot: BotManager) {
+    const logger = getManagerLogger('EngaView');
     try {
         await interaction.deferReply({flags: MessageFlags.Ephemeral})
 
@@ -79,7 +79,7 @@ export async function sendCandidatures(interaction: ButtonInteraction, bot: BotM
 
         memberRh.status = 'Candidatures';
         memberRh.dateEntree = new Date();
-        await bot.usrMgr.em.persistAndFlush(memberRh);
+        await bot.usrMgr.em.persist(memberRh).flush();
 
         await interaction.followUp({
         content: `Bravo, tu viens de franchir la première étape de ta candidature !
@@ -148,7 +148,7 @@ Reste sur le qui-vive 😉.`,
         await thread.send({ embeds: [embed] });
 
     } catch (error) {
-        await logger.error(`Erreur lors de la confirmation de la candidature: ${error}`);
+        await logger.error({ msg: "Erreur lors de la gestion de la candidature :", error });
         if (interaction.deferred || interaction.replied) {
         await interaction.followUp({ content: `Erreur: ${error}`, ephemeral: true });
         } else {

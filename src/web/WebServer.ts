@@ -1,53 +1,47 @@
-import express, { Application, Request, Response, NextFunction } from 'express';
-import { createEventRouter } from './EventRouter.js';
-import { createGeneralRouter} from './GeneralRouter.js';
-import { createUserRouter } from './UserRouter.js';
-import  BotManager  from '../BotManager.js';
-import logger from '../logger.js';
-import { RequestContext } from '@mikro-orm/core';
+import express from "express";
+import { verifyBotSignature } from "./middlewares/VerifyBotSignature.js";
+import { idempotency } from "./middlewares/IdemPotency.js";
+import { httpDebug } from "./middlewares/HttpDebug.js";
 
-export default class AppExpress {
-  public app: Application;
-  private bot: BotManager;
+import createRankRouter from "./routes/RankRouter.js";
+import createUserRouter from "./routes/UserRouter.js";
+import createLeaderboardsRouter from "./routes/LeaderRoute.js";
+import createEventRouter from "./routes/EventRouter.js";
+import createGeneralRouter from "./routes/GeneralRouter.js";
+import createOperationRouter from "./routes/OperationRouter.js";
 
-  constructor(bot: BotManager) {
-    this.app = express();
-    this.bot = bot;
+export default class WebServer {
+  private app = express();
+
+  constructor(private readonly bot: any) {}
+
+  public start(port: number): void {
     this.setupMiddlewares();
     this.setupRoutes();
-    this.setupErrorHandling();
+    this.app.listen(port, () => console.log(`Bot listening on ${port}`));
   }
 
   private setupMiddlewares(): void {
+    // PUBLIC (healthcheck)
+    this.app.get("/", (_req, res) => res.json({ status: "online" }));
+
+    // JSON + multipart
     this.app.use(express.json());
-    this.app.use((req, res, next) => {
-      RequestContext.create(this.bot.dbMgr.getEm(), () => next());
-    });
+
+    // 👇 DEBUG GLOBAL
+    this.app.use(httpDebug);
+
+    // 🔐 sécurité
+    this.app.use(verifyBotSignature);
+    this.app.use(idempotency);
   }
 
   private setupRoutes(): void {
-    // route racine
-    this.app.get('/', (_req, res) => {
-      res.send('👋 WebServer up and running!');
-    });
-
-    // routes évènements
-    this.app.use('/', createGeneralRouter(this.bot));
-    this.app.use('/', createEventRouter(this.bot));
-    this.app.use('/user', createUserRouter(this.bot));
-
-  }
-
-  private setupErrorHandling(): void {
-    this.app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
-      logger.error(err);
-      res.status(400).json({ error: (err as Error).message });
-    });
-  }
-
-  public start(port: number): void {
-    this.app.listen(port, '0.0.0.0', () => {
-      logger.debug(`Express server listening on http://localhost:${port}`);
-    });
+    this.app.use("/rank", createRankRouter(this.bot));
+    this.app.use("/user", createUserRouter(this.bot));
+    this.app.use("/leaderboards", createLeaderboardsRouter(this.bot));
+    this.app.use("/event", createEventRouter(this.bot));
+    this.app.use("/general", createGeneralRouter(this.bot));
+    this.app.use("/operation", createOperationRouter(this.bot));
   }
 }

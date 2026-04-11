@@ -4,9 +4,9 @@ import { Event, EventStatus, EventVisibility }      from '../entities/Event.js';
 import { Response }   from '../entities/Response.js';
 import { addDays, startOfDay, endOfDay } from 'date-fns';
 import { AttachmentBuilder, ChannelType, EmbedBuilder, GuildMember, TextChannel, ThreadAutoArchiveDuration, ThreadChannel } from 'discord.js';
-import { FilterQuery } from '@mikro-orm/core';
+import { FilterQuery, Loaded } from '@mikro-orm/core';
 import { SafeMethod } from '../exception/Safe.js';
-import logger from '../logger.js';
+import { getManagerLogger } from '../logger.js';
 import cron from 'node-cron';
 import { defaultConfig } from './ScreenManager.js';
 import path from 'path';
@@ -34,11 +34,14 @@ export default class SchedulerManager {
   public appEvent: SchedulerAppEvent;
   public event:   SchedulerEvent;
   public screen: SchedulerScreen;
+  // public demands: SchedulerDemands;
 
   constructor(bot: BotManager) {
     this.appEvent = new SchedulerAppEvent(bot);
     this.event    = new SchedulerEvent(bot);
     this.screen = new SchedulerScreen(bot);
+    // this.demands  = new SchedulerDemands(bot);
+
   }
 }
 
@@ -46,6 +49,7 @@ export class SchedulerAppEvent {
   private intervalId?: ReturnType<typeof setInterval>;
   private readonly hourMinute: string;
   private readonly dayIndex: number;
+  private logger = getManagerLogger('SchedulerAppEvent');
 
   private programmedTasks = new Map<number, NodeJS.Timeout>();
 
@@ -57,7 +61,7 @@ export class SchedulerAppEvent {
 
     this.startScheduler();
     this.scheduleProgrammedEvents();
-    logger.debug(`✔ Scheduled weekly send: ${DAY_NAMES[this.dayIndex]} at ${this.hourMinute}`);
+    this.logger.debug(`✔ Scheduled weekly send: ${DAY_NAMES[this.dayIndex]} at ${this.hourMinute}`);
   }
 
   private startScheduler(): void {
@@ -77,13 +81,13 @@ export class SchedulerAppEvent {
     if (now.getDay() === (this.dayIndex % 7) &&
         now.getHours() === h && now.getMinutes() === m) {
       // lance l’envoi en tâche asynchrone
-      this.sendEventsWeek().catch(async err =>  await logger.error('sendEventsWeek error', err));
+      this.sendEventsWeek().catch(async err =>  await this.logger.error({ msg: 'Erreur dans sendEventsWeek:', err }) );
     }
   }
 
   @SafeMethod
   public async sendEventsWeek(): Promise<void> {
-    await logger.debug('→ sendEventsWeek');
+    await this.logger.debug('→ sendEventsWeek');
     const today = new Date();
     // trouve le prochain lundi
     const daysUntilMonday = (8 - today.getDay()) % 7;
@@ -197,6 +201,7 @@ export class SchedulerEvent {
   // Map pour stocker l'ID du channel vocal parent par event
   private voiceParentChannels = new Map<number, string>();
   private voiceParentCleanup = new Map<number, NodeJS.Timeout>();
+  private logger = getManagerLogger('SchedulerEvent');
 
   constructor(private bot: BotManager) {
     // démarre la boucle toutes les 60s
@@ -208,6 +213,7 @@ export class SchedulerEvent {
     const today = new Date();
     const start = startOfDay(today);
     const end   = endOfDay(today);
+    const ONE_DAY_MIN = 24 * 60;
 
     const events = await this.bot.evMgr.em.getRepository(Event).find({
         start: { 
@@ -224,6 +230,11 @@ export class SchedulerEvent {
       if (diffMin > 0 && diffMin <= 15) {
         await this.sendReminder(ev);
       }
+
+      if (diffMin > ONE_DAY_MIN - 15 && diffMin <= ONE_DAY_MIN) {
+        await this.sendReminderDayBefore(ev);
+      }
+
       // sinon planifie à 15 min avant
       else if (diffMin > 15 && diffMin <= 24 * 60) {
         this.scheduleReminder(ev, diffMs - 15 * 60_000);
@@ -231,10 +242,57 @@ export class SchedulerEvent {
     }
   }
 
+  private async sendReminderDayBefore(ev: Event) {
+    if (ev.appelMsgDiscord) return;
+
+    const channel = this.bot.evMgr.getChannel(ev);
+    if (!ev.discord.messageId) return;
+    const msg = await channel.messages.fetch(ev.discord.messageId).catch(() => null);
+    if (!msg) return;
+    
+    if (msg.hasThread) {
+      const thread = msg.thread!;
+      const confirmText = "Veuillez confirmer votre présence pour l'événement.";
+
+      const fetched = await thread.messages.fetch({ limit: 200 }).catch(() => new Map());
+      const existing = Array.from(fetched.values()).find(m =>
+        (m.author?.bot || m.author?.id === this.bot?.user?.id) &&
+        m.content.includes(confirmText)
+      );
+
+      if (existing) return;
+    }
+
+    const resps = await this.bot.evMgr.em.getRepository(Response).find({
+      event: ev,
+      typeRep: { $in: ['tentative'] },
+    } as FilterQuery<Response>, {
+      populate: ['users'],
+    });
+
+    const mentions: Array<GuildMember | null> = await Promise.all(
+      resps
+        .map(r => r.users?.discordId)
+        .filter((id): id is string => !!id)
+        .map(id => this.bot.guild.members.fetch(id).catch(() => null))
+    );
+    const line = mentions
+      .filter(m => m)
+      .map(m => `<@${m!.id}>`)
+      .join(' ');
+
+    const thread = msg.hasThread ? msg.thread! : await msg.startThread({
+      name: `Rappel : ${ev.name}`,
+      autoArchiveDuration: ThreadAutoArchiveDuration.OneDay,
+      reason: 'Rappel des participants',
+    });
+    await thread.send(`${line}\n\nVeuillez confirmer votre présence pour l'événement.\n\n`);
+  }
+
   private scheduleReminder(ev: Event, delayMs: number): void {
     if (this.pendingTasks.has(ev.id)) return;
     const timeout = setTimeout(async () => {
-      this.sendReminder(ev).catch(await logger.error);
+      this.sendReminder(ev).catch(async err => await this.logger.error({ msg: 'Erreur dans sendReminder:', err }));
       this.pendingTasks.delete(ev.id);
     }, delayMs);
     this.pendingTasks.set(ev.id, timeout);
@@ -251,9 +309,11 @@ export class SchedulerEvent {
     if (!msg) return;
     
     const resps = await this.bot.evMgr.em.getRepository(Response).find({
-        event: ev,
-        typeRep: "accepted"
-    } as FilterQuery<Response>);
+      event: ev,
+      typeRep: { $in: ['accepted'] },
+    } as FilterQuery<Response>, {
+      populate: ['users'],
+    });
 
     const mentions: Array<GuildMember | null> = await Promise.all(
       resps
@@ -272,9 +332,9 @@ export class SchedulerEvent {
       autoArchiveDuration: ThreadAutoArchiveDuration.OneDay,
       reason: 'Rappel des participants',
     });
-    await thread.send(`${ev.name}\n\n${line}`);
+    await thread.send(`${ev.name}\n\n${line}\n\n`);
     ev.appelMsgDiscord = true;
-    await this.bot.evMgr.em.persistAndFlush(ev);
+    await this.bot.evMgr.em.persist(ev).flush();
 
     // --- Création du channel vocal parent ---
     // On crée le channel vocal parent dans la même catégorie que le channel textuel de l'event
@@ -287,7 +347,7 @@ export class SchedulerEvent {
         {
           id: this.bot.guild.roles.everyone, // Tout le monde
           allow: ['ViewChannel'],
-          deny: ['Connect', 'Speak'],
+          deny: ['Connect'],
         },
         {
           id: this.bot.roleMember!.id, // Remplace par l'ID du rôle "membre"
@@ -334,7 +394,7 @@ export class SchedulerEvent {
 
     // Stocke l'ID de la catégorie et du vocal parent dans l'event
     ev.discord.vocalParentId = eventCategory.id;
-    await this.bot.evMgr.em.persistAndFlush(ev);
+    await this.bot.evMgr.em.persist(ev).flush();
 
     // Planifie la suppression du channel vocal parent à la fin de l'event
     const now = Date.now();
@@ -454,6 +514,7 @@ export class SchedulerEvent {
 export class SchedulerScreen { 
   private storePath = path.resolve('./config', 'contests.json');
   private contestStore: ActiveContest[] = [];
+  private logger = getManagerLogger('SchedulerScreen');
 
   constructor(private bot: BotManager) {
 
@@ -544,7 +605,7 @@ export class SchedulerScreen {
     // Cron: minute hour * * dayOfWeek
     const cronExpr = `${minute} ${hour} * * ${dayOfWeek}`;
     cron.schedule(cronExpr, () => this.startContest());
-    logger.debug(`Screen: Création du thread le ${this.bot.scrMgr.configFile.get('schedule_day')!} à ${this.bot.scrMgr.configFile.get('schedule_hour')!}`);
+    this.logger.debug(`Screen: Création du thread le ${this.bot.scrMgr.configFile.get('schedule_day')!} à ${this.bot.scrMgr.configFile.get('schedule_hour')!}`);
   }
 
   @SafeMethod
@@ -731,5 +792,113 @@ export class SchedulerScreen {
     if (!res.ok) throw new Error(`Échec du téléchargement de ${url}: ${res.status}`);
     const arrayBuffer = await res.arrayBuffer();
     return Buffer.from(arrayBuffer);
+  }
+}
+
+export class SchedulerDemands {
+  private intervalId?: NodeJS.Timeout;
+  private readonly intervalMs = 3 * 24 * 60 * 60 * 1000; // 3 jours en ms
+  private logger = getManagerLogger('SchedulerDemands');
+
+  constructor(private bot: BotManager) {
+    // démarre l'intervalle dès la construction du scheduler
+    this.start();
+  }
+
+  /** Démarre l'intervalle si une tâche est enregistrée */
+  public start(): void {
+    if (this.intervalId) return;
+    this.intervalId = setInterval(() => {
+      void this.task().catch(err => this.logger.error({ msg: 'Erreur dans SchedulerDemands task:', err }));
+    }, this.intervalMs);
+    this.logger.debug(`SchedulerDemands: scheduled task every ${this.intervalMs}ms`);
+  }
+
+  /** Arrête l'intervalle */
+  public stop(): void {
+    if (this.intervalId) {
+      clearInterval(this.intervalId);
+      this.intervalId = undefined;
+    }
+  }
+
+  @SafeMethod
+  private async task(): Promise<void> {
+    try {
+      const cfgPath = path.resolve('./config', 'demands.json');
+
+      // Ensure config file exists
+      if (!fs.existsSync(cfgPath)) {
+        fs.writeFileSync(cfgPath, JSON.stringify({ lastRun: null, lastId: 0 }));
+      }
+
+      // Load config
+      let cfgRaw = fs.readFileSync(cfgPath, 'utf8');
+      let cfg: { lastRun: string | null; lastId: number } = { lastRun: null, lastId: 0 };
+      try { cfg = JSON.parse(cfgRaw); } catch { /* keep defaults */ }
+
+      const lastId = typeof cfg.lastId === 'number' ? cfg.lastId : 0;
+
+      // Récupère les CertifRequest dont l'id est strictement supérieur à lastId
+      const repo = this.bot.evMgr.em.getRepository<any>('CertifRequest' as any);
+      const requests = await repo.find({
+        id: { $gt: lastId }
+      }, {
+        populate: ['certification', 'certification.pole']
+      });
+
+      if (!requests || requests.length === 0) {
+        // Met à jour uniquement la date d'exécution
+        cfg.lastRun = new Date().toISOString();
+        fs.writeFileSync(cfgPath, JSON.stringify(cfg));
+        this.logger.debug('SchedulerDemands: no new certif requests found');
+        return;
+      }
+
+      let maxId = lastId;
+
+      for (const req of requests) {
+        try {
+          if (req.id > maxId) maxId = req.id;
+
+          const cert = req.certification;
+          const pole = cert?.pole;
+
+          // Vérifie si le pole a bien un channel pour les demandes
+          const channelId = pole?.channelDemand ?? pole?.channel_demand ?? null;
+          if (!channelId) continue;
+
+          // Compose un message simple avec mentions si possible
+          const requesterDiscordId = req.user?.discordId;
+          const mention = requesterDiscordId ? `<@${requesterDiscordId}>` : 'Demandeur inconnu';
+          const certName = cert?.name ?? 'Certification inconnue';
+          const msg = [
+            `📣 Nouvelle demande de certification (#${req.id})`,
+            `Demandeur : ${mention}`,
+            `Certification : ${certName}`,
+            req.note ? `Note : ${req.note}` : undefined
+          ].filter(Boolean).join('\n');
+
+          // Envoi dans le channel indiqué
+          const ch = await this.bot.channels.fetch(channelId).catch(() => null);
+          if (ch && (ch as TextChannel).send) {
+            await (ch as TextChannel).send(msg);
+            this.logger.debug(`SchedulerDemands: sent demand #${req.id} to channel ${channelId}`);
+          } else {
+            this.logger.warn(`SchedulerDemands: channel ${channelId} not found for demand #${req.id}`);
+          }
+        } catch (err) {
+          this.logger.error({ msg: 'SchedulerDemands: error processing a certif request', err });
+        }
+      }
+
+      // Met à jour la config avec la dernière id traitée et la date d'exécution
+      cfg.lastId = maxId;
+      cfg.lastRun = new Date().toISOString();
+      fs.writeFileSync(cfgPath, JSON.stringify(cfg));
+      this.logger.debug(`SchedulerDemands: processed ${requests.length} requests, lastId -> ${cfg.lastId}`);
+    } catch (err) {
+      this.logger.error({ msg: 'SchedulerDemands: unexpected error in task', err });
+    }
   }
 }

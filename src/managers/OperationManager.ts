@@ -11,6 +11,7 @@ import {
   AttachmentBuilder,
   MessageReaction,
   User,
+  GuildMember,
   MessageFlags,
 } from 'discord.js';
 import fs from 'fs';
@@ -18,15 +19,42 @@ import path from 'path';
 import BotManager from '../BotManager.js';
 import { CreationOperationView, OperationState, OperationView } from '../view/OperationView.js';
 import { JSONConfigManager } from '../utils/JSONConfigManager.js';
-import logger from '../logger.js';
-import { SCLocations } from '../entities/SCLocations.js';
+import { getManagerLogger } from '../logger.js';
+import { StarSystem } from '../entities/StarSystem.js';
+import { CelestialBody, CelestialBodyType } from '../entities/CelestialBody.js';
 import { SVGManager } from '../utils/SVGManager.js';
-import mime from 'mime';
+import { lookup } from 'mime-types';
 
 const CATEGORY_NAME = 'Opérations';
 const FOLDER_NAME = "Operations";
 const BASE = path.resolve('config');
 const PENDING_LINKS_PATH = path.join(BASE, 'pendingLinks.json');
+const ALLOWED_START_DELAYS = ['0', '15', '30', '45', '60', '90', '120', '150', '180'];
+
+interface OperationAuthor {
+  id: string;
+  username: string;
+  displayName: string;
+}
+
+export interface WebOperationCreateInput extends OperationState {
+  userId: string;
+}
+
+export interface OperationCreateResult {
+  messageId: string;
+  channelId: string;
+  threadId: string;
+  jumpUrl: string;
+  startAt: string;
+  tempUrl: string | null;
+  tempUrlExpiresAt: string | null;
+  roleId: string;
+  roleName: string;
+  typeSpe: string | null;
+  autoCreated: boolean;
+  miningSessionUrl: string | null;
+}
 
 export class OperationModule {
   public roleConfig: JSONConfigManager<Record<string,string>>;
@@ -35,24 +63,22 @@ export class OperationModule {
   public roleManager: OperationRoleManager;
   private creationView: CreationOperationView;
   private fcategory: CategoryChannel | undefined;
+  private logger = getManagerLogger('OperationModule');
 
   constructor(private bot: BotManager) {
-    // on instancie les config managers
     this.roleConfig = new JSONConfigManager<Record<string,string>>(path.join(BASE, 'roles.json'));
     this.gameConfig = new JSONConfigManager<Record<string,string>>(path.join(BASE, 'games.json'));
     this.opeConfig = new JSONConfigManager<Record<string,string>>(path.join(BASE, 'typeOp.json'));
 
-    // on passe les managers à RoleManager
-    this.roleManager   = new OperationRoleManager(bot, this);
-    this.creationView  = new CreationOperationView(bot);
+    this.roleManager = new OperationRoleManager(bot, this);
+    this.creationView = new CreationOperationView(bot);
 
-    // quand le JSON change (via slash ou FS), on met à jour Discord
     this.roleConfig.on('change', () => this.roleManager.updateRoles());
     this.bot.excludeCategory.push(CATEGORY_NAME);
   }
 
   public async init(): Promise<void> {
-    await logger.debug('Initialisation des opérations')
+    await this.logger.debug('Initialisation des opérations');
     const channel = await this.ensureCreationChannel();
     const fetched = await channel.messages.fetch({ limit: 50 });
     const existing = fetched.find(m => m.author.id === this.bot.user!.id && m.components.length > 0) || null;
@@ -60,34 +86,36 @@ export class OperationModule {
 
     await this.roleManager.updateRoles();
     this.roleConfig.watch();
+    this.gameConfig.watch();
+    this.opeConfig.watch();
 
     await this.ensureCreationOperationsChannels();
-    this.resumePendingLinks(); // Ajout de la reprise des liens en attente
+    this.resumePendingLinks();
   }
 
   public async ensureCategory(): Promise<CategoryChannel> {
     if (!this.fcategory) {
-        const guild = this.bot.guild;
-        this.fcategory = guild.channels.cache.find(
-            c => c.type === ChannelType.GuildCategory && c.name === CATEGORY_NAME
-        ) as CategoryChannel | undefined;
+      const guild = this.bot.guild;
+      this.fcategory = guild.channels.cache.find(
+        c => c.type === ChannelType.GuildCategory && c.name === CATEGORY_NAME
+      ) as CategoryChannel | undefined;
 
-        if (!this.fcategory) {
-            this.fcategory = await guild.channels.create({
-              name: CATEGORY_NAME,
-              type: ChannelType.GuildCategory,
-              permissionOverwrites: [{
-                  id: guild.roles.everyone.id,
-                  deny: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages],
-              },
-              {
-                id: this.bot.roleMember!.id,
-                allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]
-              }],
-            });
-        }
+      if (!this.fcategory) {
+        this.fcategory = await guild.channels.create({
+          name: CATEGORY_NAME,
+          type: ChannelType.GuildCategory,
+          permissionOverwrites: [{
+            id: guild.roles.everyone.id,
+            deny: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages],
+          },
+          {
+            id: this.bot.roleMember!.id,
+            allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]
+          }],
+        });
+      }
     }
-    
+
     return this.fcategory;
   }
 
@@ -138,63 +166,157 @@ export class OperationModule {
     }
   }
 
-  public async sendForm(interaction: ButtonInteraction): Promise<void> {
-    const user = interaction.user;
-    const dmChannel = await user.createDM();
-
-    await interaction.deferUpdate();
-
-    // 2️⃣ Instancie ta vue et envoie-la dans le DM
-    const view = new OperationView(this.bot);
-    await view.render(dmChannel as TextBasedChannel, null, '');
-
-    // 3️⃣ Acknowledge de la commande en public ou en éphémère
-    await interaction.followUp({
-      content: "Formulaire Opération envoyé en DM.",
-      ephemeral: true,
-    });
-
-    await logger.debug("Envoi du formulaire Opération à " + user.displayName);
-
+  private normalizeOptionalString(value: unknown): string | undefined {
+    const normalized = String(value ?? '').trim();
+    return normalized || undefined;
   }
 
-  public async handlerForm(interaction: any, data: any) {
-    
-    const em = this.bot.dbMgr.getEm();
+  private normalizeOperationState(state: OperationState): OperationState {
+    return {
+      type: this.normalizeOptionalString(state.type),
+      minutes: String(state.minutes ?? '').trim(),
+      location: this.normalizeOptionalString(state.location) ?? '0.0.0',
+      games: this.normalizeOptionalString(state.games),
+      description: this.normalizeOptionalString(state.description),
+      equip: this.normalizeOptionalString(state.equip),
+      reward: this.normalizeOptionalString(state.reward),
+      url: this.normalizeOptionalString(state.url),
+      miningSessionUrl: this.normalizeOptionalString(state.miningSessionUrl),
+      typeSpe: this.normalizeOptionalString(state.typeSpe),
+      autoCreated: state.autoCreated === true,
+    };
+  }
 
-    const view = new OperationView(this.bot);
-
-    await view.handleInteraction(interaction, data);
-
-    let dmChannel = interaction.channel; // c’est déjà le DMChannel
-    if (!dmChannel) {
-      // retombe sur le client pour récupérer le channel
-      dmChannel = await this.bot.channels.fetch(
-        interaction.channelId
-      ) as TextBasedChannel;
+  private async assertValidLocation(location: string): Promise<void> {
+    const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(location);
+    if (!match) {
+      throw new Error('location invalide, format attendu: etoile.planete.lune');
     }
-    const existingMessage = interaction.message;
 
+    const [starId, planetId, moonId] = match.slice(1).map((value) => Number.parseInt(value, 10));
+    if (starId === 0) {
+      throw new Error('location invalide, une étoile est requise');
+    }
+    if (planetId === 0 && moonId !== 0) {
+      throw new Error('location invalide, une lune nécessite une planète');
+    }
 
-    if(!view.isSupp(interaction.customId))
-      await view.render(dmChannel as TextBasedChannel, existingMessage as Message, interaction.customId);
-    
+    const em = this.bot.dbMgr.getEm();
+    const star = await em.findOne(StarSystem, { id: starId });
+    if (!star) {
+      throw new Error('étoile invalide');
+    }
+
+    if (planetId === 0) {
+      return;
+    }
+
+    const planet = await em.findOne(CelestialBody, {
+      id: planetId,
+      system: star,
+      parent: null,
+      type: CelestialBodyType.PLANET,
+    });
+    if (!planet) {
+      throw new Error('planète invalide pour cette étoile');
+    }
+
+    if (moonId === 0) {
+      return;
+    }
+
+    const moon = await em.findOne(CelestialBody, {
+      id: moonId,
+      system: star,
+      parent: planet,
+      type: CelestialBodyType.MOON,
+    });
+    if (!moon) {
+      throw new Error('lune invalide pour cette planète');
+    }
   }
 
-  public async createOperation(interaction: any, state: OperationState) {
-    const role = this.bot.guild.roles.cache.get(state.type!);
-    if (!role) return;
+  private async validateOperationState(state: OperationState): Promise<OperationState> {
+    const normalized = this.normalizeOperationState(state);
+    const roleIds = Object.values(this.roleConfig.getAll());
+    const gameRoleId = this.roleConfig.get('🎮');
 
-    const name = (state.typeSpe && state.typeSpe !== 'GE') ? (path.join('MP', state.typeSpe)) : role.name;
+    if (!normalized.type) {
+      throw new Error('type manquant');
+    }
+    if (!roleIds.includes(normalized.type)) {
+      throw new Error('type invalide');
+    }
+    if (!ALLOWED_START_DELAYS.includes(normalized.minutes)) {
+      throw new Error(`minutes invalide, valeurs autorisées: ${ALLOWED_START_DELAYS.join(', ')}`);
+    }
+    if (!normalized.description) {
+      throw new Error('description manquante');
+    }
+    if (normalized.description.length > 200) {
+      throw new Error('description trop longue (200 caractères max)');
+    }
+
+    const operationTypes = this.opeConfig.get(normalized.type) as Record<string, string> | undefined;
+    const typeSpe = normalized.typeSpe ?? 'GE';
+    if (operationTypes) {
+      if (typeSpe !== 'GE' && !operationTypes[typeSpe]) {
+        throw new Error('typeSpe invalide pour ce type');
+      }
+      normalized.typeSpe = typeSpe;
+    } else if (typeSpe !== 'GE') {
+      throw new Error('typeSpe non autorisé pour ce type');
+    } else {
+      delete normalized.typeSpe;
+    }
+
+    if (normalized.type === gameRoleId) {
+      if (!normalized.games) {
+        throw new Error('games manquant pour une opération multigaming');
+      }
+      if (!this.gameConfig.get(normalized.games)) {
+        throw new Error('games invalide');
+      }
+      normalized.location = '0.0.0';
+      delete normalized.equip;
+      delete normalized.reward;
+    } else {
+      await this.assertValidLocation(normalized.location);
+      delete normalized.games;
+    }
+
+    return normalized;
+  }
+
+  private async getOperationAuthor(userId: string): Promise<OperationAuthor> {
+    const member = await this.bot.guild.members.fetch(userId);
+    return {
+      id: member.id,
+      username: member.user.username,
+      displayName: member.displayName,
+    };
+  }
+
+  private async createOperationForAuthor(
+    author: OperationAuthor,
+    state: OperationState,
+  ): Promise<OperationCreateResult> {
+    const validatedState = await this.validateOperationState(state);
+    const role = this.bot.guild.roles.cache.get(validatedState.type!);
+    if (!role) {
+      throw new Error('role introuvable');
+    }
+
+    const name = (validatedState.typeSpe && validatedState.typeSpe !== 'GE') ? path.join('MP', validatedState.typeSpe) : role.name;
     const config = {
       svgTemplatePath: path.join('Data', FOLDER_NAME, `${name}.svg`),
       xsltPath: path.join('Data', FOLDER_NAME, 'template.xslt'),
       outputSvgPath: path.join('Data', FOLDER_NAME, 'operation.svg'),
-      outputPngPath: path.join('Data', FOLDER_NAME, `${interaction.user.username}_${role.name}.png`),
+      outputPngPath: path.join('Data', FOLDER_NAME, `${author.username}_${role.name}.png`),
       baseDir: path.join('Data', FOLDER_NAME)
     };
 
-    const mins = Number(state.minutes) || 0;
+    const mins = Number(validatedState.minutes) || 0;
     const futureDate = new Date(Date.now() + mins * 60_000);
     const timeString = new Intl.DateTimeFormat('fr-FR', {
       hour12: false,
@@ -202,7 +324,7 @@ export class OperationModule {
       minute: '2-digit',
       timeZone: 'Europe/Paris'
     }).format(futureDate);
-    let dateString = new Intl.DateTimeFormat('fr-FR', {
+    const dateString = new Intl.DateTimeFormat('fr-FR', {
       weekday: 'long',
       day:     '2-digit',
       month:   '2-digit',
@@ -210,34 +332,52 @@ export class OperationModule {
       timeZone: 'Europe/Paris'
     }).format(futureDate).toUpperCase();
 
-    const indices = state.location.split('.').map((n: string) => parseInt(n, 10));
+    const [starId, planetId, moonId] = validatedState.location.split('.').map((n: string) => parseInt(n, 10));
     const names: string[] = [];
-    for (const idx of indices) {
-      if (idx == 0) break;
-      const entity: SCLocations | null = await this.bot.dbMgr.getEm().findOne(SCLocations, { id: idx });
-      if(!entity) break;
-      names.push(entity.name);
+    if (starId > 0) {
+      const star = await this.bot.dbMgr.getEm().findOne(StarSystem, { id: starId });
+      if (star) {
+        names.push(star.name);
+      }
     }
-    const entete = `[${timeString}] OPÉRATION ${role.name.toUpperCase().split('-')[1]} - RESPONSABLE: ${interaction.user.displayName}`;
+    if (planetId > 0) {
+      const planet = await this.bot.dbMgr.getEm().findOne(CelestialBody, { id: planetId });
+      if (planet) {
+        names.push(planet.name);
+      }
+    }
+    if (moonId > 0) {
+      const moon = await this.bot.dbMgr.getEm().findOne(CelestialBody, { id: moonId });
+      if (moon) {
+        names.push(moon.name);
+      }
+    }
+    const entete = `[${timeString}] OPÉRATION ${role.name.toUpperCase().split('-')[1]} - RESPONSABLE: ${author.displayName}`;
+    const operationInfo = validatedState.autoCreated ? `${entete} - AUTOMATIQUE` : entete;
 
-    let dataUri = null;
-    if (state.type === this.bot.opMgr.roleConfig.get('🎮')) {
-      const imgPath = path.join(config.baseDir, 'MG', state.games + '.png');
+    let dataUri: string | null = null;
+
+    if (validatedState.type === this.bot.opMgr.roleConfig.get('🎮')) {
+      const imgPath = path.join(config.baseDir, 'MG', `${validatedState.games}.png`);
       const fileBuffer = fs.readFileSync(imgPath);
-      const contentType = mime.lookup(imgPath) || 'application/octet-stream';
-      const base64    = fileBuffer.toString('base64');
-      dataUri   = `data:${contentType};base64,${base64}`;
+
+      const contentType =
+        lookup(imgPath) || 'application/octet-stream';
+
+      const base64 = fileBuffer.toString('base64');
+
+      dataUri = `data:${contentType};base64,${base64}`;
     }
 
-    const materiel = (state.type === this.bot.opMgr.roleConfig.get('🎮')) ? (this.gameConfig.get(state.games!)) : (state.equip ? `Equipement: ${state.equip}` : '');
+    const materiel = (validatedState.type === this.bot.opMgr.roleConfig.get('🎮')) ? this.gameConfig.get(validatedState.games!) : (validatedState.equip ? `Equipement: ${validatedState.equip}` : '');
     const data = {
-      description: state.description ? state.description : '',
+      description: validatedState.description ? validatedState.description : '',
       materiel: materiel,
-      prime: state.reward ? `Prime: ${state.reward}` : '',
+      prime: validatedState.reward ? `Prime: ${validatedState.reward}` : '',
       localisation: names.join(' >> '),
-      info: entete,
+      info: operationInfo,
       date: dateString,
-      imgMG: (state.type === this.bot.opMgr.roleConfig.get('🎮')) ? dataUri : ''
+      imgMG: (validatedState.type === this.bot.opMgr.roleConfig.get('🎮')) ? dataUri : ''
     };
 
     const SVGMgr = new SVGManager(data, config);
@@ -247,18 +387,20 @@ export class OperationModule {
       (c) => c.type === ChannelType.GuildText && c.name === role.name.replace(' ', '-').toLowerCase()
     ) as TextChannel | undefined;
     if (!channel) {
-      await this.ensureCreationOperationsChannels();       
-      const allChannels = await this.bot.guild.channels.fetch(); // récupère depuis l’API
+      await this.ensureCreationOperationsChannels();
+      const allChannels = await this.bot.guild.channels.fetch();
       channel = allChannels.find(
         (c) => c!.type === ChannelType.GuildText && c!.name === role.name.replace(' ', '-').toLowerCase()
       ) as TextChannel | undefined;
     }
+    if (!channel) {
+      throw new Error('channel introuvable pour ce type d\'opération');
+    }
 
     const attachment = new AttachmentBuilder(config.outputPngPath);
-    const emoji = this.bot.guild.emojis.cache.get('1213915551210930306') ?? "👍";
+    const emoji = this.bot.guild.emojis.cache.get('1213915551210930306') ?? '👍';
 
-    // --- Envoi du message Discord ---
-    const message = await channel!.send({
+    const message = await channel.send({
       content: `${role}\nPour valider votre présence interagissez avec l'emoji ${emoji}`,
       files: [attachment]
     });
@@ -267,26 +409,37 @@ export class OperationModule {
       name: `Discussion - ${role.name.toUpperCase().split('-')[1]}`,
       autoArchiveDuration: 1440,
     });
+    const threadMessages = [
+      '👋 **Bienvenue dans le fil de discussion de cette opération !**',
+      '📌 Discutez des stratégies, rôles et détails ici.',
+    ];
+
+    if (validatedState.autoCreated) {
+      threadMessages.push('🤖 Cette opération a été créée automatiquement depuis le web.');
+    }
+
+    if (validatedState.miningSessionUrl) {
+      threadMessages.push(`⛏️ Une session de minage a été créée pour cette opération : ${validatedState.miningSessionUrl}`);
+    } else if (validatedState.url) {
+      threadMessages.push(`🔗 Une URL a été partagée pour cette opération : ${validatedState.url}`);
+    }
+
     await thread.send({
-      content: "👋 **Bienvenue dans le fil de discussion de cette opération !**\n📌 Discutez des stratégies, rôles et détails ici.\n" + (state.url ? `Une URL a été partagé: ${state.url}` : '') 
+      content: threadMessages.join('\n')
     });
 
-        // --- Ajout de la requête HTTP vers le site Symfony pour générer le lien temporaire ---
-    let tempUrl = null;
-    let tempUrlExpires = null;
+    let tempUrl: string | null = null;
+    let tempUrlExpiresAt: string | null = null;
 
-    // Ajoute ce bloc pour ignorer la génération du lien si c'est une opération multigaming
-    if (state.type !== this.bot.opMgr.roleConfig.get('🎮')) {
+    if (validatedState.type !== this.bot.opMgr.roleConfig.get('🎮')) {
       try {
-        // Remplace l'URL par celle de ton site
         const siteUrl = 'https://www.1ercorpscolonial.fr/bot/operation/generate-temp-url';
-        // Prépare les paramètres
         const params = new URLSearchParams({
-          user_id: interaction.user.id,
+          user_id: author.id,
           operation_id: message.id,
-          responsable: interaction.user.displayName,
+          responsable: author.displayName,
           start_at: futureDate.toISOString(),
-          channel_id: channel!.id,
+          channel_id: channel.id,
           thread_id: thread.id,
         });
 
@@ -297,36 +450,28 @@ export class OperationModule {
             json = await response.json();
           } catch (jsonErr) {
             const text = await response.text();
-            await logger.error({ msg: 'Réponse non JSON du site:', text });
+            await this.logger.error({ msg: 'Réponse non JSON du site:', text });
             throw jsonErr;
           }
           tempUrl = json.temp_url;
-          tempUrlExpires = json.expires_at;
+          tempUrlExpiresAt = json.expires_at;
         } else {
           const text = await response.text();
-          await logger.warn('Erreur lors de la génération du lien temporaire: ' + response.statusText + ' Body: ' + text);
+          await this.logger.warn('Erreur lors de la génération du lien temporaire: ' + response.statusText + ' Body: ' + text);
         }
       } catch (err) {
-  await logger.error({ msg: 'Erreur lors de la requête vers le site Symfony:', err });
+        await this.logger.error({ msg: 'Erreur lors de la requête vers le site Symfony:', err });
       }
     }
-
-
-    await logger.debug("Envoi de l'opération créer par " + interaction.user.displayName);
-    await interaction.followUp({
-      content: '✅ Opération créée ! Vous pouvez la retrouver dans le salon ' + channel!.toString() + '.',
-      ephemeral: true,
-    });
 
     if (tempUrl) {
       const now = Date.now();
       const startAt = futureDate.getTime();
       const delay = Math.max(0, startAt + 60 * 60 * 1000 - now);
 
-      // Ajoute à la file d'attente persistante
       this.addPendingLink({
         id: message.id,
-        userId: interaction.user.id,
+        userId: author.id,
         tempUrl,
         sendAt: now + delay
       });
@@ -335,15 +480,88 @@ export class OperationModule {
         try {
           const reaction = message.reactions.cache.get(typeof emoji === 'string' ? emoji : emoji.id);
           if (reaction && reaction.count > 2) {
-            const dm = await interaction.user.createDM();
-            await dm.send(`Le rapport d'opération est prêt, voici le lien temporaire valable 2 jours :\n${tempUrl}`);
+            const member = await this.bot.guild.members.fetch(author.id);
+            const dm = await member.createDM();
+            await dm.send(`Le rapport d’opération est prêt, voici le lien temporaire valable 2 jours ⬇️\n${tempUrl}\n\nPensez à bien le valider afin d’attribuer l’XP correspondante ⚠️`);
             this.removePendingLink(message.id);
           }
         } catch (err) {
-          await logger.warn({ msg: 'Impossible d\'envoyer le lien temporaire en DM:', err });
+          await this.logger.warn({ msg: 'Impossible d\'envoyer le lien temporaire en DM:', err });
         }
       }, delay);
     }
+
+    await this.logger.debug(`Envoi de l'opération créer par ${author.displayName}`);
+
+    return {
+      messageId: message.id,
+      channelId: channel.id,
+      threadId: thread.id,
+      jumpUrl: message.url,
+      startAt: futureDate.toISOString(),
+      tempUrl,
+      tempUrlExpiresAt,
+      roleId: role.id,
+      roleName: role.name,
+      typeSpe: validatedState.typeSpe ?? null,
+      autoCreated: validatedState.autoCreated === true,
+      miningSessionUrl: validatedState.miningSessionUrl ?? null,
+    };
+  }
+
+  public async sendForm(interaction: ButtonInteraction): Promise<void> {
+    const user = interaction.user;
+    const dmChannel = await user.createDM();
+
+    await interaction.deferUpdate();
+
+    const view = new OperationView(this.bot);
+    await view.render(dmChannel as TextBasedChannel, null, '');
+
+    await interaction.followUp({
+      content: 'Formulaire Opération envoyé en DM.',
+      ephemeral: true,
+    });
+
+    await this.logger.debug(`Envoi du formulaire d'opération à ${user.tag}`);
+  }
+
+  public async handlerForm(interaction: any, data: any) {
+    const view = new OperationView(this.bot);
+
+    await view.handleInteraction(interaction, data);
+
+    let dmChannel = interaction.channel;
+    if (!dmChannel) {
+      dmChannel = await this.bot.channels.fetch(interaction.channelId) as TextBasedChannel;
+    }
+    const existingMessage = interaction.message;
+
+    if (!view.isSupp(interaction.customId)) {
+      await view.render(dmChannel as TextBasedChannel, existingMessage as Message, interaction.customId);
+    }
+  }
+
+  public async createOperation(interaction: any, state: OperationState) {
+    const author = await this.getOperationAuthor(interaction.user.id);
+    const result = await this.createOperationForAuthor(author, state);
+
+    await interaction.followUp({
+      content: '✅ Opération créée ! Vous pouvez la retrouver dans le salon <#' + result.channelId + '>.',
+      ephemeral: true,
+    });
+
+    return result;
+  }
+
+  public async createOperationFromWeb(input: WebOperationCreateInput): Promise<OperationCreateResult> {
+    const userId = String(input.userId ?? '').trim();
+    if (!userId) {
+      throw new Error('userId manquant');
+    }
+
+    const author = await this.getOperationAuthor(userId);
+    return this.createOperationForAuthor(author, { ...input, autoCreated: true });
   }
 
   /** Gestion des liens temporaires en attente */
@@ -382,7 +600,7 @@ export class OperationModule {
           await dm.send(`Voici ton lien temporaire d'accès au rapport d'opération :\n${link.tempUrl}`);
           this.removePendingLink(link.id);
         } catch (err) {
-          await logger.warn({ msg: "Impossible d'envoyer le lien temporaire en DM:", err });
+          await this.logger.warn({ msg: "Impossible d'envoyer le lien temporaire en DM:", err });
         }
       }, delay);
     }
@@ -390,6 +608,8 @@ export class OperationModule {
 }
 
 export class OperationRoleManager {
+    private logger = getManagerLogger('OperationRoleManager');
+    
     constructor(
         private bot: BotManager,
         private module: OperationModule,
@@ -470,7 +690,7 @@ export class OperationRoleManager {
           try {
             member = await guild.members.fetch(user.id);
           } catch {
-            await logger.warn(`Membre ${user.id} introuvable.`);
+            await this.logger.warn(`Membre ${user.id} introuvable.`);
             return;
           }
         }
@@ -478,9 +698,9 @@ export class OperationRoleManager {
         // Ajoute le rôle
         try {
           await member.roles.add(roleId);
-          await logger.debug(`Ajout du rôle ${roleId} à ${user.tag} pour l'émoji ${emoji}.`);
+          await this.logger.debug(`Ajout du rôle ${roleId} à ${user.tag} pour l'émoji ${emoji}.`);
         } catch (err) {
-          await logger.error({ msg: `Impossible d'ajouter le rôle ${roleId} à ${user.tag}:`, err });
+          await this.logger.error({ msg: `Impossible d'ajouter le rôle ${roleId} à ${user.tag}:`, err });
         }
       });
 
@@ -496,9 +716,9 @@ export class OperationRoleManager {
         
         try {
           await member.roles.remove(roleId);
-          await logger.debug(`Retrait du rôle ${roleId} pour ${user.tag} suite au retrait de ${emoji}`);
+          await this.logger.debug(`Retrait du rôle ${roleId} pour ${user.tag} suite au retrait de ${emoji}`);
         } catch (err) {
-          await logger.error({ msg: "Impossible de retirer le rôle :", err });
+          await this.logger.error({ msg: "Impossible de retirer le rôle :", err });
         }
       });
     }

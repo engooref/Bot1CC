@@ -26,7 +26,7 @@ import { InviteView } from '../view/InviteView.js';
 import { EventView } from '../view/EventView.js';
 import { EntityManager } from '@mikro-orm/core';
 import { SafeMethod } from '../exception/Safe.js';
-import logger from '../logger.js';
+import { getManagerLogger } from '../logger.js';
 import { nanoid } from 'nanoid';
 import { SVGManager } from '../utils/SVGManager.js';
 import { stdin } from 'process';
@@ -37,6 +37,7 @@ export default class EventManager {
   private bot: BotManager;
   private urlSite : string;
   public fem!: EntityManager ;
+  private logger = getManagerLogger('EventManager');
 
   constructor(bot: BotManager) {
     this.bot     = bot;
@@ -84,7 +85,7 @@ export default class EventManager {
         if (event.type?.name?.toLowerCase() === 'certification') embed.addFields({name: 'Certifications', value: certification, inline: false });
 
         embed.addFields(
-          { name: 'Responsable'   , value: event.responsable || event.userOrig.username, inline: false },
+          { name: 'Responsable'   , value: event.responsable || event.userOrig?.username || 'Inconnu', inline: false },
           { name: 'Description',  value: event.description || '', inline: false },
           { name: 'Lien',         value: `[Ajouter au calendrier Google](${calUrl})`, inline: false },
           { name: `Accepted (0)`,  value: 'Aucun', inline: true },
@@ -128,6 +129,8 @@ export default class EventManager {
                 if (thread) await thread.delete().catch(() => null);
               }
               await candidateMsg.delete().catch(() => null);
+              if (channel?.name.endsWith('📅'))
+                await channel?.setName(channel?.name.slice(0, -1))
               found = true;
               break;
             } catch {
@@ -157,9 +160,14 @@ export default class EventManager {
       }
 
      
-      if (!channel.name.endsWith('📅'))
-        await channel.setName(channel.name + '📅')
-      
+      if (!channel.name.endsWith('📅')) {
+        this.logger.info({ msg: 'Marquage du channel avec un emoji calendrier', channelId: channel.id, channelName: channel.name });
+        try {
+          await channel.setName(channel.name + '📅');
+        } catch (err) {
+          await this.logger.error({ msg: 'Erreur lors du renommage du channel', channelId: channel.id, err });
+        }
+      }
       // 5) Briefing (fichier + forum)
       if (event.briefingTemplateName) {
         await this._handleBriefing(event);
@@ -167,10 +175,11 @@ export default class EventManager {
 
       // 6) Sauvegarde en base
       event.status = EventStatus.PUBLISHED;
-      await this.em.persistAndFlush(event);
+      await this.em.persist(event).flush();
       await this.updateEvent(event);
     } catch (err: Error | any) {
-      await logger.error('setEvent error', err.message);
+      await this.logger.error({ op: 'setEvent', eventId: event.id, err });
+      throw err;
     }
   }
 
@@ -208,7 +217,7 @@ export default class EventManager {
 
       await message.edit({ embeds: [embed] });
     } catch (err) {
-  await logger.error({ msg: 'updateEvent error', err });
+  await this.logger.error({ msg: 'updateEvent error', err });
     } finally {
       if (!event.appelMsgDiscord) {
         this.bot.schedMgr.event.updateEvent(event);
@@ -285,7 +294,7 @@ export default class EventManager {
       }
 
     } catch (err) {
-  await logger.error({ msg: 'suppEvent error', err });
+  await this.logger.error({ msg: 'suppEvent error', err });
     }
   }
 
@@ -360,10 +369,10 @@ export default class EventManager {
 
         event.discord.attributionMessageId = msg!.id;
 
-      await this.em.persistAndFlush(event);
+      await this.em.persist(event).flush();
       
     } catch (err) {
-  await logger.error({ msg: 'attributionEvent error', err });
+  await this.logger.error({ msg: 'attributionEvent error', err });
     }
   }
 
@@ -400,7 +409,7 @@ export default class EventManager {
           roleDemand: []
         });
       }
-      await this.em.persistAndFlush(response);
+      await this.em.persist(response).flush();
     }
 
     const roleDemandList: string[] = response?.roleDemand ?? [];
@@ -518,7 +527,7 @@ export default class EventManager {
         } catch (err: any) {
           // 10008 = Unknown Message → pas dans ce thread, on continue
           if (err.code !== 10008) {
-            await logger.error(`Erreur sur le thread ${thread.id} :`, err);
+            await this.logger.error({ msg: 'Erreur lors de la recherche du message de briefing existant', err } );
           }
         }
       }
@@ -556,10 +565,15 @@ export default class EventManager {
   
   /** Sélectionne le bon canal TextChannel en fonction du type d’event */
   getChannel(event: Event): TextChannel {
-    const type = event.type?.name.toUpperCase() ?? "";
-    let param = type.includes('ENTRAINEMENT COMPÉTITION') ? 'CHANNEL_TRAINING'
-              : type.includes('GROS EVENT') ? 'CHANNEL_GROS_EVENT'
-              : 'CHANNEL_' + event.start.toLocaleDateString('fr-FR', { weekday: 'long' }).toUpperCase();
+    let param = '';
+    if (event.type) {
+      const type = event.type!.name.toUpperCase() ?? "";
+      if (type.includes('ENTRAINEMENT COMPÉTITION')) param = 'CHANNEL_TRAINING';
+      else if (type.includes('GROS EVENT')) param = 'CHANNEL_GROS_EVENT';
+    }
+
+    if (!param) param = 'CHANNEL_' + event.start.toLocaleDateString('fr-FR', { weekday: 'long' }).toUpperCase();
+
     const id = this.bot.getParameter(param) as string;
     const ch = this.bot.guild.channels.cache.get(id);
     if (!ch) throw new Error(`Channel non trouvé pour ${param}`);
@@ -678,25 +692,37 @@ export default class EventManager {
    * Crée les channels d'équipe et déplace les membres du vocal courant.
    */
   public async handleDispatch(interaction: ChatInputCommandInteraction) {
+
+    switch (interaction.options.getSubcommand()) {
+      case 'dispatch':
+        await this.sendDispatch(interaction);
+        break;
+      case 'scheduler':
+        await this.handleScheduler(interaction);
+        break;
+    }
+  }
+
+  public async sendDispatch(interaction: ChatInputCommandInteraction) {
     // Vérifie que la commande est lancée dans un vocal
     const member = interaction.member as GuildMember;
     const voice = member.voice.channel;
     if (!voice || voice.type !== ChannelType.GuildVoice) {
-      await interaction.reply({ content: "Tu dois être dans un salon vocal pour utiliser cette commande.", ephemeral: true });
+      await interaction.followUp({ content: "Tu dois être dans un salon vocal pour utiliser cette commande.", ephemeral: true });
       return;
     }
 
     // Récupère l'event lié à la catégorie du vocal
     const event = await this.em.findOne(Event, { discord: { vocalParentId: voice.parentId } });
     if (!event) {
-      await interaction.reply({ content: "Aucun event associé à cette catégorie.", ephemeral: true });
+      await interaction.followUp({ content: "Aucun event associé à cette catégorie.", ephemeral: true });
       return;
     }
 
     // Récupère tous les membres dans le vocal
     const members = Array.from((voice as VoiceChannel).members.values());
     if (members.length === 0) {
-      await interaction.reply({ content: "Aucun membre à dispatcher.", ephemeral: true });
+      await interaction.followUp({ content: "Aucun membre à dispatcher.", ephemeral: true });
       return;
     }
 
@@ -704,7 +730,7 @@ export default class EventManager {
     const createdChannels: string[] = [];
     const category = interaction.guild!.channels.cache.get(event.discord.vocalParentId!);
     if (!category || category.type !== ChannelType.GuildCategory) {
-      await interaction.reply({ content: "Catégorie d'équipe introuvable.", ephemeral: true });
+      await interaction.followUp({ content: "Catégorie d'équipe introuvable.", ephemeral: true });
       return;
     }
     for (const m of members) {
@@ -735,9 +761,31 @@ export default class EventManager {
     });
   }
 
+  public async handleScheduler(interaction: ChatInputCommandInteraction) {
+    const member = interaction.member as GuildMember | null;
+    if (!member) {
+      await interaction.followUp({ content: 'Commande réservée aux administrateurs.', ephemeral: true });
+      return;
+    }
+
+    const guildMember = await this.bot.guild.members.fetch(member.id).catch(() => null);
+    if (!guildMember) {
+      await interaction.followUp({ content: 'Impossible de vérifier les permissions.', ephemeral: true });
+      return;
+    }
+
+    // Autoriser le propriétaire de la guilde ou les membres avec la permission Administrateur
+    if (!(guildMember.id === this.bot.guild.ownerId || guildMember.permissions.has('Administrator'))) {
+      await interaction.followUp({ content: 'Seuls les administrateurs peuvent utiliser cette sous-commande.', ephemeral: true });
+      return;
+    }
+    const count = await this.bot.schedMgr.appEvent.sendEventsWeek();
+    await interaction.followUp(`Les événements planifiés de la semaine ont été lancés. (${count} événements)`);
+  }
+
   public getSlashHandlers(): Record<string, CommandHandler> {
     return {
-          eventHandler : this.handleDispatch.bind(this) as CommandHandler, 
+      eventHandler: this.handleDispatch.bind(this) as CommandHandler,
     };
   }
 

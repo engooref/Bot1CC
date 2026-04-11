@@ -8,7 +8,7 @@ export class Channel {
   @PrimaryKey()
   id!: number;
 
-  @Property({ type: 'bigint', fieldName: 'discord_id' })
+  @Property({fieldName: 'discord_id' })
   discordId!: string;
 
   @Property({ length: 255 })

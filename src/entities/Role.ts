@@ -21,7 +21,7 @@ export class Role {
   id!: number;
 
   /** ID Discord stocké en string pour gérer les bigints */
-  @Property({ type: 'bigint', fieldName: 'discord_id' })
+  @Property({ fieldName: 'discord_id' })
   discordId!: string;
 
   @Property({ length: 255 })

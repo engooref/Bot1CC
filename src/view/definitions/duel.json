@@ -1,0 +1,14 @@
+[
+    {
+        "type": "Button",
+        "customId": "button_valid_leader",
+        "label": "Accepter le duel",
+        "style": "Success"
+    },
+    {
+        "type": "Button",
+        "customId": "button_refus_leader",
+        "label": "Refuser le duel",
+        "style": "Danger"
+    }
+]
