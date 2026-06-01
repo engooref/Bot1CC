@@ -34,7 +34,7 @@ import { SafeMethod } from '../exception/Safe.js';
 // Décris la forme interne de l’état de l’opération
 export interface OperationState {
   type?: string;
-  minutes: string;
+  startAt?: string;
   location: string;
   games?: string;
   description?: string;
@@ -53,8 +53,7 @@ export class OperationView extends BaseComponentView {
 
   constructor(bot: BotManager) {
     const customIds = [
-      'select_type', 'select_heure',
-      'select_star', 'select_planet', 'select_moon', 'search_btn',
+      'select_type', 'select_star', 'select_planet', 'select_moon', 'search_btn',
       'select_game', 'details_btn', 'send_btn', 'cancel_btn',
       'details_modal', 'recherche_modal', 'select_typespe'
     ];
@@ -67,12 +66,12 @@ export class OperationView extends BaseComponentView {
     );
 
     this.em = bot.db.getEm();
-    this.state = { minutes: '0', location: '0.0.0' };
+    this.state = { location: '0.0.0' };
     this.customIds = customIds
   }
 
   public isSupp(val: string): boolean {
-    const supp = [this.customIds[9], this.customIds[8]];
+    const supp = [this.customIds[8], this.customIds[7]];
     return supp.includes(val);
   }
 
@@ -109,7 +108,7 @@ export class OperationView extends BaseComponentView {
       allRows.push(
         new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
           new StringSelectMenuBuilder()
-          .setCustomId(this.customIds[12])
+          .setCustomId(this.customIds[11])
           .setPlaceholder("Choisissez l'opération")
           .addOptions(
             ...Object.entries(data).map(([key, val]: [string, string]) => ({
@@ -122,39 +121,6 @@ export class OperationView extends BaseComponentView {
       );
     }
 
-    // 2️⃣ HEURE
-    const hourValues = [0,15,30,45,60,90,120,150,180];
-    allRows.push(
-      new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
-        new StringSelectMenuBuilder()
-          .setCustomId(this.customIds[1])
-          .setPlaceholder('Délai avant début')
-          .addOptions(
-            ...hourValues.map(m => {
-              let label: string;
-              if (m === 0) {
-                label = 'Immédiat';
-              } else if (m < 60) {
-                label = `Dans ${m} min`;
-              } else {
-                const hours = Math.floor(m / 60);
-                const remainder = m % 60;
-                // Si pas de reste, on affiche “Dans 1 h”, sinon “Dans 1 h30”
-                label = remainder === 0
-                  ? `Dans ${hours} h`
-                  : `Dans ${hours} h${remainder}`;
-              }
-
-              return {
-                label,
-                value: String(m),
-                default: this.state.minutes === String(m)
-              };
-            })
-          )
-      )
-    );
-
     // --- Les selects étoile/planète/lune vont dans detailRows, on les build ici ---
     if (this.state.type !== String(roleEmojis['🎮'])) {
       // Galaxie : étoile
@@ -164,7 +130,7 @@ export class OperationView extends BaseComponentView {
       allRows.push(
         new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
           new StringSelectMenuBuilder()
-            .setCustomId(this.customIds[2])
+            .setCustomId(this.customIds[1])
             .setPlaceholder('Choisissez une étoile')
             .addOptions(
               ...stars.map(s=>({
@@ -187,7 +153,7 @@ export class OperationView extends BaseComponentView {
         allRows.push(
           new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
             new StringSelectMenuBuilder()
-              .setCustomId(this.customIds[3])
+              .setCustomId(this.customIds[2])
               .setPlaceholder('Choisissez une planète')
               .addOptions(
                 { label:'Aucun', value:'0', default:planetId==='0' },
@@ -218,7 +184,7 @@ export class OperationView extends BaseComponentView {
         allRows.push(
           new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
             new StringSelectMenuBuilder()
-              .setCustomId(this.customIds[4])
+              .setCustomId(this.customIds[3])
               .setPlaceholder('Choisissez une lune')
               .addOptions(
                 { label:'Aucun', value:'0', default:moonId==='0' },
@@ -236,7 +202,7 @@ export class OperationView extends BaseComponentView {
       allRows.push(
         new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
           new StringSelectMenuBuilder()
-            .setCustomId(this.customIds[6])
+            .setCustomId(this.customIds[5])
             .setPlaceholder('Sélectionner un jeu')
             .addOptions(
               ...Object.entries(listGames).map(([key, val]) => ({
@@ -253,35 +219,35 @@ export class OperationView extends BaseComponentView {
     allRows.push(
       new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
         new ButtonBuilder()
-          .setCustomId(this.customIds[5])
+          .setCustomId(this.customIds[4])
           .setLabel('Recherche')
           .setStyle(ButtonStyle.Primary),
         new ButtonBuilder()
-          .setCustomId(this.customIds[7])
+          .setCustomId(this.customIds[6])
           .setLabel('Ajouter détails')
           .setStyle(ButtonStyle.Secondary),
         new ButtonBuilder()
-          .setCustomId(this.customIds[8])
+          .setCustomId(this.customIds[7])
           .setLabel('Valider')
           .setStyle(ButtonStyle.Success)
           .setDisabled(!this.canValidate()),
         new ButtonBuilder()
-          .setCustomId(this.customIds[9])
+          .setCustomId(this.customIds[8])
           .setLabel('Annuler')
           .setStyle(ButtonStyle.Danger),
       )
     );
 
     // ** Split en deux messages **
-    const headerRows = allRows.slice(0, 2 + (data ? 1 : 0));        // TYPE + HEURE
-    const detailRows = allRows.slice(2 + (data ? 1 : 0));           // tout le reste
+    const headerRows = allRows.slice(0, 1 + (data ? 1 : 0));        // TYPE (+ sous-type)
+    const detailRows = allRows.slice(1 + (data ? 1 : 0));           // tout le reste
 
     return { headerRows, detailRows };
   }
 
   private canValidate(): boolean {
-    // 1️⃣ Type et délai sont toujours requis
-    if (!this.state.type || !this.state.minutes || !this.state.description) {
+    // 1️⃣ Type + description + date/heure obligatoire
+    if (!this.state.type || !this.state.startAt || !this.state.description) {
       return false;
     }
 
@@ -383,22 +349,49 @@ export class OperationView extends BaseComponentView {
       await this.renderHeader(channel, null);
       await this.renderDetail(channel, null);
     } else {
-      const headerCIDs = [ this.customIds[0], this.customIds[1], this.customIds[12] ];
+      const headerCIDs = [ this.customIds[0], this.customIds[11] ];
       if (headerCIDs.includes(cid)) {
-        const ctx = await this.em.findOne(InteractionContext, {
+        let headerMessage: Message | null = existingMessage;
+
+        // Pour les submits modal, interaction.message peut être absent.
+        if (!headerMessage) {
+          const headerCtx = await this.em.findOne(InteractionContext, {
+            handlerKey: this.handlerKey,
+            channelId: channel.id,
+            customId: cid,
+          }) ?? await this.em.findOne(InteractionContext, {
+            handlerKey: this.handlerKey,
+            channelId: channel.id,
+            customId: this.customIds[0],
+          });
+
+          if (headerCtx) {
+            try {
+              headerMessage = await channel.messages.fetch(headerCtx.messageId);
+            } catch {
+              headerMessage = null;
+            }
+          }
+        }
+
+        const detailCtx = await this.em.findOne(InteractionContext, {
           handlerKey: this.handlerKey,
           channelId: channel.id,
-          customId: this.customIds[2], // on prend la première customId de détail
+          customId: this.customIds[1],
+        }) ?? await this.em.findOne(InteractionContext, {
+          handlerKey: this.handlerKey,
+          channelId: channel.id,
+          customId: this.customIds[4],
         });
 
-        if (ctx) {
+        if (detailCtx) {
           try {
-            const detailMsg = await channel.messages.fetch(ctx.messageId);
+            const detailMsg = await channel.messages.fetch(detailCtx.messageId);
             await this.renderDetail(channel, detailMsg);
           } catch {} 
         }
         
-        await this.renderHeader(channel, existingMessage);
+        await this.renderHeader(channel, headerMessage);
       } else {
         await this.renderDetail(channel, existingMessage);
       }
@@ -460,7 +453,7 @@ export class OperationView extends BaseComponentView {
     ): Promise<void> {
       const cid = interaction.customId;
 
-      const skip = [ this.customIds[7], this.customIds[5] ];
+      const skip = [ this.customIds[6], this.customIds[4] ];
       if (!skip.includes(cid)) await interaction.deferUpdate();
 
       switch (cid) {
@@ -471,24 +464,18 @@ export class OperationView extends BaseComponentView {
           delete this.state.games;
           break;
 
-        // 2️⃣ Heure
-        case this.customIds[1]:
-          this.state.minutes = (interaction as StringSelectMenuInteraction).values[0];
-          break;
-
         // 3️⃣ Étoile
-        case this.customIds[2]:
+        case this.customIds[1]:
           {
             const starId = (interaction as StringSelectMenuInteraction).values[0];
-            // on met à jour la location en conservant minute et reset planet/moon
+            // On reset planète/lune quand l'étoile change.
             this.state.location = `${starId}.0.0`;
           }
           break;
 
         // 4️⃣ Planète
-        case this.customIds[3]:
+        case this.customIds[2]:
           {
-            const [, planetId] = this.state.location.split('.');
             const starId = this.state.location.split('.')[0];
             const newPlanet = (interaction as StringSelectMenuInteraction).values[0];
             this.state.location = `${starId}.${newPlanet}.0`;
@@ -496,7 +483,7 @@ export class OperationView extends BaseComponentView {
           break;
 
         // 5️⃣ Lune
-        case this.customIds[4]:
+        case this.customIds[3]:
           {
             const [starId, planetId] = this.state.location.split('.');
             const moonId = (interaction as StringSelectMenuInteraction).values[0];
@@ -505,67 +492,30 @@ export class OperationView extends BaseComponentView {
           break;
 
         // 6️⃣ Bouton Recherche (pour débloquer le select_planet)
-        case this.customIds[5]:
+        case this.customIds[4]:
             return interaction.showModal((await this.buildRechercheModal(interaction)));
 
         // 7️⃣ Jeu
-        case this.customIds[6]:
+        case this.customIds[5]:
           this.state.games = (interaction as StringSelectMenuInteraction).values[0];
           break;
 
         // 8️⃣ Ajouter détails → ouvrir le modal
-        case this.customIds[7]:
+        case this.customIds[6]:
           return interaction.showModal((await this.buildDetailModal(interaction)));
 
         // 9️⃣ Valider → appeler ton manager pour créer l’opération
-        case this.customIds[8]:
+        case this.customIds[7]:
           await this.bot.operationManager.createOperation(interaction,this.state);
-
-        // 🔟 Annuler → supprimer le message et ses contexts
-        case this.customIds[9]:
-          let channel = interaction.channel as TextBasedChannel | null;
-          if (!channel) {
-            channel = await this.bot.channels.fetch(interaction.channelId) as TextBasedChannel;
-          }
-
-          // 2️⃣ Fetch des derniers messages pour retrouver header & detail
-          let msgs: Message[];
-          try {
-            const fetched = await channel.messages.fetch({ limit: 50 });
-            // on trie par date ascendante
-            msgs = Array.from(fetched.values()).sort((a, b) => a.createdTimestamp - b.createdTimestamp);
-          } catch (err) {
-            this.logger.warn({ msg: "Impossible de fetcher les messages pour suppression :", err });
-            return;
-          }
-
-          // 3️⃣ Trouver l'index du message de détail (celui qu'on supprime via le bouton)
-          const detailIdx = msgs.findIndex(m => m.id === interaction.message.id);
-          if (detailIdx === -1) return; // on ne le retrouve pas : on stoppe
-
-          // 4️⃣ Collecter à supprimer : detail + header juste avant
-          const toDelete = [msgs[detailIdx]];
-          if (detailIdx > 0) {
-            toDelete.push(msgs[detailIdx - 1]);
-          }
-
-          // 5️⃣ Supprimer chaque message et nettoyer la DB
-          await Promise.all(toDelete.map(async msg => {
-            try {
-              await msg.delete();
-            } catch (delErr) {
-              this.logger.warn({ msg: `Impossible de supprimer le message ${msg.id}`, err: delErr });
-            }
-            try {
-              await this.em.nativeDelete(InteractionContext, { messageId: msg.id });
-            } catch (dbErr) {
-              this.logger.warn({ msg: `Impossible de supprimer les contexts pour ${msg.id}`, err: dbErr });
-            }
-          }));
-
+          await this.cleanupFormMessages(interaction);
           return;
 
-        case this.customIds[12]:
+        // 🔟 Annuler → supprimer le message et ses contexts
+        case this.customIds[8]:
+          await this.cleanupFormMessages(interaction);
+          return;
+
+        case this.customIds[11]:
           this.state.typeSpe = (interaction as StringSelectMenuInteraction).values[0];
           break;  
         default:
@@ -575,15 +525,55 @@ export class OperationView extends BaseComponentView {
       }
     }
 
+    private async cleanupFormMessages(interaction: StringSelectMenuInteraction | ButtonInteraction): Promise<void> {
+      let channel = interaction.channel as TextBasedChannel | null;
+      if (!channel) {
+        channel = await this.bot.channels.fetch(interaction.channelId) as TextBasedChannel;
+      }
+
+      let msgs: Message[];
+      try {
+        const fetched = await channel.messages.fetch({ limit: 50 });
+        msgs = Array.from(fetched.values()).sort((a, b) => a.createdTimestamp - b.createdTimestamp);
+      } catch (err) {
+        this.logger.warn({ msg: 'Impossible de fetcher les messages pour suppression :', err });
+        return;
+      }
+
+      const detailIdx = msgs.findIndex(m => m.id === interaction.message.id);
+      if (detailIdx === -1) {
+        return;
+      }
+
+      const toDelete = [msgs[detailIdx]];
+      if (detailIdx > 0) {
+        toDelete.push(msgs[detailIdx - 1]);
+      }
+
+      await Promise.all(toDelete.map(async msg => {
+        try {
+          await msg.delete();
+        } catch (delErr) {
+          this.logger.warn({ msg: `Impossible de supprimer le message ${msg.id}`, err: delErr });
+        }
+        try {
+          await this.em.nativeDelete(InteractionContext, { messageId: msg.id });
+        } catch (dbErr) {
+          this.logger.warn({ msg: `Impossible de supprimer les contexts pour ${msg.id}`, err: dbErr });
+        }
+      }));
+    }
+
     /** À surcharger pour gérer le submit du modal */
     protected async onModalSubmit(interaction: ModalSubmitInteraction): Promise<void> {
-      if (interaction.customId == this.customIds[10]) {
+      if (interaction.customId == this.customIds[9]) {
         this.state.description = interaction.fields.getTextInputValue('description');
         if (this.state.type !== this.bot.operationManager.roleConfig.get('🎮')) {
           this.state.equip       = interaction.fields.getTextInputValue('equip');
           this.state.reward      = interaction.fields.getTextInputValue('reward');
         }
         this.state.url         = interaction.fields.getTextInputValue('url');
+        this.state.startAt     = interaction.fields.getTextInputValue('start_at').trim();
 
       } else {
         const query = interaction.fields.getTextInputValue('research').trim();
@@ -609,18 +599,20 @@ export class OperationView extends BaseComponentView {
         }
       }
 
-      await this.em.nativeDelete(InteractionContext,  {
-        messageId:   interaction.message!.id,       // ou interaction.channel.messages.fetch…
-        channelId:   interaction.channelId,
-        customId:    interaction.customId,          // 'details_modal'
-        handlerKey:  this.handlerKey,
-      });
+      if (interaction.message?.id) {
+        await this.em.nativeDelete(InteractionContext,  {
+          messageId:   interaction.message.id,
+          channelId:   interaction.channelId,
+          customId:    interaction.customId,
+          handlerKey:  this.handlerKey,
+        });
+      }
       
     }
 
     private async buildRechercheModal(interaction: StringSelectMenuInteraction | ButtonInteraction): Promise<ModalBuilder> {
       const modal = new ModalBuilder()
-        .setCustomId(this.customIds[11])  
+        .setCustomId(this.customIds[10])  
         .setTitle('Recherche');
 
       const rechercheInput = new TextInputBuilder()
@@ -639,21 +631,21 @@ export class OperationView extends BaseComponentView {
       const existing = await this.em.findOne(InteractionContext, {
         messageId:   interaction.message.id,      
         channelId:   interaction.channelId,
-        customId:    this.customIds[11],          
+        customId:    this.customIds[10],          
         handlerKey:  this.handlerKey,
       });
 
       if (existing) {
-        existing.data = this.getData(this.customIds[11]);
+        existing.data = this.getData(this.customIds[10]);
         await this.em.persist(existing).flush();     
       } else {
         const ctx = this.em.create(InteractionContext, {
           messageId:   interaction.message.id,       
           channelId:   interaction.channelId,
-          customId:    this.customIds[11],         
+          customId:    this.customIds[10],         
           handlerKey:  this.handlerKey,
           componentType: this.componentType,
-          data:        this.getData(this.customIds[11]),
+          data:        this.getData(this.customIds[10]),
         });
         await this.em.persist(ctx).flush();
       }
@@ -663,18 +655,29 @@ export class OperationView extends BaseComponentView {
 
     private async buildDetailModal(interaction: StringSelectMenuInteraction | ButtonInteraction): Promise<ModalBuilder> {
       const modal = new ModalBuilder()
-        .setCustomId(this.customIds[10])  // 'details_modal'
+        .setCustomId(this.customIds[9])
         .setTitle('Ajouter des détails');
 
-      // 1️⃣ Description (paragraphe)
+      const now = new Date();
+      const defaultStartAt = `${String(now.getDate()).padStart(2, '0')}/${String(now.getMonth() + 1).padStart(2, '0')}/${now.getFullYear()} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+      const startAtInput = new TextInputBuilder()
+        .setCustomId('start_at')
+        .setLabel('Date/heure de départ (JJ/MM/AAAA HH:mm)')
+        .setStyle(TextInputStyle.Short)
+        .setRequired(true)
+        .setPlaceholder('Exemple: 21/05/2026 20:30')
+        .setValue(this.state.startAt ?? defaultStartAt);
+
+      modal.addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(startAtInput));
+
+      // 1️⃣ Description
       const descriptionInput = new TextInputBuilder()
         .setCustomId('description')
         .setLabel('Description')
-        .setStyle(TextInputStyle.Paragraph)
+        .setStyle(TextInputStyle.Short)
         .setRequired(true)
         .setPlaceholder('Entrez un texte ici..')
         .setValue(this.state.description ?? '')
-        .setStyle(TextInputStyle.Short)
         .setMaxLength(200);
 
       modal.addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(descriptionInput));
@@ -725,21 +728,21 @@ export class OperationView extends BaseComponentView {
       const existing = await this.em.findOne(InteractionContext, {
         messageId:   interaction.message.id,       // ou interaction.channel.messages.fetch…
         channelId:   interaction.channelId,
-        customId:    this.customIds[10],          // 'details_modal'
+        customId:    this.customIds[9],
         handlerKey:  this.handlerKey,
       });
 
       if (existing) {
-        existing.data = this.getData(this.customIds[10]);
+        existing.data = this.getData(this.customIds[9]);
         await this.em.persist(existing).flush();      // seulement persist, pas flush
       } else {
         const ctx = this.em.create(InteractionContext, {
           messageId:   interaction.message.id,       // ou interaction.channel.messages.fetch…
           channelId:   interaction.channelId,
-          customId:    this.customIds[10],          // 'details_modal'
+          customId:    this.customIds[9],
           handlerKey:  this.handlerKey,
           componentType: this.componentType,
-          data:        this.getData(this.customIds[10]),
+          data:        this.getData(this.customIds[9]),
         });
         await this.em.persist(ctx).flush();
       }

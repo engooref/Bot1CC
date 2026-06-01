@@ -1,5 +1,5 @@
 import { User as UserEntity } from '../entities/core/User.js';
-import { RHMember as RHMemberEntity } from '../entities/hr/RHMember.js';
+import { RHMember as RHMemberEntity } from '../entities/rh/RHMember.js';
 import { BotManager } from '../BotManager.js';
 import { getManagerLogger } from '../logger.js';
 import { Response } from '../entities/event/Response.js';

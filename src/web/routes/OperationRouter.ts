@@ -1,55 +1,30 @@
 import { Router, Request } from 'express';
 import { BotManager } from '../../BotManager.js';
-import { WebOperationCreateInput } from '../../managers/OperationManager.js';
 import multer from 'multer';
+import { MiningSession } from '../../entities/mining/MiningSession.js';
 
 
 interface CreateOperationBody {
-  userId?: string | number;
-  responsableId?: string | number;
-  discordId?: string | number;
-  type?: string | number;
-  minutes?: string | number;
-  location?: string | number;
-  games?: string | number;
-  description?: string | number;
-  equip?: string | number;
-  reward?: string | number;
-  url?: string | number;
-  miningSessionUrl?: string | number;
-  sessionUrl?: string | number;
-  typeSpe?: string | number;
+  miningSessionId?: string | number;
 }
 
-function optionalString(value: unknown): string | undefined {
-  const normalized = String(value ?? '').trim();
-  return normalized || undefined;
-}
-
-function parseCreateOperationBody(body: CreateOperationBody): WebOperationCreateInput {
-  const userId = optionalString(body.userId ?? body.responsableId ?? body.discordId);
-  if (!userId) {
-    throw new Error('userId manquant');
+async function parseCreateOperationBody(bot: BotManager, body: CreateOperationBody): Promise<MiningSession | null> {
+  const sessionIdRaw = body.miningSessionId;
+  if (sessionIdRaw === undefined || sessionIdRaw === null || String(sessionIdRaw).trim() === '') {
+    throw new Error('miningSessionId manquant');
   }
 
-  const minutes = optionalString(body.minutes);
-  if (!minutes) {
-    throw new Error('minutes manquant');
+  const sessionId = Number(sessionIdRaw);
+  if (!Number.isInteger(sessionId) || sessionId <= 0) {
+    throw new Error('miningSessionId invalide');
   }
 
-  return {
-    userId,
-    type: optionalString(body.type),
-    minutes,
-    location: optionalString(body.location) ?? '0.0.0',
-    games: optionalString(body.games),
-    description: optionalString(body.description),
-    equip: optionalString(body.equip),
-    reward: optionalString(body.reward),
-    url: optionalString(body.url),
-    miningSessionUrl: optionalString(body.miningSessionUrl ?? body.sessionUrl),
-    typeSpe: optionalString(body.typeSpe),
-  };
+  const repo = bot.db.getEm().getRepository(MiningSession);
+
+  return await repo.findOne(
+    { id: sessionId, operationCreated: false },
+    { populate: ['defaultBody', 'createdBy'] }
+  );
 }
 
 const upload = multer({ storage: multer.memoryStorage() });
@@ -59,9 +34,18 @@ export default function createOperationRouter(bot: BotManager): Router {
 
   router.post('/create', upload.none(), async (req: Request<{}, {}, CreateOperationBody>, res, next) => {
     try {
-      const payload = parseCreateOperationBody(req.body as CreateOperationBody);
-      const operation = await bot.operationManager.createOperationFromWeb(payload);
-      res.json({ success: true, operation });
+      const session = await parseCreateOperationBody(bot, req.body as CreateOperationBody);
+      if (!session) {
+        throw new Error('Session introuvable ou opération déjà créée');
+      }
+      const operation = await bot.operationManager.createOperationFromWeb(session);
+      
+      if (operation) {
+        session.operationCreated = true;
+        await bot.db.getEm().persist(session).flush();
+      }
+      
+      res.json({ success: true });
     } catch (err) {
       next(err);
     }

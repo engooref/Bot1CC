@@ -10,6 +10,8 @@ import {
   TextBasedChannel,
   Message,
   AttachmentBuilder,
+  EmbedBuilder,
+  Colors,
 } from 'discord.js';
 
 /** Interactions possibles dans handlerForm — exclut ChatInputCommandInteraction (pas de customId) */
@@ -24,15 +26,16 @@ import { JSONConfigManager } from '../utils/JSONConfigManager.js';
 import { getManagerLogger } from '../logger.js';
 import { StarSystem } from '../entities/operations/StarSystem.js';
 import { CelestialBody, CelestialBodyType } from '../entities/operations/CelestialBody.js';
-import { SVGManager } from '../utils/SVGManager.js';
-import { lookup } from 'mime-types';
+import { TempLink } from '../entities/operations/TempLink.js';
 import { OperationRoleManager } from './OperationRoleManager.js';
+import { MiningSession } from '../entities/mining/MiningSession.js';
 
 const CATEGORY_NAME = 'Opérations';
 const FOLDER_NAME = "Operations";
 const BASE = path.resolve('config');
 const PENDING_LINKS_PATH = path.join(BASE, 'pendingLinks.json');
-const ALLOWED_START_DELAYS = ['0', '15', '30', '45', '60', '90', '120', '150', '180'];
+const MAX_START_DELAY_MINUTES = 24 * 60;
+const PENDING_LINK_RETRY_INTERVAL_MS = 15 * 60 * 1000;
 
 interface OperationAuthor {
   id: string;
@@ -66,6 +69,7 @@ export class OperationModule {
   public roleManager: OperationRoleManager;
   private creationView: CreationOperationView;
   private fcategory: CategoryChannel | undefined;
+  private pendingLinkTimers = new Map<string, NodeJS.Timeout>();
   private logger = getManagerLogger('OperationModule');
 
   constructor(private bot: BotManager) {
@@ -177,7 +181,7 @@ export class OperationModule {
   private normalizeOperationState(state: OperationState): OperationState {
     return {
       type: this.normalizeOptionalString(state.type),
-      minutes: String(state.minutes ?? '').trim(),
+      startAt: this.normalizeOptionalString(state.startAt),
       location: this.normalizeOptionalString(state.location) ?? '0.0.0',
       games: this.normalizeOptionalString(state.games),
       description: this.normalizeOptionalString(state.description),
@@ -251,9 +255,10 @@ export class OperationModule {
       throw new Error('type invalide');
     }
 
-    if (!ALLOWED_START_DELAYS.includes(normalized.minutes)) {
-      throw new Error(`minutes invalide, valeurs autorisées: ${ALLOWED_START_DELAYS.join(', ')}`);
+    if (!normalized.startAt) {
+      throw new Error('date/heure de départ manquante');
     }
+
     if (!normalized.description) {
       throw new Error('description manquante');
     }
@@ -292,13 +297,132 @@ export class OperationModule {
     return normalized;
   }
 
-  private async getOperationAuthor(userId: string): Promise<OperationAuthor> {
-    const member = await this.bot.guild.members.fetch(userId);
+  private async getOperationAuthor(discordId: string): Promise<OperationAuthor> {
+    const member = await this.bot.guild.members.fetch(discordId);
     return {
       id: member.id,
       username: member.user.username,
       displayName: member.displayName,
     };
+  }
+
+  private parseCustomStartAt(value: string): Date | null {
+    const frMatch = /^(\d{2})\/(\d{2})\/(\d{4})\s+(\d{2}):(\d{2})$/.exec(value);
+    if (frMatch) {
+      const [, day, month, year, hour, minute] = frMatch;
+      const date = new Date(
+        Number.parseInt(year, 10),
+        Number.parseInt(month, 10) - 1,
+        Number.parseInt(day, 10),
+        Number.parseInt(hour, 10),
+        Number.parseInt(minute, 10),
+        0,
+        0,
+      );
+
+      const valid = date.getFullYear() === Number.parseInt(year, 10)
+        && date.getMonth() === (Number.parseInt(month, 10) - 1)
+        && date.getDate() === Number.parseInt(day, 10)
+        && date.getHours() === Number.parseInt(hour, 10)
+        && date.getMinutes() === Number.parseInt(minute, 10);
+
+      return valid ? date : null;
+    }
+
+    const isoMatch = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})$/.exec(value);
+    if (isoMatch) {
+      const [, year, month, day, hour, minute] = isoMatch;
+      const date = new Date(
+        Number.parseInt(year, 10),
+        Number.parseInt(month, 10) - 1,
+        Number.parseInt(day, 10),
+        Number.parseInt(hour, 10),
+        Number.parseInt(minute, 10),
+        0,
+        0,
+      );
+
+      const valid = date.getFullYear() === Number.parseInt(year, 10)
+        && date.getMonth() === (Number.parseInt(month, 10) - 1)
+        && date.getDate() === Number.parseInt(day, 10)
+        && date.getHours() === Number.parseInt(hour, 10)
+        && date.getMinutes() === Number.parseInt(minute, 10);
+
+      return valid ? date : null;
+    }
+
+    return null;
+  }
+
+  private resolveOperationStartDate(state: OperationState): Date {
+    const now = Date.now();
+
+    const rawStartAt = String(state.startAt ?? '').trim();
+    const parsed = this.parseCustomStartAt(rawStartAt);
+    if (!parsed) {
+      throw new Error('date/heure invalide, formats attendus: JJ/MM/AAAA HH:mm ou YYYY-MM-DD HH:mm');
+    }
+    let startDate = parsed;
+
+    // Si l'heure saisie est déjà passée, on bascule en départ immédiat.
+    if (startDate.getTime() < now) {
+      startDate = new Date(now);
+    }
+
+    const startAt = startDate.getTime();
+    const maxStartAt = now + MAX_START_DELAY_MINUTES * 60_000;
+
+    if (startAt > maxStartAt) {
+      throw new Error('date/heure de départ trop éloignée (maximum 24h)');
+    }
+
+    return startDate;
+  }
+
+  private formatStartAt(date: Date): string {
+    return `${String(date.getDate()).padStart(2, '0')}/${String(date.getMonth() + 1).padStart(2, '0')}/${date.getFullYear()} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+  }
+
+  private normalizeHttpUrl(value: string | null | undefined): string | null {
+    const raw = String(value ?? '').trim();
+    if (!raw) {
+      return null;
+    }
+
+    try {
+      const parsed = new URL(raw);
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+        return null;
+      }
+      return parsed.toString();
+    } catch {
+      return null;
+    }
+  }
+
+  private resolveOperationVisualPath(state: OperationState, roleName: string): string | null {
+    const baseDir = path.join('Data', FOLDER_NAME);
+
+    if (state.type === this.bot.operationManager.roleConfig.get('🎮') && state.games) {
+      const mgPng = path.join(baseDir, 'MG', `${state.games}.png`);
+      if (fs.existsSync(mgPng)) {
+        return mgPng;
+      }
+    }
+
+    if (state.typeSpe && state.typeSpe !== 'GE') {
+      const mpPng = path.join(baseDir, 'MP', `${state.typeSpe}.png`);
+      if (fs.existsSync(mpPng)) {
+        return mpPng;
+      }
+    }
+
+    const rootPng = path.join(baseDir, `${roleName}.png`);
+    if (fs.existsSync(rootPng)) {
+      return rootPng;
+    }
+
+    return null;
   }
 
   private async createOperationForAuthor(
@@ -311,30 +435,8 @@ export class OperationModule {
       throw new Error('role introuvable');
     }
 
-    const name = (validatedState.typeSpe && validatedState.typeSpe !== 'GE') ? path.join('MP', validatedState.typeSpe) : role.name;
-    const config = {
-      svgTemplatePath: path.join('Data', FOLDER_NAME, `${name}.svg`),
-      xsltPath: path.join('Data', FOLDER_NAME, 'template.xslt'),
-      outputSvgPath: path.join('Data', FOLDER_NAME, 'operation.svg'),
-      outputPngPath: path.join('Data', FOLDER_NAME, `${author.username}_${role.name}.png`),
-      baseDir: path.join('Data', FOLDER_NAME)
-    };
-
-    const mins = Number(validatedState.minutes) || 0;
-    const futureDate = new Date(Date.now() + mins * 60_000);
-    const timeString = new Intl.DateTimeFormat('fr-FR', {
-      hour12: false,
-      hour:   '2-digit',
-      minute: '2-digit',
-      timeZone: 'Europe/Paris'
-    }).format(futureDate);
-    const dateString = new Intl.DateTimeFormat('fr-FR', {
-      weekday: 'long',
-      day:     '2-digit',
-      month:   '2-digit',
-      year:    'numeric',
-      timeZone: 'Europe/Paris'
-    }).format(futureDate).toUpperCase();
+    const futureDate = this.resolveOperationStartDate(validatedState);
+    const startTimestamp = Math.floor(futureDate.getTime() / 1000);
 
     const [starId, planetId, moonId] = validatedState.location.split('.').map((n: string) => parseInt(n, 10));
     const names: string[] = [];
@@ -356,36 +458,52 @@ export class OperationModule {
         names.push(moon.name);
       }
     }
-    const entete = `[${timeString}] OPÉRATION ${role.name.toUpperCase().split('-')[1]} - RESPONSABLE: ${author.displayName}`;
-    const operationInfo = validatedState.autoCreated ? `${entete} - AUTOMATIQUE` : entete;
 
-    let dataUri: string | null = null;
+    const locationText = names.length > 0 ? names.join(' > ') : 'Non renseignee';
+    const subtitle = locationText !== 'Non renseignee' ? ` - ${locationText}` : '';
 
-    if (validatedState.type === this.bot.operationManager.roleConfig.get('🎮')) {
-      const imgPath = path.join(config.baseDir, 'MG', `${validatedState.games}.png`);
-      const fileBuffer = fs.readFileSync(imgPath);
+    const embed = new EmbedBuilder()
+      .setColor(role.color || Colors.Blue)
+      .setTitle(`${role.name}${subtitle}`)
+      .setDescription(
+        `> ${validatedState.description ?? 'Aucune description fournie.'}\n\n` +
+        `Preparez votre equipement et confirmez votre presence avant le depart.`
+      )
+      .addFields(
+        { name: '🕒 Depart', value: `<t:${startTimestamp}:F>\n<t:${startTimestamp}:R>`, inline: true },
+        { name: '👤 Responsable', value: `<@${author.id}>`, inline: true },
+      )
+      .setFooter({ text: 'Interstellar Companion | 1er Corps Colonial' })
+      .setTimestamp(futureDate);
 
-      const contentType =
-        lookup(imgPath) || 'application/octet-stream';
-
-      const base64 = fileBuffer.toString('base64');
-
-      dataUri = `data:${contentType};base64,${base64}`;
+    if (validatedState.typeSpe && validatedState.typeSpe !== 'GE') {
+      embed.addFields({ name: '🧭 Specialisation', value: validatedState.typeSpe, inline: true });
     }
 
-    const materiel = (validatedState.type === this.bot.operationManager.roleConfig.get('🎮')) ? this.gameConfig.get(validatedState.games!) : (validatedState.equip ? `Equipement: ${validatedState.equip}` : '');
-    const data = {
-      description: validatedState.description ? validatedState.description : '',
-      materiel: materiel,
-      prime: validatedState.reward ? `Prime: ${validatedState.reward}` : '',
-      localisation: names.join(' >> '),
-      info: operationInfo,
-      date: dateString,
-      imgMG: (validatedState.type === this.bot.operationManager.roleConfig.get('🎮')) ? dataUri : ''
-    };
+    if (validatedState.type === this.bot.operationManager.roleConfig.get('🎮') && validatedState.games) {
+      embed.addFields({ name: 'Jeu', value: this.gameConfig.get(validatedState.games) ?? validatedState.games, inline: true });
+    }
 
-    const SVGMgr = new SVGManager(data, config);
-    await SVGMgr.generateImage();
+    embed.addFields({ name: '📍 Localisation', value: locationText, inline: true });
+
+    if (validatedState.equip) {
+      embed.addFields({ name: '🎒 Equipement', value: validatedState.equip, inline: true });
+    }
+
+    if (validatedState.reward) {
+      embed.addFields({ name: '💰 Recompense', value: validatedState.reward, inline: true });
+    }
+
+    const visualPath = this.resolveOperationVisualPath(validatedState, role.name);
+    const files: AttachmentBuilder[] = [];
+    if (visualPath) {
+      const imageName = path.basename(visualPath);
+      files.push(new AttachmentBuilder(visualPath, { name: imageName }));
+    }
+
+    if (validatedState.autoCreated) {
+      embed.setFooter({ text: 'Création automatique depuis le web' });
+    }
 
     let channel = this.bot.guild.channels.cache.find(
       (c) => c.type === ChannelType.GuildText && c.name === role.name.replace(' ', '-').toLowerCase()
@@ -401,12 +519,12 @@ export class OperationModule {
       throw new Error('channel introuvable pour ce type d\'opération');
     }
 
-    const attachment = new AttachmentBuilder(config.outputPngPath);
     const emoji = this.bot.guild.emojis.cache.get('1213915551210930306') ?? '👍';
 
     const message = await channel.send({
       content: `${role}\nPour valider votre présence interagissez avec l'emoji ${emoji}`,
-      files: [attachment]
+      embeds: [embed],
+      files,
     });
     await message.react(emoji);
     const thread = await message.startThread({
@@ -448,20 +566,21 @@ export class OperationModule {
         });
 
         const response = await fetch(`${siteUrl}?${params.toString()}`);
+        const rawBody = await response.text();
+
         if (response.ok) {
-          let json;
+          let json: Record<string, unknown>;
           try {
-            json = await response.json();
+            json = JSON.parse(rawBody) as Record<string, unknown>;
           } catch (jsonErr) {
-            const text = await response.text();
-            await this.logger.error({ msg: 'Réponse non JSON du site:', text });
+            await this.logger.error({ msg: 'Réponse non JSON du site:', text: rawBody });
             throw jsonErr;
           }
-          tempUrl = json.temp_url;
-          tempUrlExpiresAt = json.expires_at;
+
+          tempUrl = typeof json.temp_url === 'string' ? json.temp_url : null;
+          tempUrlExpiresAt = typeof json.expires_at === 'string' ? json.expires_at : null;
         } else {
-          const text = await response.text();
-          await this.logger.warn('Erreur lors de la génération du lien temporaire: ' + response.statusText + ' Body: ' + text);
+          await this.logger.warn('Erreur lors de la génération du lien temporaire: ' + response.statusText + ' Body: ' + rawBody);
         }
       } catch (err) {
         await this.logger.error({ msg: 'Erreur lors de la requête vers le site Symfony:', err });
@@ -477,22 +596,9 @@ export class OperationModule {
         id: message.id,
         userId: author.id,
         tempUrl,
-        sendAt: now + delay
+        sendAt: now + delay,
+        channelId: channel.id,
       });
-
-      setTimeout(async () => {
-        try {
-          const reaction = message.reactions.cache.get(typeof emoji === 'string' ? emoji : emoji.id);
-          if (reaction && reaction.count > 2) {
-            const member = await this.bot.guild.members.fetch(author.id);
-            const dm = await member.createDM();
-            await dm.send(`Le rapport d'opération est prêt, voici le lien temporaire valable 2 jours ⬇️\n${tempUrl}\n\nPensez à bien le valider afin d'attribuer l'XP correspondante ⚠️`);
-            this.removePendingLink(message.id);
-          }
-        } catch (err) {
-          await this.logger.warn({ msg: 'Impossible d\'envoyer le lien temporaire en DM:', err });
-        }
-      }, delay);
     }
 
     await this.logger.debug(`Envoi de l'opération créer par ${author.displayName}`);
@@ -559,55 +665,271 @@ export class OperationModule {
     return result;
   }
 
-  public async createOperationFromWeb(input: WebOperationCreateInput): Promise<OperationCreateResult> {
-    const userId = String(input.userId ?? '').trim();
-    if (!userId) {
-      throw new Error('userId manquant');
+  public async createOperationFromWeb(session: MiningSession): Promise<OperationCreateResult> {
+    const author = await this.getOperationAuthor(session.createdBy?.discordId);
+
+    const body = session.defaultBody;
+
+    if (!body) throw new Error('Corps par défaut obligatoire pour l\'opération');
+
+    const readEntityId = (value: unknown): number => {
+      const id = Number((value as { id?: number } | null | undefined)?.id ?? 0);
+      return Number.isFinite(id) ? id : 0;
+    };
+
+    let planetId = 0;
+    let moonId = 0;
+    let systemId = 0;
+
+    if (body.type === CelestialBodyType.PLANET) {
+      planetId = body.id;
+      systemId = readEntityId(body.system);
     }
 
-    const author = await this.getOperationAuthor(userId);
-    return this.createOperationForAuthor(author, { ...input, autoCreated: true });
+    if (body.type === CelestialBodyType.MOON) {
+      moonId = body.id;
+      planetId = readEntityId(body.parent);
+      systemId = readEntityId(body.system);
+    }
+
+    // If relations are not hydrated on the current entity, reload what we need from DB.
+    if (
+      (body.type === CelestialBodyType.PLANET && systemId === 0)
+      || (body.type === CelestialBodyType.MOON && (planetId === 0 || systemId === 0))
+    ) {
+      const hydratedBody = await this.bot.db.getEm().findOne(
+        CelestialBody,
+        { id: body.id },
+        { populate: ['system', 'parent'] },
+      );
+
+      if (!hydratedBody) {
+        throw new Error('Corps céleste introuvable pour la création d\'opération');
+      }
+
+      if (hydratedBody.type === CelestialBodyType.PLANET) {
+        planetId = hydratedBody.id;
+        systemId = readEntityId(hydratedBody.system);
+      }
+
+      if (hydratedBody.type === CelestialBodyType.MOON) {
+        moonId = hydratedBody.id;
+        planetId = readEntityId(hydratedBody.parent);
+        systemId = readEntityId(hydratedBody.system);
+      }
+    }
+
+    if (systemId === 0 || (moonId !== 0 && planetId === 0)) {
+      throw new Error('Impossible de déterminer la localisation de la session de minage');
+    }
+
+    const payload: OperationState  = {
+      type: this.roleConfig.get('🚛')!,
+      typeSpe: 'MN',
+      startAt: this.formatStartAt(new Date()),
+      location: `${systemId}.${planetId}.${moonId}`,
+      description: `Session de minage ${session.name}`,
+      equip: 'Équipement(s) de minage',
+      miningSessionUrl: `https://www.1ercorpscolonial.fr/mining/session/${session.id}`,
+      autoCreated: true,
+    }
+    return this.createOperationForAuthor(author, payload);
   }
 
   /** Gestion des liens temporaires en attente */
-  public loadPendingLinks(): any[] {
+  public loadPendingLinks(): PendingLink[] {
     try {
-      return JSON.parse(fs.readFileSync(PENDING_LINKS_PATH, 'utf-8'));
+      const raw = JSON.parse(fs.readFileSync(PENDING_LINKS_PATH, 'utf-8'));
+      if (!Array.isArray(raw)) {
+        return [];
+      }
+
+      return raw
+        .map((link) => this.normalizePendingLink(link))
+        .filter((link): link is PendingLink => link !== null);
     } catch {
       return [];
     }
   }
 
-  public savePendingLinks(links: any[]) {
+  public savePendingLinks(links: PendingLink[]) {
     fs.writeFileSync(PENDING_LINKS_PATH, JSON.stringify(links, null, 2));
   }
 
-  public addPendingLink(link: any) {
+  private normalizePendingLink(raw: unknown): PendingLink | null {
+    const link = raw as Record<string, unknown>;
+    const id = String(link?.id ?? '').trim();
+    const userId = String(link?.userId ?? '').trim();
+    const tempUrl = String(link?.tempUrl ?? '').trim();
+    const sendAtValue = Number(link?.sendAt ?? 0);
+
+    if (!id || !userId || !tempUrl || !Number.isFinite(sendAtValue)) {
+      return null;
+    }
+
+    const normalized: PendingLink = {
+      id,
+      userId,
+      tempUrl,
+      sendAt: Math.trunc(sendAtValue),
+    };
+
+    const channelId = String(link?.channelId ?? '').trim();
+    if (channelId) {
+      normalized.channelId = channelId;
+    }
+
+    const attempts = Number(link?.attempts);
+    if (Number.isFinite(attempts) && attempts > 0) {
+      normalized.attempts = Math.trunc(attempts);
+    }
+
+    const lastAttemptAt = Number(link?.lastAttemptAt);
+    if (Number.isFinite(lastAttemptAt) && lastAttemptAt > 0) {
+      normalized.lastAttemptAt = Math.trunc(lastAttemptAt);
+    }
+
+    const lastError = String(link?.lastError ?? '').trim();
+    if (lastError) {
+      normalized.lastError = lastError;
+    }
+
+    return normalized;
+  }
+
+  private clearPendingLinkTimer(id: string): void {
+    const timer = this.pendingLinkTimers.get(id);
+    if (timer) {
+      clearTimeout(timer);
+      this.pendingLinkTimers.delete(id);
+    }
+  }
+
+  private schedulePendingLink(link: PendingLink): void {
+    this.clearPendingLinkTimer(link.id);
+
+    const delay = Math.max(0, link.sendAt - Date.now());
+    const timer = setTimeout(() => {
+      void this.processPendingLink(link.id);
+    }, delay);
+
+    this.pendingLinkTimers.set(link.id, timer);
+  }
+
+  private async hasEnoughParticipants(link: PendingLink): Promise<boolean> {
+    if (!link.channelId) {
+      // Backward compatibility with older entries that do not persist channelId.
+      return true;
+    }
+
+    try {
+      // Vérifier si le TempLink est archivé (message supprimé après 4h)
+      const em = this.bot.db.getEm();
+      const tempLink = await em.findOne(TempLink, { operationId: link.id });
+      if (tempLink?.isArchived()) {
+        await this.logger.debug({ operationId: link.id }, 'TempLink archivé, considéré comme prêt');
+        return true;
+      }
+
+      const fetchedChannel = await this.bot.guild.channels.fetch(link.channelId);
+      if (!fetchedChannel || fetchedChannel.type !== ChannelType.GuildText) {
+        return false;
+      }
+
+      const message = await (fetchedChannel as TextChannel).messages.fetch(link.id);
+      return message.reactions.cache.some((reaction) => (reaction.count ?? 0) > 2);
+    } catch (err: unknown) {
+      // Si le message est introuvable (supprimé), on considère que c'est prêt
+      if ((err as any)?.code === 10008) {
+        await this.logger.debug({ operationId: link.id }, 'Message supprimé (après 4h), envoi du lien');
+        return true;
+      }
+
+      await this.logger.warn({ msg: 'Impossible de vérifier les réactions de l\'opération:', operationId: link.id, err });
+      return false;
+    }
+  }
+
+  private async processPendingLink(id: string): Promise<void> {
     const links = this.loadPendingLinks();
-    links.push(link);
+    const link = links.find((entry) => entry.id === id);
+    if (!link) {
+      this.clearPendingLinkTimer(id);
+      return;
+    }
+
+    // Vérifier si le lien a déjà été envoyé en DM
+    const em = this.bot.db.getEm();
+    const tempLink = await em.findOne(TempLink, { operationId: link.id });
+    if (tempLink?.dmSent) {
+      this.logger.debug({ operationId: link.id }, 'Lien déjà envoyé en DM, suppression');
+      this.removePendingLink(link.id);
+      return;
+    }
+
+    if (link.sendAt > Date.now()) {
+      this.schedulePendingLink(link);
+      return;
+    }
+
+    const isReady = await this.hasEnoughParticipants(link);
+    if (!isReady) {
+      link.sendAt = Date.now() + PENDING_LINK_RETRY_INTERVAL_MS;
+      link.attempts = (link.attempts ?? 0) + 1;
+      link.lastAttemptAt = Date.now();
+      link.lastError = 'Participation insuffisante';
+      this.savePendingLinks(links);
+      this.schedulePendingLink(link);
+      return;
+    }
+
+    try {
+      const member = await this.bot.guild.members.fetch(link.userId);
+      const dm = await member.createDM();
+      await dm.send(`Le rapport d'opération est prêt, voici le lien temporaire valable 2 jours ⬇️\n${link.tempUrl}\n\nPensez à bien le valider afin d'attribuer l'XP correspondante ⚠️`);
+
+      // Marquer le lien comme envoyé en DM dans la base de données
+      if (tempLink) {
+        tempLink.dmSent = true;
+        await em.persistAndFlush(tempLink);
+      }
+
+      this.removePendingLink(link.id);
+    } catch (err) {
+      link.sendAt = Date.now() + PENDING_LINK_RETRY_INTERVAL_MS;
+      link.attempts = (link.attempts ?? 0) + 1;
+      link.lastAttemptAt = Date.now();
+      link.lastError = err instanceof Error ? err.message : String(err);
+      this.savePendingLinks(links);
+      this.schedulePendingLink(link);
+      await this.logger.warn({ msg: 'Impossible d\'envoyer le lien temporaire en DM:', operationId: link.id, err });
+    }
+  }
+
+  public addPendingLink(link: PendingLink) {
+    const links = this.loadPendingLinks();
+    const existingIndex = links.findIndex((entry) => entry.id === link.id);
+    if (existingIndex >= 0) {
+      links[existingIndex] = link;
+    } else {
+      links.push(link);
+    }
+
     this.savePendingLinks(links);
+    this.schedulePendingLink(link);
   }
 
   public removePendingLink(id: string) {
+    this.clearPendingLinkTimer(id);
     let links = this.loadPendingLinks();
-    links = links.filter(l => l.id !== id);
+    links = links.filter((l) => l.id !== id);
     this.savePendingLinks(links);
   }
 
   public resumePendingLinks() {
     const links = this.loadPendingLinks();
     for (const link of links) {
-      const delay = Math.max(0, link.sendAt - Date.now());
-      setTimeout(async () => {
-        try {
-          const user = await this.bot.guild.members.fetch(link.userId);
-          const dm = await user.createDM();
-          await dm.send(`Voici ton lien temporaire d'accès au rapport d'opération :\n${link.tempUrl}`);
-          this.removePendingLink(link.id);
-        } catch (err) {
-          await this.logger.warn({ msg: "Impossible d'envoyer le lien temporaire en DM:", err });
-        }
-      }, delay);
+      this.schedulePendingLink(link);
     }
   }
 }

@@ -15,6 +15,10 @@ import {
   VoiceChannel,
   PermissionFlagsBits,
   Events,
+  MessageReaction,
+  PartialMessageReaction,
+  User as DiscordUser,
+  PartialUser,
 } from 'discord.js';
 import { BotManager } from '../BotManager.js';
 import { botLogger } from '../logger.js';
@@ -41,6 +45,8 @@ export function registerDiscordEvents(bot: BotManager): void {
   bot.on(Events.InteractionCreate, (interaction) => _onInteraction(bot, interaction));
   bot.on('voiceStateUpdate', (oldState, newState) => _onVoiceStateUpdate(bot, oldState, newState));
   bot.on('messageCreate', (message) => _onMessageCreate(bot, message));
+  bot.on('messageReactionAdd', (reaction, user) => _onMessageReactionAdd(bot, reaction, user));
+  bot.on('messageReactionRemove', (reaction, user) => _onMessageReactionRemove(bot, reaction, user));
 }
 
 async function _onGuildRoleCreate(bot: BotManager, role: Role): Promise<void> {
@@ -225,7 +231,7 @@ async function _onGuildMemberRemove(bot: BotManager, member: GuildMember | Parti
 
 async function _onInteraction(bot: BotManager, interaction: Interaction): Promise<void> {
   try {
-    if (interaction.isButton() || interaction.isStringSelectMenu() || interaction.isModalSubmit()) {
+    if (interaction.isButton() || interaction.isAnySelectMenu() || interaction.isModalSubmit()) {
       const { customId, message } = interaction;
 
       const ctx = await bot.db.getEm().findOne(InteractionContext, { customId, messageId: message?.id });
@@ -598,5 +604,30 @@ async function _onMessageCreate(bot: BotManager, message: Message): Promise<void
 
   } catch (err) {
     await botLogger.error({ op: "MESSAGE_CREATE", err });
+  }
+}
+
+async function _onMessageReactionAdd(
+  bot: BotManager,
+  reaction: MessageReaction | PartialMessageReaction,
+  user: DiscordUser | PartialUser
+): Promise<void> {
+  try {
+    await botLogger.debug({ op: "MESSAGE_REACTION_ADD", messageId: reaction.message?.id, userId: user.id }, "Réaction ajoutée");
+    await bot.reactionManager.handleReactionAdd(reaction, user);
+  } catch (err) {
+    await botLogger.error({ op: "MESSAGE_REACTION_ADD", err });
+  }
+}
+
+async function _onMessageReactionRemove(
+  bot: BotManager,
+  reaction: MessageReaction | PartialMessageReaction,
+  user: DiscordUser | PartialUser
+): Promise<void> {
+  try {
+    await bot.reactionManager.handleReactionRemove(reaction, user);
+  } catch (err) {
+    await botLogger.error({ op: "MESSAGE_REACTION_REMOVE", err });
   }
 }

@@ -48,6 +48,8 @@ export enum ViewHandlers {
     PromotionsHandler = 'PromotionsHandler',
     DuelHandler = 'DuelHandler',
     GithubHandler = 'GithubHandler',
+    AutoMessageHandler = 'AutoMessageHandler',
+    ScheduledResponseHandler = 'ScheduledResponseHandler',
 }
 
 export type ComponentInteraction = ButtonInteraction | StringSelectMenuInteraction | ChatInputCommandInteraction | ModalSubmitInteraction;

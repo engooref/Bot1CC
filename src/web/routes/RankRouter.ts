@@ -7,7 +7,7 @@ import { Role } from 'discord.js';
 import PromotionsView from '../../view/PromotionsView.js';
 import { Rank } from '../../entities/core/Rank.js';
 import { httpLogger } from '../../logger.js';
-import { RHMember } from '../../entities/hr/RHMember.js';
+import { RHMember } from '../../entities/rh/RHMember.js';
 
 
 export interface UserPromotionDto {
@@ -26,6 +26,27 @@ export interface UserListDto {
 }
 
 const upload = multer({ storage: multer.memoryStorage() });
+
+function isPromotionBasedOnHierarchy(oldGrade: Rank | null | undefined, newGrade: Rank): boolean {
+  if (!oldGrade) return true;
+
+  // Parcours la hiérarchie de newGrade pour voir si oldGrade est un ancêtre (promotion)
+  let current: Rank | null | undefined = newGrade.baseRank;
+  while (current) {
+    if (current.id === oldGrade.id) return true;
+    current = current.baseRank;
+  }
+
+  // Parcours la hiérarchie d'oldGrade pour voir si newGrade est un ancêtre (rétrogradation)
+  current = oldGrade.baseRank;
+  while (current) {
+    if (current.id === newGrade.id) return false;
+    current = current.baseRank;
+  }
+
+  // Si pas de relation hiérarchique trouvée, utilise l'ID comme fallback
+  return oldGrade.id < newGrade.id;
+}
 
 function parseJsonIfString<T>(v: unknown, fieldName: string): T {
   if (typeof v === 'string') {
@@ -87,21 +108,32 @@ export default function createRankRouter(bot: BotManager): Router {
             const results: { discordId: string; success: boolean; error?: string }[] = [];
 
             for (const promotion of promotions) {
-                const { discordId, rank } = promotion;
+                const { discordId, rank: rankName } = promotion;
                 try {
                     // Récupère l'utilisateur Discord
                     const member = await bot.guild.members.fetch(discordId);
                     // Récupère le rank (à adapter selon ta logique métier)
-                    const userEntity = await em.findOneOrFail(User, { discordId }, { populate: ['rhProfile', 'rhProfile.grade'] });
+                    const userEntity = await em.findOneOrFail(User, { discordId }, { populate: ['rhProfile', 'rhProfile.grade', 'rhProfile.grade.baseRank'] });
                     if (userEntity.rhProfile?.promotionSend) continue;
-                    const oldRank = userEntity.rhProfile?.grade?.name ?? bot.roleMember?.name ?? 'Aucun';
 
+                    const oldGrade = userEntity.rhProfile?.grade;
+                    const oldRankName = oldGrade?.name ?? bot.roleMember?.name ?? 'Aucun';
+
+                    // Récupère le nouveau rank
+                    const newGrade = await em.findOne(Rank, { name: rankName }, { populate: ['baseRank'] });
+                    if (!newGrade) throw new Error(`Grade ${rankName} introuvable`);
+
+                    // Détermine si c'est une promotion ou une rétrogradation via la hiérarchie
+                    const isPromotion = isPromotionBasedOnHierarchy(oldGrade, newGrade);
+                    const titleEmoji = isPromotion ? "📈" : "📉";
+                    const titleText = isPromotion ? "Promotion disponible" : "Rétrogradation";
+                    const fieldLabel = isPromotion ? "Promotion possible" : "Rétrogradation proposée";
 
                     // Crée l'embed
                     const embed = {
-                        title: "📋 Promotion disponible",
+                        title: `${titleEmoji} ${titleText}`,
                         description: `${rhRole?.toString() || ''}`,
-                        color: Math.floor(Math.random()*0xffffff), // bleu neutre RH
+                        color: isPromotion ? 0x00FF00 : 0xFF8C00, // vert pour promotion, orange pour rétrogradation
                         thumbnail: {
                             url: member.user.displayAvatarURL({ size: 256 }), // ou ton URL custom
                         },
@@ -113,12 +145,12 @@ export default function createRankRouter(bot: BotManager): Router {
                             },
                             {
                             name: "Grade Actuel",
-                            value: oldRank ?? "Non défini",
+                            value: oldRankName ?? "Non défini",
                             inline: true,
                             },
                             {
-                            name: "Promotion possible",
-                            value: rank,
+                            name: fieldLabel,
+                            value: rankName,
                             inline: true,
                             },
                         ],
@@ -147,31 +179,41 @@ export default function createRankRouter(bot: BotManager): Router {
             if (!discordIds.length) throw new Error('discordIds array required');
 
             const em = bot.db.getEm();
-            const ranksDb = await em.find(Rank, {}, { populate: ['roleDiscord'] });
+            const ranksDb = await em.find(Rank, {}, { populate: ['roleDiscord', 'baseRank'] });
 
             for (const discordId of discordIds) {
                 try {
                     const member = await bot.guild.members.fetch(discordId);
                     if (!member) throw new Error(`Membre Discord ${discordId} introuvable`);
 
-                    const rank = await em.findOneOrFail(Rank, { rHMembers: { user: { discordId } } });
+                    const memberRhData = await em.findOneOrFail(RHMember, { user: { discordId } }, { populate: ['grade', 'grade.baseRank'] });
+                    const oldGrade = memberRhData.grade;
+                    const newGrade = await em.findOneOrFail(Rank, { rHMembers: { user: { discordId } } }, { populate: ['baseRank'] });
+
+                    const isPromotion = isPromotionBasedOnHierarchy(oldGrade, newGrade);
+                    const titleEmoji = isPromotion ? "✅" : "⚠️";
+                    const titleText = isPromotion ? "Promotion acceptée" : "Rétrogradation appliquée";
+                    const message = isPromotion
+                        ? `Félicitations pour ta promotion au grade de **${newGrade.name}** !`
+                        : `Vous avez été rétrogradé au grade de **${newGrade.name}**.`;
+                    const color = isPromotion ? 0x00FF00 : 0xFF8C00; // vert pour promotion, orange pour rétrogradation
 
                     for (const rankRole of ranksDb) {
-                        if (member.roles.cache.has(rankRole.roleDiscord?.discordId ?? '') && rankRole.id !== rank.id) {
+                        if (member.roles.cache.has(rankRole.roleDiscord?.discordId ?? '') && rankRole.id !== newGrade.id) {
                             await member.roles.remove(rankRole.roleDiscord?.discordId ?? '', 'Changement de grade RH');
                         }
                     }
 
-                    if (rank.roleDiscord?.discordId) {
-                        await member.roles.add(rank.roleDiscord.discordId, 'Promotion RH');
+                    if (newGrade.roleDiscord?.discordId) {
+                        await member.roles.add(newGrade.roleDiscord.discordId, 'Changement de grade RH');
                     } else {
-                        throw new Error(`Le grade ${rank.name} n'a pas de rôle Discord associé`);
+                        throw new Error(`Le grade ${newGrade.name} n'a pas de rôle Discord associé`);
                     }
-                    
+
                     const embed = {
-                        title: "✅ Promotion acceptée",
-                        description: `Félicitations pour ta promotion au grade de **${rank.name}** !`,
-                        color: 0x00FF00, // vert
+                        title: `${titleEmoji} ${titleText}`,
+                        description: message,
+                        color: color,
                         thumbnail: {
                             url: member.user.displayAvatarURL({ size: 256 }), // ou ton URL custom
                         },
@@ -181,9 +223,14 @@ export default function createRankRouter(bot: BotManager): Router {
                             value: member.displayName,
                             inline: false,
                             },
+                            ...(oldGrade ? [{
+                                name: "Ancien Grade",
+                                value: oldGrade.name,
+                                inline: true,
+                            }] : []),
                             {
                             name: "Nouveau Grade",
-                            value: rank.name,
+                            value: newGrade.name,
                             inline: true,
                             },
                         ],
@@ -192,9 +239,8 @@ export default function createRankRouter(bot: BotManager): Router {
 
                     const dmChannel = await member.createDM();
                     await dmChannel.send({ embeds: [embed] });
-                    const memberRh = await em.findOneOrFail(RHMember, { user: { discordId } });
-                    memberRh.promotionSend = false;
-                    await em.persist(memberRh).flush();
+                    memberRhData.promotionSend = false;
+                    await em.persist(memberRhData).flush();
 
                 } catch (err: Error | any) {
                 await httpLogger.error({ msg: `Erreur pour le membre ${discordId}`, err });

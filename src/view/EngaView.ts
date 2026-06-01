@@ -1,4 +1,4 @@
-import { AttachmentBuilder, ButtonInteraction, EmbedBuilder, GuildMemberRoleManager, MessageFlags, Role, TextChannel } from "discord.js";
+import { AttachmentBuilder, ButtonInteraction, EmbedBuilder, GuildMemberRoleManager, MessageFlags, Role, TextChannel, CategoryChannel, ChannelType, PermissionFlagsBits, VoiceBasedChannel } from "discord.js";
 import { BotManager } from "../BotManager.js";
 import { BaseComponentView, ViewHandlers } from "./BaseView.js";
 import { ComponentType } from "../entities/ui/ViewContext.js";
@@ -60,33 +60,28 @@ export async function sendCandidatures(interaction: ButtonInteraction, bot: BotM
 
         // Récupération des rôles Discord de l'utilisateur
         const member = interaction.member;
-        if (!member || !('roles' in member)) {
-            interaction.deleteReply()
-            return
-        }
+        // if (!member || !('roles' in member)) {
+        //     interaction.deleteReply()
+        //     return
+        // }
 
-        if ((member.roles as GuildMemberRoleManager).cache.has(bot.roleMember!.id)) {
-            interaction.deleteReply()
-            return 
-        }
+        // if ((member.roles as GuildMemberRoleManager).cache.has(bot.roleMember!.id)) {
+        //     interaction.deleteReply()
+        //     return 
+        // }
 
         // Chargement / création de l'entité en base
         const memberRh = await bot.userManager.initMemberRh(interaction.user.id);
-        if (memberRh.status === 'Candidatures') {
-            interaction.editReply('Vous avez déjà une demande en cours.');
-            return 
-        }
+        // if (memberRh.status === 'Candidatures') {
+        //     interaction.editReply('Vous avez déjà une demande en cours.');
+        //     return 
+        // }
 
         memberRh.status = 'Candidatures';
         memberRh.dateEntree = new Date();
         await bot.userManager.em.persist(memberRh).flush();
 
-        await interaction.followUp({
-        content: `Bravo, tu viens de franchir la première étape de ta candidature !
-On va jeter un coup d'œil à ton dossier et on te tient au courant.  
-Reste sur le qui-vive 😉.`,
-        ephemeral: true
-        });
+        
 
         // Préparation de l'annonce RH
         const guild = interaction.client.guilds.cache.get(bot.guildId);
@@ -144,8 +139,79 @@ Reste sur le qui-vive 😉.`,
         inline: true
         });
 
+        
+
         // Envoie l'embed dans le thread
         await thread.send({ embeds: [embed] });
+
+        // Création d'un salon d'admission privé dans la catégorie ADMISSION
+        let admissionChannelId: string | undefined;
+        try {
+            const admissionCategoryId = process.env.ADMISSION_CATEGORY_ID as string;
+            const category = guild.channels.cache.get(admissionCategoryId) as CategoryChannel | undefined;
+            if (category && category.type === ChannelType.GuildCategory) {
+                const rhRoleIds = (bot.getParameter('ROLE_RH') as string[]) || [];
+
+                const overwrites = [
+                    {
+                        id: guild.roles.everyone.id,
+                        deny: [PermissionFlagsBits.ViewChannel],
+                    },
+                    {
+                        id: interaction.user.id,
+                        allow: [
+                            PermissionFlagsBits.ViewChannel,
+                            PermissionFlagsBits.SendMessages,
+                            PermissionFlagsBits.ReadMessageHistory,
+                        ],
+                    },
+                    // Autoriser les rôles RH
+                    ...rhRoleIds.map(id => ({
+                        id: id,
+                        allow: [
+                            PermissionFlagsBits.ViewChannel,
+                            PermissionFlagsBits.SendMessages,
+                            PermissionFlagsBits.ReadMessageHistory,
+                        ],
+                    })),
+                ];
+
+                const channelName = `admission-${interaction.user.displayName.replace(/\s+/g, '-').toLowerCase()}`;
+                const created = await guild.channels.create({
+                    name: channelName,
+                    type: ChannelType.GuildText,
+                    parent: category.id,
+                    permissionOverwrites: overwrites,
+                }) as TextChannel;
+                admissionChannelId = created.id;
+
+                // Positionner le salon juste au-dessus du canal vocal s'il existe
+                const voiceChannel = guild.channels.cache.find(c => c.parentId === category.id && c.type === ChannelType.GuildVoice);
+                const voiceBasedChannel = voiceChannel as VoiceBasedChannel | undefined;
+                if (voiceBasedChannel) {
+                    const targetPos = Math.max(0, voiceBasedChannel.position - 1);
+                    await created.setPosition(targetPos);
+                }
+
+                const intro = new EmbedBuilder()
+                    .setTitle('Salon candidature')
+                    .setDescription(`Salon dédié au suivi de la candidature de ${interaction.user.toString()}.`)
+                    .setColor(rhRole?.color || 0x00AE86);
+
+                await created.send({ content: `${interaction.user.toString()} — Bienvenue dans votre salon de candidature. Les RH ont accès ici.`, embeds: [intro] });
+
+
+                await thread.send(`Un canal privé a été créé pour la candidature : <#${created.id}>`);
+            }
+        } catch (err) {
+            await logger.warn(`Impossible de créer le canal d'admission: ${err}`);
+        }
+
+        const baseMessage = `Bravo, tu viens de franchir la première étape de ta candidature !\nOn va jeter un coup d'œil à ton dossier et on te tient au courant.\nReste sur le qui-vive 😉.`;
+        const followUpMessage = admissionChannelId ? `${baseMessage}\n\nTon salon de candidature : <#${admissionChannelId}>` : baseMessage;
+
+        await interaction.followUp({ content: followUpMessage, ephemeral: true });
+
 
     } catch (error) {
         await logger.error({ msg: "Erreur lors de la gestion de la candidature :", error });

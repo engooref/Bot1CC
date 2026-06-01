@@ -4,7 +4,7 @@ import { User } from '../entities/core/User.js';
 import { BotManager } from '../BotManager.js';
 import { Channel } from '../entities/core/Channel.js';
 import { Role } from '../entities/core/Role.js';
-import { RHMember } from '../entities/hr/RHMember.js';
+import { RHMember } from '../entities/rh/RHMember.js';
 import { EmbedBuilder, TextChannel } from 'discord.js';
 
 export class PurgeManager {

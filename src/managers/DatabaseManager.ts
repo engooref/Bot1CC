@@ -18,7 +18,7 @@ import config from '../mikro-orm.config.js';
 import { BotManager } from '../BotManager.js';
 import { SafeMethod } from '../exception/Safe.js';
 import { PurgeManager } from './PurgeManager.js';
-import { RHMember } from '../entities/hr/RHMember.js';
+import { RHMember } from '../entities/rh/RHMember.js';
 import { Rank } from '../entities/core/Rank.js';
 
 export class DatabaseManager {

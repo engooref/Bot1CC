@@ -8,8 +8,11 @@ import { ScreenManager } from '../managers/ScreenManager.js';
 import { DuelManager } from '../managers/DuelManager.js';
 import { GithubManager } from '../managers/GithubManager.js';
 import { RefineryManager } from '../managers/RefineryManager.js';
+import { MeetingManager } from '../managers/MeetingManager.js';
+import { AutoMessageManager } from '../managers/AutoMessageManager.js';
 import { SlashCommandManager, CommandHandler } from '../utils/SlashCommandManager.js';
 import { SchedulerManager } from '../managers/schedulers/SchedulerManager.js';
+import { ReactionManager } from '../managers/ReactionManager.js';
 import WebServer from '../web/WebServer.js';
 
 export async function createManagers(bot: BotManager): Promise<void> {
@@ -17,6 +20,7 @@ export async function createManagers(bot: BotManager): Promise<void> {
 
   bot.eventManager = new EventManager(bot);
   bot.userManager = new UserManager(bot);
+  bot.reactionManager = new ReactionManager(bot);
 
   bot.operationManager = new OperationModule(bot);
   await bot.operationManager.init();
@@ -28,9 +32,11 @@ export async function createManagers(bot: BotManager): Promise<void> {
   bot.duelManager = new DuelManager(bot);
   bot.githubManager = new GithubManager(bot);
 
+  bot.meetingManager = new MeetingManager(bot);
+  bot.autoMessageManager = new AutoMessageManager(bot);
+
   // --- Raffinerie ---
   bot.refineryManager = new RefineryManager(bot.db.getEm(), bot);
-  // bot.refineryScheduler = new SchedulerRefinery(bot, bot.refineryManager);
 
   // Fusion dynamique des handlers exposés par chaque manager
   const handlersMap = {
@@ -38,6 +44,8 @@ export async function createManagers(bot: BotManager): Promise<void> {
     ...bot.eventManager.getSlashHandlers(),
     ...bot.db.getSlashHandlers(),
     ...bot.githubManager.getSlashHandlers(),
+    ...bot.meetingManager.getSlashHandlers(),
+    ...bot.autoMessageManager.getSlashHandlers(),
   } as Record<string, CommandHandler>;
 
   bot.slashCommandManager = new SlashCommandManager(bot, handlersMap);

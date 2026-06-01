@@ -1,5 +1,5 @@
 import { Entity, PrimaryKey, ManyToMany, Collection, Property, ManyToOne, type Rel, OneToMany } from '@mikro-orm/core';
-import { RHMember } from './../hr/RHMember.js';
+import { RHMember } from '../rh/RHMember.js';
 import { CertifCat } from './CertifCat.js';
 import { VoicePresence } from './../event/VoicePresence.js';
 import { Pole } from './../core/Pole.js';

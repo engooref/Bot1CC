@@ -16,7 +16,7 @@ export class RefineryWorkOrder {
   startedAt!: Date;
 
   @Property()
-  durationMinutes!: number;
+  durationSeconds!: number;
 
   @Property()
   notifyOnComplete: boolean = false;
@@ -37,7 +37,7 @@ export class RefineryWorkOrder {
   lines = new Collection<RefineryWorkOrderLine>(this);
     
   get endAt(): Date {
-    return new Date(this.startedAt.getTime() + this.durationMinutes * 60000);
+    return new Date(this.startedAt.getTime() + this.durationSeconds * 1000);
   }
 
   get isReady(): boolean {

@@ -17,6 +17,14 @@ export class SchedulerEvent {
   constructor(private bot: BotManager) {
     // démarre la boucle toutes les 60s
     setInterval(() => this.checkEvents(), 60_000);
+
+    // Nettoyage initial des vocaux d'events restants (au démarrage)
+    void this.cleanupEmptyEventVoiceChannels().catch(err => this.logger.error({ msg: 'Erreur cleanup initial', err }));
+
+    // Planifie un nettoyage quotidien (24h)
+    setInterval(() => {
+      void this.cleanupEmptyEventVoiceChannels().catch(err => this.logger.error({ msg: 'Erreur cleanup journalier', err }));
+    }, 24 * 60 * 60 * 1000);
   }
 
   @SafeMethod
@@ -284,6 +292,66 @@ export class SchedulerEvent {
   // Méthode utilitaire pour récupérer l'ID du channel vocal parent d'un event
   public getVoiceParentChannelId(eventId: number): string | undefined {
     return this.voiceParentChannels.get(eventId);
+  }
+
+  @SafeMethod
+  private async cleanupEmptyEventVoiceChannels(): Promise<void> {
+    // Ne traiter que les events dont le `start` date d'au moins 48 heures
+    const cutoffStart = new Date(Date.now() - 48 * 60 * 60 * 1000); // 48h
+    this.logger.info({ msg: 'Lancement cleanupEmptyEventVoiceChannels', cutoffStart });
+    try {
+      const events = await this.bot.eventManager.em.getRepository(Event).find({
+        start: { $lte: cutoffStart },
+      });
+
+      for (const ev of events) {
+        if (!ev.discord || !ev.discord.vocalParentId) continue;
+        const categoryId = ev.discord.vocalParentId;
+        try {
+          const category = await this.bot.guild.channels.fetch(categoryId).catch(() => null);
+          if (!category) {
+            // La catégorie n'existe plus: nettoyer la référence en BDD
+            ev.discord.vocalParentId = null;
+            await this.bot.eventManager.em.persist(ev).flush();
+            continue;
+          }
+          if (category.type !== ChannelType.GuildCategory) continue;
+
+          const childrenManager = category.children ?? category.guild.channels.cache.filter((ch) => ch.parentId === category.id);
+          let childrenArray: any[] = [];
+          if ((childrenManager as any).cache && typeof (childrenManager as any).cache.values === 'function') {
+            childrenArray = Array.from((childrenManager as any).cache.values());
+          } else if (typeof (childrenManager as any).values === 'function') {
+            childrenArray = Array.from((childrenManager as any).values());
+          }
+
+          for (const ch of childrenArray) {
+            try {
+              if ((ch as any).members && (ch.type === ChannelType.GuildVoice || ch.type === ChannelType.GuildStageVoice)) {
+                if ((ch as any).members.size === 0) {
+                  await ch.delete('Auto-clean: vocal event vide').catch(() => null);
+                }
+              }
+            } catch {}
+          }
+
+          // Rafraîchit la catégorie et supprime si vide
+          const refreshed = await this.bot.guild.channels.fetch(category.id).catch(() => null);
+          if (refreshed && refreshed.type === ChannelType.GuildCategory) {
+            const size = (refreshed as any).children?.cache?.size ?? 0;
+            if (size === 0) {
+              await refreshed.delete('Auto-clean: catégorie event vide').catch(() => null);
+              ev.discord.vocalParentId = null;
+              await this.bot.eventManager.em.persist(ev).flush();
+            }
+          }
+        } catch (err) {
+          await this.logger.error({ msg: 'Erreur lors du nettoyage d\'un event', eventId: ev.id, err });
+        }
+      }
+    } catch (err) {
+      await this.logger.error({ msg: 'Erreur lors du nettoyage des events', err });
+    }
   }
 
   public cancelReminder(ev: Event): void {

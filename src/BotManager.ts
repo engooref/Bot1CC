@@ -5,6 +5,7 @@ import {
   Guild,
   Role,
   Events,
+  Partials 
 } from 'discord.js';
 import { botLogger } from './logger.js';
 import { DatabaseManager } from './managers/DatabaseManager.js';
@@ -20,10 +21,13 @@ import { SlashCommandManager } from './utils/SlashCommandManager.js';
 import { ScreenManager } from './managers/ScreenManager.js';
 import { DuelManager } from './managers/DuelManager.js';
 import { GithubManager } from './managers/GithubManager.js';
+import { ReactionManager } from './managers/ReactionManager.js';
 import { sendEnga } from './view/EngaView.js';
 import { registerDiscordEvents } from './bootstrap/DiscordEventHandlers.js';
 import { registerComponentHandlers } from './bootstrap/ComponentHandlerSetup.js';
 import { createManagers } from './bootstrap/ManagerSetup.js';
+import { MeetingManager } from './managers/MeetingManager.js';
+import { AutoMessageManager } from './managers/AutoMessageManager.js';
 
 export class BotManager extends Client {
   public guildId: string;
@@ -41,7 +45,9 @@ export class BotManager extends Client {
   public duelManager!: DuelManager;
   public githubManager!: GithubManager;
   public refineryManager!: RefineryManager;
-  // public refineryScheduler!: SchedulerRefinery;
+  public meetingManager!: MeetingManager;
+  public autoMessageManager!: AutoMessageManager;
+  public reactionManager!: ReactionManager;
 
   private hasStarted = false;
   private parameters: Record<string, Parameter> = {};
@@ -57,6 +63,12 @@ export class BotManager extends Client {
         GatewayIntentBits.GuildMembers,
         GatewayIntentBits.GuildVoiceStates,
         GatewayIntentBits.MessageContent,
+      ],
+      partials: [
+        Partials.Message,
+        Partials.Channel,
+        Partials.Reaction,
+        Partials.User,
       ],
     });
 

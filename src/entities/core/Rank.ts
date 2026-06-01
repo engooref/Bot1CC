@@ -1,5 +1,5 @@
-import { Entity, PrimaryKey, OneToMany, Collection, Property, OneToOne, Rel } from '@mikro-orm/core';
-import { RHMember } from './../hr/RHMember.js';
+import { Entity, PrimaryKey, OneToMany, Collection, Property, OneToOne, ManyToOne, Rel } from '@mikro-orm/core';
+import { RHMember } from '../rh/RHMember.js';
 import { Role } from './Role.js';
 
 @Entity({ tableName: 'rank' })
@@ -18,5 +18,8 @@ export class Rank {
 
   @OneToMany(() => RHMember, member => member.pendingApproval)
   memberApproval = new Collection<RHMember>(this);
+
+  @ManyToOne(() => Rank, { nullable: true })
+  baseRank?: Rel<Rank> | null = null;
 
 }

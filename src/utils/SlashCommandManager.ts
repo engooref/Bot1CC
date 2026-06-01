@@ -6,7 +6,7 @@ import { getManagerLogger } from "../logger.js";
 
 
 interface SimpleOption {
-  type: "STRING" | "USER" | "INTEGER"; 
+  type: "STRING" | "USER" | "INTEGER" | "CHANNEL" | "BOOLEAN" | "ROLE";
   name: string;
   description: string;
   required?: boolean;
@@ -86,8 +86,25 @@ export class SlashCommandManager {
                        .setDescription(subOpt.description)
                        .setRequired(!!subOpt.required)
                     );
+                  } else if (subOpt.type === "CHANNEL") {
+                    sub.addChannelOption(o =>
+                      o.setName(subOpt.name)
+                       .setDescription(subOpt.description)
+                       .setRequired(!!subOpt.required)
+                    );
+                  } else if (subOpt.type === "BOOLEAN") {
+                    sub.addBooleanOption(o =>
+                      o.setName(subOpt.name)
+                       .setDescription(subOpt.description)
+                       .setRequired(!!subOpt.required)
+                    );
+                  } else if (subOpt.type === "ROLE") {
+                    sub.addRoleOption(o =>
+                      o.setName(subOpt.name)
+                       .setDescription(subOpt.description)
+                       .setRequired(!!subOpt.required)
+                    );
                   } else {
-                    // Si on ajoute d'autres types (BOOLEAN, ROLE, etc.), on gère ici
                     sub.addStringOption(o =>
                       o.setName(subOpt.name)
                        .setDescription(subOpt.description)

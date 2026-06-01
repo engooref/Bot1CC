@@ -7,7 +7,7 @@ import {
   Unique,
   type Rel,
 } from '@mikro-orm/core';
-import { RHMember } from './../hr/RHMember.js';
+import { RHMember } from '../rh/RHMember.js';
 import { Certifications } from './Certifications.js';
 
 export enum CertifRequestStatus {

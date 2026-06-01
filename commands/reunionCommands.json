@@ -1,0 +1,33 @@
+[
+  {
+    "name": "reunion",
+    "description": "Gestion des réunions, captures audio et rapports",
+    "options": [
+      {
+        "type": "SUB_COMMAND",
+        "name": "start",
+        "description": "Démarrer la capture temporaire d'une réunion",
+        "options": []
+      },
+      {
+        "type": "SUB_COMMAND",
+        "name": "pause",
+        "description": "Mettre en pause la capture audio globale",
+        "options": []
+      },
+      {
+        "type": "SUB_COMMAND",
+        "name": "resume",
+        "description": "Reprendre la capture audio globale",
+        "options": []
+      },
+      {
+        "type": "SUB_COMMAND",
+        "name": "stop",
+        "description": "Arrêter la réunion et lancer le rapport après coup",
+        "options": []
+      }
+    ],
+    "handler": "meetingHandler"
+  }
+]

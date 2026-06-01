@@ -8,6 +8,7 @@ import { ComponentInteraction, ViewHandlers } from '../view/BaseView.js';
 import { Handlers } from '../view/TicketsView.js';
 import { sendCandidatures } from '../view/EngaView.js';
 import { GithubHandlers } from '../managers/GithubManager.js';
+import type { AutoMessageState } from '../managers/AutoMessageManager.js';
 
 export function registerComponentHandlers(bot: BotManager): void {
   componentHandlerRegistry.register(ViewHandlers.InviteViewHandler, async (interaction, data) => {
@@ -58,5 +59,13 @@ export function registerComponentHandlers(bot: BotManager): void {
       await bot.githubManager.handleSelectRepo(interaction as StringSelectMenuInteraction, data);
     else if (interaction.isModalSubmit())
       await bot.githubManager.handleModalSubmit(interaction, data);
+  });
+
+  componentHandlerRegistry.register(ViewHandlers.AutoMessageHandler, async (interaction, data) => {
+    await bot.autoMessageManager.handlerForm(interaction as any, data as unknown as AutoMessageState);
+  });
+
+  componentHandlerRegistry.register(ViewHandlers.ScheduledResponseHandler, async (interaction, data) => {
+    await bot.autoMessageManager.handlerResponse(interaction as ButtonInteraction, data);
   });
 }

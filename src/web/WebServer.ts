@@ -9,6 +9,7 @@ import createLeaderboardsRouter from "./routes/LeaderRoute.js";
 import createEventRouter from "./routes/EventRouter.js";
 import createGeneralRouter from "./routes/GeneralRouter.js";
 import createOperationRouter from "./routes/OperationRouter.js";
+import createRefineryRouter from "./routes/RefineryRouter.js";
 import { BotManager } from "../BotManager.js";
 import { httpLogger } from "../logger.js";
 
@@ -45,5 +46,6 @@ export default class WebServer {
     this.app.use("/event", createEventRouter(this.bot));
     this.app.use("/general", createGeneralRouter(this.bot));
     this.app.use("/operation", createOperationRouter(this.bot));
+    this.app.use("/refinery", createRefineryRouter(this.bot));
   }
 }

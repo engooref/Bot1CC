@@ -5,9 +5,6 @@ import { BotManager } from '../BotManager.js';
 import { getManagerLogger } from '../logger.js';
 
 export class RefineryManager {
-  private static readonly BATCH_WAIT_MS = 5 * 60 * 1000; // 5 min
-  private static readonly MAX_OLDEST_WAIT_MS = 10 * 60 * 1000; // 10 min
-
   private logger = getManagerLogger('RefineryManager');
 
   constructor(
@@ -15,191 +12,57 @@ export class RefineryManager {
     private bot: BotManager
   ) {}
 
-  async pollAndNotify() {
-    try {
-      const pendingOrders = await this.em.find(
-        RefineryWorkOrder,
-        {
-          notifyOnComplete: true,
-          notified: false,
-        },
-        {
-          populate: ['user', 'refineryPoi', 'lines', 'lines.commodity'],
-        }
-      );
-
-      if (pendingOrders.length === 0) {
-        this.logger.debug('Aucun work order en attente de notification.');
-        return;
-      }
-
-      this.logger.debug(
-        `Analyse de ${pendingOrders.length} work order(s) non notifiés.`
-      );
-
-      const now = Date.now();
-      const groupedByUser = this.groupOrdersByUser(pendingOrders);
-
-      for (const [discordId, userOrders] of groupedByUser.entries()) {
-        try {
-          const completedOrders = userOrders
-            .filter(order => order.isReady)
-            .sort((a, b) => new Date(a.endAt).getTime() - new Date(b.endAt).getTime());
-
-          if (completedOrders.length === 0) {
-            this.logger.debug(
-              `Aucun work order terminé pour l'utilisateur ${discordId}.`
-            );
-            continue;
-          }
-
-          const shouldWait = this.shouldDelayNotification(userOrders, completedOrders, now);
-
-          if (shouldWait) {
-            const oldestCompleted = completedOrders[0];
-            this.logger.debug(
-              `Notification différée pour ${discordId}: ${completedOrders.length} work order(s) prêt(s), plus ancien terminé=${oldestCompleted.id}, attente de regroupement.`
-            );
-            continue;
-          }
-
-          const discordMember = await this.bot.guild.members.fetch(discordId).catch(error => {
-            this.logger.error(
-              `Impossible de récupérer le membre Discord ${discordId}.`,
-              error
-            );
-            return null;
-          });
-
-          if (!discordMember) {
-            this.logger.warn(
-              `Membre Discord introuvable pour ${discordId}, notification ignorée.`
-            );
-            continue;
-          }
-
-          const embeds = this.createRefinerySummaryEmbeds(completedOrders);
-
-          const sent = await discordMember.send({ embeds }).then(() => true).catch(error => {
-            this.logger.error(
-              `Échec de l'envoi du DM de raffinage à ${discordId}.`,
-              error
-            );
-            return false;
-          });
-
-          if (!sent) {
-            continue;
-          }
-
-          for (const order of completedOrders) {
-            order.notified = true;
-          }
-
-          this.logger.info({
-            msg: `Notification envoyée à ${discordId} pour ${completedOrders.length} work order(s): ${completedOrders.map(order => order.id).join(', ')}`
-          });
-        } catch (error) {
-          this.logger.error({
-            msg: `Erreur lors du traitement des notifications pour l'utilisateur ${discordId}.`,
-            error
-          });
-        }
-      }
-
-      await this.em.flush();
-      this.logger.debug('Flush des notifications de raffinage effectué.');
-    } catch (error) {
-      this.logger.error({
-        msg: 'Erreur dans pollAndNotify().',
-        error
-      });
+  async notifyUser(userId: string, workOrderIds: number[]): Promise<void> {
+    if (!userId || workOrderIds.length === 0) {
+      this.logger.warn('notifyUser: userId ou workOrderIds manquants.');
+      return;
     }
-  }
 
-  private groupOrdersByUser(orders: RefineryWorkOrder[]) {
-    const grouped = new Map<string, RefineryWorkOrder[]>();
+    const orders = await this.em.find(
+      RefineryWorkOrder,
+      {
+        id: { $in: workOrderIds },
+        user: { discordId: userId },
+      },
+      {
+        populate: ['user', 'refineryPoi', 'lines', 'lines.commodity'],
+      }
+    );
+
+    if (orders.length === 0) {
+      this.logger.debug(`Aucun work order à notifier pour ${userId}.`);
+      return;
+    }
+
+    const discordMember = await this.bot.guild.members.fetch(userId).catch(error => {
+      this.logger.error(`Impossible de récupérer le membre Discord ${userId}.`, error);
+      return null;
+    });
+
+    if (!discordMember) {
+      this.logger.warn(`Membre Discord introuvable pour ${userId}, notification ignorée.`);
+      return;
+    }
+
+    const embeds = this.createRefinerySummaryEmbeds(orders);
+
+    const sent = await discordMember.send({ embeds }).then(() => true).catch(error => {
+      this.logger.error(`Échec de l'envoi du DM de raffinage à ${userId}.`, error);
+      return false;
+    });
+
+    if (!sent) {
+      return;
+    }
 
     for (const order of orders) {
-      const discordId = order.user?.discordId;
-
-      if (!discordId) {
-        this.logger.warn(
-          `Work order ${order.id} ignoré: utilisateur ou discordId manquant.`
-        );
-        continue;
-      }
-
-      if (!grouped.has(discordId)) {
-        grouped.set(discordId, []);
-      }
-
-      grouped.get(discordId)!.push(order);
+      order.notified = true;
     }
 
-    return grouped;
-  }
+    await this.em.flush();
 
-  private shouldDelayNotification(
-    userOrders: RefineryWorkOrder[],
-    completedOrders: RefineryWorkOrder[],
-    now: number
-  ): boolean {
-    if (completedOrders.length === 0) {
-      return false;
-    }
-
-    const oldestCompleted = completedOrders[0];
-    const oldestCompletedAt = new Date(oldestCompleted.endAt).getTime();
-
-    if (Number.isNaN(oldestCompletedAt)) {
-      this.logger.warn({
-        msg: `Date de fin invalide pour le work order ${oldestCompleted.id}, envoi immédiat par sécurité.`
-      });
-      return false;
-    }
-
-    const oldestAge = now - oldestCompletedAt;
-
-    if (oldestAge >= RefineryManager.MAX_OLDEST_WAIT_MS) {
-      this.logger.debug({
-        msg: `Envoi forcé: le work order ${oldestCompleted.id} attend depuis ${Math.floor(oldestAge / 1000)}s.`
-      });
-      return false;
-    }
-
-    const hasUpcomingSoon = this.hasUpcomingOrderWithinWindow(userOrders, now);
-
-    if (hasUpcomingSoon) {
-      this.logger.debug({
-        msg: `Attente activée: un autre work order termine dans les ${RefineryManager.BATCH_WAIT_MS / 60000} prochaines minutes.`
-      });
-    }
-
-    return hasUpcomingSoon;
-  }
-
-  private hasUpcomingOrderWithinWindow(
-    userOrders: RefineryWorkOrder[],
-    now: number
-  ): boolean {
-    const limit = now + RefineryManager.BATCH_WAIT_MS;
-
-    return userOrders.some(order => {
-      if (order.isReady || !order.endAt) {
-        return false;
-      }
-
-      const endAt = new Date(order.endAt).getTime();
-
-      if (Number.isNaN(endAt)) {
-        this.logger.warn({
-          msg: `Date de fin invalide pour le work order ${order.id}.`
-        });
-        return false;
-      }
-
-      return endAt > now && endAt <= limit;
+    this.logger.info({
+      msg: `Notification envoyée à ${userId} pour ${orders.length} work order(s): ${orders.map(o => o.id).join(', ')}`
     });
   }
 
@@ -250,9 +113,12 @@ export class RefineryManager {
 
     const refineryName = order.refineryPoi?.name || 'Inconnue';
 
-    const endAt = order.endAt
-      ? `<t:${Math.floor(new Date(order.endAt).getTime() / 1000)}:F>\n<t:${Math.floor(new Date(order.endAt).getTime() / 1000)}:R>`
-      : 'Inconnue';
+      let endAtStr = 'Inconnue';
+      const endAtDate = order.endAt instanceof Date && !isNaN(order.endAt.getTime()) ? order.endAt : null;
+      if (endAtDate) {
+        const ts = Math.floor(endAtDate.getTime() / 1000);
+        endAtStr = `<t:${ts}:F>\n<t:${ts}:R>`;
+      }
 
     const value = [
       `** 🏭 RAFFINERIE**`,
@@ -264,7 +130,7 @@ export class RefineryManager {
       '```',
       '',
       `**⏱️ TERMINÉ**`,
-      `${endAt}`,
+        `${endAtStr}`,
     ].join('\n');
 
     return {

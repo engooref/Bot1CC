@@ -1,0 +1,8 @@
+[
+  {
+    "name": "auto-message",
+    "description": "Gérer les messages automatiques planifiés",
+    "options": [],
+    "handler": "scheduledMessageHandler"
+  }
+]

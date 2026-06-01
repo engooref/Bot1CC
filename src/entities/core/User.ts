@@ -14,7 +14,7 @@ import { Role }      from './Role.js';
 import { Traces }    from './Traces.js';
 import { Response }  from './../event/Response.js';
 import { Event }     from './../event/Event.js';
-import { RHMember }  from './../hr/RHMember.js';
+import { RHMember }  from '../rh/RHMember.js';
 
 
 @Entity({ tableName: 'user' })

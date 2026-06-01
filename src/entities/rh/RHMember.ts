@@ -11,15 +11,15 @@ import {
   Collection,
 } from '@mikro-orm/core';
 // ← IMPORT NORMAL pour le runtime
-import { User } from './../core/User.js';
+import { User } from '../core/User.js';
 import { RHLog } from './RHLog.js';
 import { RHAbsence } from './RHAbsence.js';
 import { RHWarning } from './RHWarning.js';
-import { Certifications } from './../certifications/Certifications.js';
-import { Rank } from './../core/Rank.js';
+import { Certifications } from '../certifications/Certifications.js';
+import { Rank } from '../core/Rank.js';
 import { ObjectifsAward } from './ObjectifAward.js';
-import { Pole } from './../core/Pole.js';
-import { CertifRequest } from './../certifications/CertifRequest.js';
+import { Pole } from '../core/Pole.js';
+import { CertifRequest } from '../certifications/CertifRequest.js';
 
 @Entity({ tableName: 'rhmember' })
 export class RHMember {
