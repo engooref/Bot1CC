@@ -22,6 +22,11 @@
         "type": "SUB_COMMAND",
         "name": "sync_ranks",
         "description": "Synchronise les grades"
+      },
+      {
+        "type": "SUB_COMMAND",
+        "name": "new_accounts_report",
+        "description": "Génère un rapport des membres avec compte créé moins de 3 mois avant d'avoir rejoint le serveur"
       }
     ],
     "handler": "handleDatabaseCommand"

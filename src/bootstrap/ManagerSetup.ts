@@ -10,6 +10,7 @@ import { GithubManager } from '../managers/GithubManager.js';
 import { RefineryManager } from '../managers/RefineryManager.js';
 import { MeetingManager } from '../managers/MeetingManager.js';
 import { AutoMessageManager } from '../managers/AutoMessageManager.js';
+import { ContractManager } from '../managers/ContractManager.js';
 import { SlashCommandManager, CommandHandler } from '../utils/SlashCommandManager.js';
 import { SchedulerManager } from '../managers/schedulers/SchedulerManager.js';
 import { ReactionManager } from '../managers/ReactionManager.js';
@@ -34,6 +35,7 @@ export async function createManagers(bot: BotManager): Promise<void> {
 
   bot.meetingManager = new MeetingManager(bot);
   bot.autoMessageManager = new AutoMessageManager(bot);
+  bot.contractManager = new ContractManager(bot);
 
   // --- Raffinerie ---
   bot.refineryManager = new RefineryManager(bot.db.getEm(), bot);

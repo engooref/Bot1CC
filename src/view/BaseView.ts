@@ -50,6 +50,7 @@ export enum ViewHandlers {
     GithubHandler = 'GithubHandler',
     AutoMessageHandler = 'AutoMessageHandler',
     ScheduledResponseHandler = 'ScheduledResponseHandler',
+    ContractHandler = 'ContractHandler',
 }
 
 export type ComponentInteraction = ButtonInteraction | StringSelectMenuInteraction | ChatInputCommandInteraction | ModalSubmitInteraction;

@@ -40,6 +40,7 @@ export function registerDiscordEvents(bot: BotManager): void {
   bot.on('channelCreate', (channel) => _onGuildChannelCreate(bot, channel));
   bot.on('channelDelete', (channel) => _onGuildChannelDelete(bot, channel));
   bot.on('channelUpdate', (oldCh, newCh) => _onGuildChannelUpdate(bot, oldCh, newCh));
+  bot.on('guildMemberAdd', (member) => _onGuildMemberAdd(bot, member));
   bot.on('guildMemberUpdate', (before, after) => _onGuildMemberUpdate(bot, before, after as GuildMember));
   bot.on('guildMemberRemove', (member) => _onGuildMemberRemove(bot, member));
   bot.on(Events.InteractionCreate, (interaction) => _onInteraction(bot, interaction));
@@ -47,6 +48,24 @@ export function registerDiscordEvents(bot: BotManager): void {
   bot.on('messageCreate', (message) => _onMessageCreate(bot, message));
   bot.on('messageReactionAdd', (reaction, user) => _onMessageReactionAdd(bot, reaction, user));
   bot.on('messageReactionRemove', (reaction, user) => _onMessageReactionRemove(bot, reaction, user));
+}
+
+async function _onGuildMemberAdd(bot: BotManager, member: GuildMember): Promise<void> {
+  try {
+    const accountAgeMs = Date.now() - member.user.createdTimestamp;
+    const threeMonthsMs = 3 * 30 * 24 * 60 * 60 * 1000;
+
+    if (accountAgeMs < threeMonthsMs) {
+      const reason = "Compte trop jeune (moins de 3 mois)";
+      await member.kick(reason);
+      await botLogger.info(
+        { op: "GUILD_MEMBER_ADD", user: member.id, username: member.user.username },
+        `Utilisateur expulsé: ${reason}`
+      );
+    }
+  } catch (e) {
+    await botLogger.error({ op: "GUILD_MEMBER_ADD", err: e, user: member.id });
+  }
 }
 
 async function _onGuildRoleCreate(bot: BotManager, role: Role): Promise<void> {

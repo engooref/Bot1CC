@@ -4,7 +4,7 @@ import { defineConfig, FlushMode, UnderscoreNamingStrategy } from '@mikro-orm/my
 import { FilteredMigrationGenerator} from './FilteredMigrationGenerator.js';
 
 const isProd = process.env.NODE_ENV === 'prod';
-
+const logMikro = process.env.LOG_MIKRO === 'true';
 export default defineConfig({
   clientUrl: process.env.MYSQL_URL!,
 
@@ -20,7 +20,7 @@ export default defineConfig({
   entities:   isProd ? ['dist/src/entities/**/*.js'] : [],
   flushMode: FlushMode.COMMIT,
   
-  debug: !isProd,
+  debug: logMikro,
   namingStrategy: UnderscoreNamingStrategy,
 
   migrations: {

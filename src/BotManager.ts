@@ -28,6 +28,7 @@ import { registerComponentHandlers } from './bootstrap/ComponentHandlerSetup.js'
 import { createManagers } from './bootstrap/ManagerSetup.js';
 import { MeetingManager } from './managers/MeetingManager.js';
 import { AutoMessageManager } from './managers/AutoMessageManager.js';
+import { ContractManager } from './managers/ContractManager.js';
 
 export class BotManager extends Client {
   public guildId: string;
@@ -47,6 +48,7 @@ export class BotManager extends Client {
   public refineryManager!: RefineryManager;
   public meetingManager!: MeetingManager;
   public autoMessageManager!: AutoMessageManager;
+  public contractManager!: ContractManager;
   public reactionManager!: ReactionManager;
 
   private hasStarted = false;

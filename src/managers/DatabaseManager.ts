@@ -42,11 +42,11 @@ export class DatabaseManager {
     this.logger.info(`Commande /db reçue de ${interaction.user.tag} (${interaction.user.id})`);
     const ownerId = process.env.ENGOO_ID;
     if (interaction.user.id !== ownerId) {
-      await interaction.reply({ content: '⛔ Commande réservée au propriétaire.', ephemeral: true });
+      await interaction.followUp({ content: '⛔ Commande réservée au propriétaire.', ephemeral: true });
       return;
     }
     if (interaction.guild) {
-      await interaction.reply({ content: '⛔ Cette commande est disponible uniquement en DM.', ephemeral: true });
+      await interaction.followUp({ content: '⛔ Cette commande est disponible uniquement en DM.', ephemeral: true });
       return;
     }
 
@@ -152,7 +152,69 @@ export class DatabaseManager {
         await this.logger.error({ msg: 'Erreur lors de la synchronisation des grades et rôles :', err });
         await interaction.followUp({ content: '❌ Une erreur est survenue lors de la synchronisation des grades et rôles.', ephemeral: true });
       }
+    } else if (sub === "new_accounts_report") {
+      try {
+        await this.generateNewAccountsReport(interaction);
+      } catch (err) {
+        await this.logger.error({ msg: 'Erreur lors de la génération du rapport des nouveaux comptes :', err });
+        await interaction.followUp({ content: '❌ Une erreur est survenue lors de la génération du rapport.', ephemeral: true });
+      }
     }
+  }
+
+  /**
+   * Génère un rapport des membres avec un compte créé moins de 3 mois avant d'avoir rejoint le serveur
+   */
+  private async generateNewAccountsReport(interaction: any): Promise<void> {
+    const discordMembers = await this.bot.guild.members.fetch();
+    const ninetyDaysMs = 90 * 24 * 60 * 60 * 1000; // 90 jours en millisecondes
+
+    const suspiciousAccounts: Array<{
+      username: string;
+      discordId: string;
+      createdAt: Date;
+      joinedAt: Date;
+      daysBeforeJoin: number;
+    }> = [];
+
+    for (const [, member] of discordMembers) {
+      if (!member.user.createdTimestamp || !member.joinedTimestamp) continue;
+
+      // Exclure les bots et applications
+      if (member.user.bot) continue;
+
+      const accountAge = member.joinedTimestamp - member.user.createdTimestamp;
+      const daysBeforeJoin = Math.floor(accountAge / (24 * 60 * 60 * 1000)); // Convertir en jours
+
+      // Si le compte a moins de 3 mois avant de rejoindre le serveur
+      if (accountAge < ninetyDaysMs) {
+        suspiciousAccounts.push({
+          username: member.displayName,
+          discordId: member.id,
+          createdAt: new Date(member.user.createdTimestamp),
+          joinedAt: new Date(member.joinedTimestamp),
+          daysBeforeJoin,
+        });
+      }
+    }
+
+    // Générer le contenu CSV
+    const csvHeader = 'Pseudo Discord,ID Discord,Date de création du compte,Date d\'adhésion au serveur,Jours avant adhésion\n';
+    const csvContent = suspiciousAccounts
+      .map(acc => `${acc.username},${acc.discordId},${acc.createdAt.toISOString()},${acc.joinedAt.toISOString()},${acc.daysBeforeJoin}`)
+      .join('\n');
+
+    const fullCsv = csvHeader + csvContent;
+
+    // Créer un fichier et l'envoyer
+    const { AttachmentBuilder } = await import('discord.js');
+    const attachment = new AttachmentBuilder(Buffer.from(fullCsv), { name: 'rapport_nouveaux_comptes.csv' });
+
+    await interaction.followUp({
+      content: `✅ Rapport généré : ${suspiciousAccounts.length} compte(s) créé(s) moins de 3 mois avant la date d'adhésion au serveur.`,
+      files: [attachment],
+      ephemeral: true
+    });
   }
 
   constructor(bot: BotManager, excludeCategories: string[] = []) {

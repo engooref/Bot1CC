@@ -68,4 +68,8 @@ export function registerComponentHandlers(bot: BotManager): void {
   componentHandlerRegistry.register(ViewHandlers.ScheduledResponseHandler, async (interaction, data) => {
     await bot.autoMessageManager.handlerResponse(interaction as ButtonInteraction, data);
   });
+
+  componentHandlerRegistry.register(ViewHandlers.ContractHandler, async (interaction, data) => {
+    await bot.contractManager.handlerResponse(interaction as ButtonInteraction, data);
+  });
 }

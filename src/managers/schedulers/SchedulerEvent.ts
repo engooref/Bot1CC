@@ -3,7 +3,7 @@ import { Event } from '../../entities/event/Event.js';
 import { Response } from '../../entities/event/Response.js';
 import { startOfDay, endOfDay } from 'date-fns';
 import { ChannelType, Collection, GuildMember, Message, ThreadAutoArchiveDuration } from 'discord.js';
-import { FilterQuery } from '@mikro-orm/core';
+import { FilterQuery, raw } from '@mikro-orm/core';
 import { SafeMethod } from '../../exception/Safe.js';
 import { getManagerLogger } from '../../logger.js';
 
@@ -21,10 +21,10 @@ export class SchedulerEvent {
     // Nettoyage initial des vocaux d'events restants (au démarrage)
     void this.cleanupEmptyEventVoiceChannels().catch(err => this.logger.error({ msg: 'Erreur cleanup initial', err }));
 
-    // Planifie un nettoyage quotidien (24h)
+    // Planifie un nettoyage toutes les heures
     setInterval(() => {
-      void this.cleanupEmptyEventVoiceChannels().catch(err => this.logger.error({ msg: 'Erreur cleanup journalier', err }));
-    }, 24 * 60 * 60 * 1000);
+      void this.cleanupEmptyEventVoiceChannels().catch(err => this.logger.error({ msg: 'Erreur cleanup horaire', err }));
+    }, 60 * 60 * 1000);
   }
 
   @SafeMethod
@@ -296,13 +296,13 @@ export class SchedulerEvent {
 
   @SafeMethod
   private async cleanupEmptyEventVoiceChannels(): Promise<void> {
-    // Ne traiter que les events dont le `start` date d'au moins 48 heures
-    const cutoffStart = new Date(Date.now() - 48 * 60 * 60 * 1000); // 48h
-    this.logger.info({ msg: 'Lancement cleanupEmptyEventVoiceChannels', cutoffStart });
+   
+    this.logger.info({ msg: 'Lancement cleanupEmptyEventVoiceChannels' });
     try {
       const events = await this.bot.eventManager.em.getRepository(Event).find({
-        start: { $lte: cutoffStart },
-      });
+      start: { $lte: raw('now()') },
+      discord: { vocalParentId: { $exists: true } },
+    } as any);
 
       for (const ev of events) {
         if (!ev.discord || !ev.discord.vocalParentId) continue;
