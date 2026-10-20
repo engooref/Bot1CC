@@ -1,0 +1,14 @@
+[
+    {
+        "type": "Button",
+        "customId": "button_valid_diplo",
+        "label": "Accepter le diplomate",
+        "style": "Success"
+    },
+    {
+        "type": "Button",
+        "customId": "button_refus_diplo",
+        "label": "Refuser le diplomate",
+        "style": "Danger"
+    }
+]

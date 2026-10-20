@@ -1,0 +1,32 @@
+{
+  "key": "bot_parrainage",
+  "label": "Parrainage",
+  "description": "Volontaires et capacité d’accompagnement des candidats du 1CC.",
+  "order": 125,
+  "groups": {
+    "bot_parrainage_general": {
+      "label": "Parrains",
+      "description": "Rôle Discord et plafond de candidats par parrain.",
+      "order": 10
+    }
+  },
+  "settings": [
+    {
+      "key": "bot.recrutement.role_parrain",
+      "type": "entity",
+      "entity": "discord_role",
+      "group": "bot_parrainage_general",
+      "label": "Rôle Parrain",
+      "default": null,
+      "description": "Membres volontaires autorisés à utiliser /parrain et à accompagner les candidats."
+    },
+    {
+      "key": "bot.recrutement.parrain_capacity_max",
+      "type": "string",
+      "group": "bot_parrainage_general",
+      "label": "Maximum de candidats par parrain",
+      "default": "2",
+      "description": "Plafond de capacité personnelle, de 1 à 100. Valeur par défaut : 2."
+    }
+  ]
+}

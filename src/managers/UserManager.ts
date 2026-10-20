@@ -2,10 +2,10 @@ import { User as UserEntity } from '../entities/core/User.js';
 import { RHMember as RHMemberEntity } from '../entities/rh/RHMember.js';
 import { BotManager } from '../BotManager.js';
 import { getManagerLogger } from '../logger.js';
-import { Response } from '../entities/event/Response.js';
 import { EntityManager } from '@mikro-orm/core';
 import { SafeMethod } from '../exception/Safe.js';
 import { InteractionContext } from '../entities/ui/ViewContext.js';
+import { Rank } from '../entities/core/Rank.js';
 
 
 export class UserManager {
@@ -21,33 +21,23 @@ export class UserManager {
     return this.fem;
   }
   
-  /** Supprime un utilisateur et ses données liées */
+  /** Anonymise un utilisateur au lieu de le supprimer */
   @SafeMethod
   public async deleteUser(user: UserEntity): Promise<void> {
     try {
-      await this.logger.info(`Suppression des informations de l'utilisateur : ${user.username}`);
-      // reset des données dans l'entité
+      await this.logger.info(`Anonymisation des informations de l'utilisateur : ${user.username}`);
+
+      const anonymousDiscordId = `anon-user-${user.id}`;
+
+      // Réinitialise les données publiques et casse le lien direct avec le compte Discord.
       user.reset();
+      user.username = `Ancien membre #${user.id}`;
+      user.discordId = anonymousDiscordId;
       await this.em.persist(user).flush();
 
-      // suppression du profil RH
-      if (user.rhProfile) {
-        await this.em.removeAndFlush(user.rhProfile);
-      }
-
-      const responsesCount = await this.em.count(Response, {users: user})
-
-      // si plus aucune trace, réponse ou rôle, on supprime l'utilisateur
-      if (
-        responsesCount === 0 &&
-        (user.rolesDiscord.isEmpty?.() ?? user.rolesDiscord.length === 0)
-      ) {
-        await this.em.removeAndFlush(user);
-      }
-
-      await this.logger.debug('Suppression effectuée');
+      await this.logger.debug(`Anonymisation effectuée : ${anonymousDiscordId}`);
     } catch (e) {
-      await this.logger.error(`Erreur lors de la suppression de l'utilisateur ${user.username} : ${e}`);
+      await this.logger.error(`Erreur lors de l'anonymisation de l'utilisateur ${user.username} : ${e}`);
       throw e;
     }
   }
@@ -113,7 +103,7 @@ export class UserManager {
       }
 
       // récupère le rôle "recrue"
-      const roleRecrueId = this.bot.getParameter('ROLE_RECRUE')[0];
+      const roleRecrueId = await this.bot.db.getEm().findOneOrFail(Rank, { baseRank: null }).then(rank => rank.roleDiscord!.discordId);
       const roleRecrue = this.bot.guild.roles.cache.get(roleRecrueId);
       if (!roleRecrue) {
         throw new Error('Rôle recrue non trouvé');

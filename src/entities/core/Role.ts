@@ -8,7 +8,6 @@ import {
   OneToOne,
   Rel,
 } from '@mikro-orm/core';
-import { Parameter } from './Parameter.js';
 import { User }      from './User.js';
 import { Rank } from './Rank.js';
 
@@ -26,10 +25,6 @@ export class Role {
 
   @Property({ length: 255 })
   name!: string;
-
-  /** Paramètres associés (Many-To-Many) */
-  @ManyToMany(() => Parameter, parameter => parameter.roles)
-  parameters = new Collection<Parameter>(this);
 
   /** Utilisateurs liés (Many-To-Many) */
   @ManyToMany(() => User, user => user.rolesDiscord)

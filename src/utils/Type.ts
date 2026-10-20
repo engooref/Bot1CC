@@ -18,6 +18,8 @@ interface BaseJSON {
 }
 
 export interface StringSelectJSON extends BaseJSON {
+  minValues?: number;
+  maxValues?: number;
   type: JSONTypeComponent.StringSelectMenu;
   placeholder?: string;
   default?: string;

@@ -5,6 +5,11 @@
     "options": [
       {
         "type": "SUB_COMMAND",
+        "name": "sync_channels_roles",
+        "description": "Force la mise à jour des salons et rôles en base depuis leurs IDs Discord"
+      },
+      {
+        "type": "SUB_COMMAND",
         "name": "purge",
         "description": "Met à jour la base de données en supprimant les entrées obsolètes"
       },

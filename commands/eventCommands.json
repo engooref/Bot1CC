@@ -14,6 +14,19 @@
             "description": "Lance les Events planifiés de la semaine",
             "type": "SUB_COMMAND",
             "options": []
+        },
+        {
+          "name": "createchannels",
+          "description": "Crée les channels vocaux d'un event via son ID",
+          "type": "SUB_COMMAND",
+          "options": [
+            {
+              "type": "INTEGER",
+              "name": "event_id",
+              "description": "ID de l'event",
+              "required": true
+            }
+          ]
         }
     ],
     "handler": "eventHandler"

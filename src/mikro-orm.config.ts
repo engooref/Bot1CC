@@ -24,7 +24,7 @@ export default defineConfig({
   namingStrategy: UnderscoreNamingStrategy,
 
   migrations: {
-    path: './dist/migrations',              // dossier compilé JS
+    path: './dist/src/migrations',              // dossier compilé JS
     pathTs: './src/migrations',             // dossier TS
     glob: '!(*.d).{js,ts}',                 // ignore les .d.ts
     emit: 'ts',                             // génère des migrations en TS

@@ -25,6 +25,7 @@ import {
     CategoryChannel,
     ModalSubmitInteraction,
     ThreadChannel,
+    DMChannel,
 
 } from 'discord.js';
 import { InteractionContext, ComponentType } from '../entities/ui/ViewContext.js';
@@ -44,9 +45,12 @@ export enum ViewHandlers {
     OperationHandler = 'OperationHandler',
     TicketsHandler = 'TicketsHandler',
     EngaHandler = 'EngaHandler',
+    RecrutementHandler = 'RecrutementHandler',
+    ParrainageHandler = 'ParrainageHandler',
     ScreenHandler = 'ScreenHandler',
     PromotionsHandler = 'PromotionsHandler',
     DuelHandler = 'DuelHandler',
+    DiploHandler = 'DiploHandler',
     GithubHandler = 'GithubHandler',
     AutoMessageHandler = 'AutoMessageHandler',
     ScheduledResponseHandler = 'ScheduledResponseHandler',
@@ -91,12 +95,13 @@ export abstract class BaseComponentView {
 
         // 3️⃣ On extrait tous les customIds présents
         this.customIds = this.rows
-        .flatMap(row => (row.components as any[]).map(comp => comp.data.custom_id as string));
+        .flatMap(row => (row.components as any[]).map(comp => comp.data.custom_id))
+        .filter((id): id is string => typeof id === 'string' && id.length > 0);
              
     }
 
     public async send(
-        channel: TextChannel | ThreadChannel,
+        channel: TextChannel | ThreadChannel | DMChannel,
         options: Omit<MessageCreateOptions, 'components'>,
     ): Promise<Message> {
         const msg = await channel.send({ ...options, components: this.rows as unknown as any[] });
@@ -132,7 +137,7 @@ export abstract class BaseComponentView {
     }
 
     public async sendOrEdit(
-        channel: TextChannel | ThreadChannel,
+        channel: TextChannel | ThreadChannel | DMChannel,
         existingMessage: Message | null | undefined,
         options: Omit<MessageCreateOptions, 'components'> & Omit<MessageEditOptions, 'components'>,
     ): Promise<Message> {
@@ -214,16 +219,18 @@ export abstract class BaseComponentView {
     protected async persistContexts(messageId: string, channelId: string) {
         const em = this.bot.db.getEm();
 
-        // 1️⃣ Extrait les customIds présents dans this.rows
-        let presentIds = this.rows.flatMap(row =>
-        // row.components est un array de builders, chacun a data.custom_id
-        (row.components as any[]).map(comp => comp.data.custom_id as string)
+        // Les boutons lien ouvrent une URL et n’ont pas de custom_id Discord.
+        const presentIds = this.rows.flatMap(row =>
+            (row.components as any[]).map(comp => comp.data.custom_id)
         );
+        for (const modal of this.modal ?? []) {
+            presentIds.push(modal.data.custom_id);
+        }
+        const customIds = new Set(presentIds.filter(
+            (id): id is string => typeof id === 'string' && id.length > 0
+        ));
 
-        if (this.modal?.length)
-             this.modal.flatMap(mod => {presentIds.push(mod.data.custom_id!)}) 
-
-        for (const customId of presentIds) {
+        for (const customId of customIds) {
             const existing = await em.findOne(InteractionContext, {
             messageId,
             channelId,
@@ -262,6 +269,8 @@ export abstract class BaseComponentView {
                         const menu = new StringSelectMenuBuilder()
                             .setCustomId(comp.customId)
                             .setPlaceholder(comp.placeholder || "Choisir…");
+                        if (comp.minValues !== undefined) menu.setMinValues(comp.minValues);
+                        if (comp.maxValues !== undefined) menu.setMaxValues(comp.maxValues);
                         for (const opt of comp.options || []) {
                             const option = new StringSelectMenuOptionBuilder()
                                 .setLabel(opt.label)
@@ -381,7 +390,7 @@ export abstract class BaseComponentView {
                     }
                 }
             }
-            if (buttons.length) actionRows.push(new ActionRowBuilder<ButtonBuilder>().addComponents(buttons));
+            for (let i = 0; i < buttons.length; i += 5) actionRows.push(new ActionRowBuilder<ButtonBuilder>().addComponents(buttons.slice(i, i + 5)));
             return { actionRows, modal };
         }
         catch (err) {

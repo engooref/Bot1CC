@@ -1,3 +1,5 @@
+import { SettingKeys } from '../constants/SettingKeys.js';
+import { settingsService } from '../services/SettingsService.js';
 import { ButtonInteraction, TextChannel, EmbedBuilder, MessageFlags } from 'discord.js';
 import { BotManager } from '../BotManager.js';
 import { getManagerLogger } from '../logger.js';
@@ -5,7 +7,6 @@ import type { InteractionData } from '../types/interaction.js';
 import { EntityManager } from '@mikro-orm/core';
 
 const CONTRACTS_CHANNEL_ID = '1452771277080100874';
-const FIDELIS_RESP_IDS = process.env.FIDELIS_RESP_IDS || '';
 
 export class ContractManager {
   private bot: BotManager;
@@ -62,7 +63,10 @@ export class ContractManager {
         ])
         .setFooter({ text: new Date().toLocaleString('fr-FR') });
 
-      const respIds = FIDELIS_RESP_IDS.split(';').filter(id => id.trim());
+      const respIds = await settingsService.getList(SettingKeys.bot.contracts.fidelisResponsibles);
+      if (respIds.some(id => !/^\d{17,20}$/.test(id))) {
+        throw new Error(`${SettingKeys.bot.contracts.fidelisResponsibles} contient un ID Discord invalide.`);
+      }
       const mentions = respIds.map(id => `<@${id.trim()}>`).join(' ');
 
       await thread.send({

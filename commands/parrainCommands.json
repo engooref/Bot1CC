@@ -1,0 +1,3 @@
+[
+    { "name": "parrain", "description": "Gérer mes disponibilités et mes accompagnements", "handler": "parrain" }
+]

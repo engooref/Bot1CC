@@ -1,33 +1,29 @@
+import { SettingKeys } from '../../constants/SettingKeys.js';
+import { settingsService } from '../../services/SettingsService.js';
 import { BotManager } from '../../BotManager.js';
 import { Event, EventStatus, EventVisibility } from '../../entities/event/Event.js';
 import { addDays, startOfDay, endOfDay } from 'date-fns';
 import { SafeMethod } from '../../exception/Safe.js';
 import { getManagerLogger } from '../../logger.js';
 
-const DAY_NAMES = ['dimanche','lundi','mardi','mercredi','jeudi','vendredi','samedi'];
 
 export class SchedulerAppEvent {
   private intervalId?: ReturnType<typeof setInterval>;
-  private readonly hourMinute: string;
-  private readonly dayIndex: number;
   private logger = getManagerLogger('SchedulerAppEvent');
 
   private programmedTasks = new Map<number, NodeJS.Timeout>();
 
   constructor(private bot: BotManager) {
-    // lit DAY_EVENT (0=lundi) et HOURS_EVENT ("HH:mm")
-    this.dayIndex    = parseInt(process.env.DAY_EVENT || '1', 10);  // défaut lundi
-    this.hourMinute  = process.env.HOURS_EVENT || '09:00';
-
     this.startScheduler();
     this.scheduleProgrammedEvents();
-    this.logger.debug(`✔ Scheduled weekly send: ${DAY_NAMES[this.dayIndex]} at ${this.hourMinute}`);
   }
 
   private startScheduler(): void {
     if (this.intervalId) clearInterval(this.intervalId);
     // toutes les 60s on vérifie l'heure & le jour
-    this.intervalId = setInterval(() => this.checkDate(), 60_000);
+    this.intervalId = setInterval(() => {
+      void this.checkDate().catch(err => this.logger.error({ msg: 'Erreur dans le scheduler hebdomadaire', err }));
+    }, 60_000);
   }
 
   public resetScheduler(): void {
@@ -35,13 +31,18 @@ export class SchedulerAppEvent {
     this.startScheduler();
   }
 
-  private checkDate(): void {
+  private async checkDate(): Promise<void> {
+    const [day, time] = await Promise.all([
+      settingsService.getString(SettingKeys.bot.events.publicationDay),
+      settingsService.getString(SettingKeys.bot.events.publicationTime),
+    ]);
+    if (!/^[0-6]$/.test(day) || !/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) {
+      throw new Error('Paramètres bot.events.publication_day ou bot.events.publication_time invalides.');
+    }
     const now = new Date();
-    const [h, m] = this.hourMinute.split(':').map(s => parseInt(s, 10));
-    if (now.getDay() === (this.dayIndex % 7) &&
-        now.getHours() === h && now.getMinutes() === m) {
-      // lance l'envoi en tâche asynchrone
-      this.sendEventsWeek().catch(async err => await this.logger.error({ msg: 'Erreur dans sendEventsWeek:', err }));
+    const [hour, minute] = time.split(':').map(Number);
+    if (now.getDay() === Number(day) && now.getHours() === hour && now.getMinutes() === minute) {
+      await this.sendEventsWeek();
     }
   }
 
@@ -66,23 +67,6 @@ export class SchedulerAppEvent {
       populate: ['*', 'responses.users'],
     });
 
-    for (const day of DAY_NAMES) {
-      const id = this.bot.getParameter("CHANNEL_" + day.toUpperCase()) as string;
-      const channel = this.bot.guild.channels.cache.get(id);
-      if (channel?.name.endsWith('📅'))
-        await channel?.setName(channel?.name.slice(0, -1));
-    }
-
-    const countTraining = await this.countEventsByType('ENTRAINEMENT COMPÉTITION');
-    let channel = this.bot.guild.channels.cache.get(this.bot.getParameter("CHANNEL_TRAINING") as string);
-    if (channel?.name.endsWith('📅') && countTraining === 0)
-      await channel.setName(channel.name.slice(0, -1));
-
-    const countEvent = await this.countEventsByType('GROS EVENT');
-    channel = this.bot.guild.channels.cache.get(this.bot.getParameter("CHANNEL_GROS_EVENT") as string);
-    if (channel?.name.endsWith('📅') && countEvent === 0)
-      await channel.setName(channel.name.slice(0, -1));
-
     for (const ev of events) {
       await this.bot.eventManager.setEvent(ev);
       this.bot.eventManager.em.persist(ev);
@@ -91,12 +75,6 @@ export class SchedulerAppEvent {
     await this.bot.eventManager.em.flush();
   }
 
-  private async countEventsByType(typeLike: string): Promise<number> {
-    return await this.bot.eventManager.em.getRepository(Event).count({
-      start: { $gte: startOfDay(new Date()) },
-      type: { name: { $like: `%${typeLike}%` } }
-    });
-  }
 
   /** Planifie tous les events PROGRAMMED à leur date publishAt */
   public async scheduleProgrammedEvents(): Promise<void> {

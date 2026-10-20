@@ -1,3 +1,5 @@
+import { SettingKeys } from '../constants/SettingKeys.js';
+import { settingsService } from '../services/SettingsService.js';
 import { AttachmentBuilder, ButtonInteraction, EmbedBuilder, GuildMemberRoleManager, MessageFlags, Role, TextChannel, CategoryChannel, ChannelType, PermissionFlagsBits, VoiceBasedChannel } from "discord.js";
 import { BotManager } from "../BotManager.js";
 import { BaseComponentView, ViewHandlers } from "./BaseView.js";
@@ -21,7 +23,10 @@ export default class EngaView extends BaseComponentView {
 }
 
 export async function sendEnga(bot: BotManager) {
-    const channelId = bot.getParameter('CHANNEL_ENGA') as string;
+    await bot.recrutementManager.publishEngagement();
+    return;
+    
+    const channelId = await settingsService.getString(SettingKeys.bot.channels.enga);
     const channel = bot.guild.channels.cache.get(channelId) as TextChannel;
 
     if (!channel) return
@@ -60,22 +65,22 @@ export async function sendCandidatures(interaction: ButtonInteraction, bot: BotM
 
         // Récupération des rôles Discord de l'utilisateur
         const member = interaction.member;
-        // if (!member || !('roles' in member)) {
-        //     interaction.deleteReply()
-        //     return
-        // }
+        if (!member || !('roles' in member)) {
+            interaction.deleteReply()
+            return
+        }
 
-        // if ((member.roles as GuildMemberRoleManager).cache.has(bot.roleMember!.id)) {
-        //     interaction.deleteReply()
-        //     return 
-        // }
+        if ((member.roles as GuildMemberRoleManager).cache.has(bot.roleMember!.id)) {
+            interaction.deleteReply()
+            return 
+        }
 
         // Chargement / création de l'entité en base
         const memberRh = await bot.userManager.initMemberRh(interaction.user.id);
-        // if (memberRh.status === 'Candidatures') {
-        //     interaction.editReply('Vous avez déjà une demande en cours.');
-        //     return 
-        // }
+        if (memberRh.status === 'Candidatures') {
+            interaction.editReply('Vous avez déjà une demande en cours.');
+            return 
+        }
 
         memberRh.status = 'Candidatures';
         memberRh.dateEntree = new Date();
@@ -86,7 +91,7 @@ export async function sendCandidatures(interaction: ButtonInteraction, bot: BotM
         // Préparation de l'annonce RH
         const guild = interaction.client.guilds.cache.get(bot.guildId);
         if (!guild) return;
-        const channelRh = guild.channels.cache.get(bot.getParameter('CHANNEL_RH') as string) as TextChannel;
+        const channelRh = guild.channels.cache.get(await settingsService.getString(SettingKeys.bot.channels.rh)) as TextChannel;
         if (!channelRh || !channelRh.isTextBased()) return;
 
          // Récupère ou crée le thread "Candidatures"
@@ -99,7 +104,7 @@ export async function sendCandidatures(interaction: ButtonInteraction, bot: BotM
         });
         }
 
-        const rhRole = guild.roles.cache.get((bot.getParameter('ROLE_RH') as string[])[0]) as Role;
+        const rhRole = guild.roles.cache.get(await settingsService.getString(SettingKeys.site.roles.rh)) as Role;
         const now = new Date().toLocaleString('fr-FR', {
         day: '2-digit', month: '2-digit', year: 'numeric',
         hour: '2-digit', minute: '2-digit'
@@ -150,7 +155,7 @@ export async function sendCandidatures(interaction: ButtonInteraction, bot: BotM
             const admissionCategoryId = process.env.ADMISSION_CATEGORY_ID as string;
             const category = guild.channels.cache.get(admissionCategoryId) as CategoryChannel | undefined;
             if (category && category.type === ChannelType.GuildCategory) {
-                const rhRoleIds = (bot.getParameter('ROLE_RH') as string[]) || [];
+                const rhRoleId = await settingsService.getString(SettingKeys.site.roles.rh);
 
                 const overwrites = [
                     {
@@ -165,15 +170,15 @@ export async function sendCandidatures(interaction: ButtonInteraction, bot: BotM
                             PermissionFlagsBits.ReadMessageHistory,
                         ],
                     },
-                    // Autoriser les rôles RH
-                    ...rhRoleIds.map(id => ({
-                        id: id,
+                    // Autoriser le rôle RH
+                    {
+                        id: rhRoleId,
                         allow: [
                             PermissionFlagsBits.ViewChannel,
                             PermissionFlagsBits.SendMessages,
                             PermissionFlagsBits.ReadMessageHistory,
                         ],
-                    })),
+                    },
                 ];
 
                 const channelName = `admission-${interaction.user.displayName.replace(/\s+/g, '-').toLowerCase()}`;

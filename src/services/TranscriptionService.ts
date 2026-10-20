@@ -1,3 +1,5 @@
+import { SettingKeys } from '../constants/SettingKeys.js';
+import { settingsService } from './SettingsService.js';
 import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -32,17 +34,15 @@ export class TranscriptionService {
    *
    * Variables optionnelles :
    * - MEETING_STT_PYTHON=python3
-   * - MEETING_STT_MODEL=base|small|medium
    * - MEETING_STT_DEVICE=cpu
    * - MEETING_STT_COMPUTE_TYPE=int8
-   * - MEETING_STT_LANGUAGE=fr
    */
   public async transcribeAudioFile(audioFilePath: string, options: TranscriptionOptions = {}): Promise<string> {
     const python = process.env.MEETING_STT_PYTHON ?? 'python3';
-    const model = options.model ?? process.env.MEETING_STT_MODEL ?? 'base';
+    const model = options.model ?? await settingsService.getString(SettingKeys.bot.meeting.transcriptionModel, 'base');
     const device = options.device ?? process.env.MEETING_STT_DEVICE ?? 'cpu';
     const computeType = options.computeType ?? process.env.MEETING_STT_COMPUTE_TYPE ?? 'int8';
-    const language = options.language ?? process.env.MEETING_STT_LANGUAGE ?? 'fr';
+    const language = options.language ?? await settingsService.getString(SettingKeys.bot.meeting.transcriptionLanguage, 'fr');
 
     const script = String.raw`
 import json

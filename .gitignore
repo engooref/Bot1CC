@@ -6,3 +6,9 @@ config
 migrations
 logs/
 .venv
+# Versionner la migration des tables de diplomatie.
+!src/migrations/
+src/migrations/*
+!src/migrations/Migration20260912000000.ts
+# Sauvegarde des accès Postulant avant entretien.
+!src/migrations/Migration20260917190000.ts

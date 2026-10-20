@@ -1,3 +1,5 @@
+import { SettingKeys } from '../constants/SettingKeys.js';
+import { settingsService } from '../services/SettingsService.js';
 import { 
   ChannelType, 
   GuildBasedChannel, 
@@ -67,12 +69,32 @@ export class DatabaseManager {
         await interaction.followUp({ content: '❌ Une erreur est survenue lors de la purge.', ephemeral: true });
       }
 
+    } else if (sub === 'sync_channels_roles') {
+      try {
+        const [discordRoles, fetchedChannels] = await Promise.all([
+          this.bot.guild.roles.fetch(),
+          this.bot.guild.channels.fetch(),
+        ]);
+        const discordChannels = new Collection<string, GuildBasedChannel>();
+        for (const [id, channel] of fetchedChannels) {
+          if (channel) discordChannels.set(id, channel);
+        }
+        const roles = await this.syncRoles(discordRoles, this.getEm(), true);
+        const channels = await this.syncChannels(discordChannels, true);
+        await interaction.followUp({
+          content: `✅ Synchronisation forcée terminée : ${channels.length} salons et ${roles.length} rôles en base actualisés depuis Discord.`,
+          ephemeral: true,
+        });
+      } catch (err) {
+        await this.logger.error({ msg: 'Erreur lors de la synchronisation forcée des salons et rôles :', err });
+        await interaction.followUp({ content: '❌ Synchronisation interrompue. Certaines mises à jour peuvent avoir été enregistrées ; consulte les logs puis relance la commande.', ephemeral: true });
+      }
     } else if (sub === 'sync_users') {
       try {
         const discordMembers = await this.bot.guild.members.fetch();
         const em = this.getEm();
         const roleMemberId = this.bot.roleMember!.id;
-        const reservistRoleId = process.env.RES_ID!;
+        const reservistRoleId = await settingsService.getString(SettingKeys.bot.roles.reserviste);
 
         for (const [id, member] of discordMembers) {
           
@@ -295,18 +317,23 @@ export class DatabaseManager {
   }
 
   /**
-   * Insère les rôles Discord manquants et renvoie la liste complète des RoleEntity.
+   * Insère les rôles manquants ; force met aussi à jour les noms par ID Discord.
    */
-  @SafeMethod
   public async syncRoles(
     discordRoles: Collection<string, DiscordRole>,
     em: EntityManager = this.getEm(),
+    force = false,
   ): Promise<Role[]> {
     if (!discordRoles.size) return [];
 
     const ids      = discordRoles.map(r => r.id);
     let existing   = await em.find(Role, { discordId: { $in: ids } });
     const existingIds = new Set(existing.map(r => r.discordId));
+    if (force) {
+      for (const role of existing) {
+        role.name = discordRoles.get(role.discordId)!.name;
+      }
+    }
 
     const toCreate: Role[] = [];
     for (const r of discordRoles.values()) {
@@ -323,11 +350,11 @@ export class DatabaseManager {
       existing = await em.find(Role, { discordId: { $in: ids } });
     }
 
+    if (force) await em.flush();
     return existing;
   }
 
-  @SafeMethod
-  public async syncChannels(discordChannels: Collection<string, GuildBasedChannel>): Promise<Channel[]> {
+  public async syncChannels(discordChannels: Collection<string, GuildBasedChannel>, force = false): Promise<Channel[]> {
     try {
       // fork de l’EM en tête de méthode
       const em = this.orm.em.fork();
@@ -356,16 +383,26 @@ export class DatabaseManager {
       const ids        = discordChannels.map(ch => ch.id);
       let existing     = await em.find(Channel, { discordId: { $in: ids } });
       const existingIds = new Set(existing.map(c => c.discordId));
+      if (force) {
+        for (const channel of existing) {
+          const discordChannel = discordChannels.get(channel.discordId)!;
+          channel.name = discordChannel.name;
+          channel.categoryName = discordChannel.parent?.name ?? '';
+          channel.categoryId = discordChannel.parent?.id ?? '';
+        }
+      }
 
       // 3) prepare toCreate…
       const toCreate: Channel[] = [];
       for (const ch of discordChannels.values()) {
         if (existingIds.has(ch.id)) continue;
-        if (ch.isVoiceBased() || ch.isThread() || ch.type === ChannelType.GuildCategory || excludeIds.has(ch.id)) continue;
+        if (ch.isThread() || ch.type === ChannelType.GuildCategory || excludeIds.has(ch.id)) continue;
 
         toCreate.push(em.create(Channel, {
           name:      ch.name,
           discordId: ch.id,
+          categoryName: ch.parent?.name ?? '',
+          categoryId: ch.parent?.id ?? '',
         }));
         await this.logger.debug(`Ajout du channel: ${ch.name}`);
       }
@@ -376,6 +413,7 @@ export class DatabaseManager {
         existing = await em.find(Channel, { discordId: { $in: ids } });
       }
 
+      if (force) await em.flush();
       return existing;
     } catch (err) {
   await this.logger.error({ msg: '[syncChannels] Erreur lors de la synchronisation des channels:', err });

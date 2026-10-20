@@ -11,6 +11,21 @@ import { GithubHandlers } from '../managers/GithubManager.js';
 import type { AutoMessageState } from '../managers/AutoMessageManager.js';
 
 export function registerComponentHandlers(bot: BotManager): void {
+  componentHandlerRegistry.register(ViewHandlers.ParrainageHandler, async (interaction, data) => {
+    if (interaction.isButton() || interaction.isStringSelectMenu() || interaction.isModalSubmit())
+      await bot.parrainageManager.handler(interaction, data);
+  });
+  componentHandlerRegistry.register(ViewHandlers.RecrutementHandler, async (interaction, data) => {
+    if ((interaction.isButton() || interaction.isStringSelectMenu() || interaction.isModalSubmit()) && interaction.customId.startsWith('parrain_'))
+      await bot.parrainageManager.handler(interaction, data);
+    else if (interaction.isButton() || interaction.isModalSubmit())
+      await bot.recrutementManager.handler(interaction, data);
+  });
+  componentHandlerRegistry.register(ViewHandlers.DiploHandler, async (interaction, data) => {
+    if (interaction.isButton() || interaction.isStringSelectMenu() || interaction.isModalSubmit())
+      await bot.diploManager.handlerResponse(interaction, data);
+  });
+
   componentHandlerRegistry.register(ViewHandlers.InviteViewHandler, async (interaction, data) => {
     await (interaction as ButtonInteraction).deferUpdate();
     await bot.eventManager.userResponseHandle(interaction as ButtonInteraction, data);

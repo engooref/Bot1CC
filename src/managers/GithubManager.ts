@@ -1,3 +1,5 @@
+import { SettingKeys } from '../constants/SettingKeys.js';
+import { settingsService } from '../services/SettingsService.js';
 import {
     ChatInputCommandInteraction,
     StringSelectMenuInteraction,
@@ -62,7 +64,7 @@ export class GithubManager {
 
     private async handleIssueCommand(interaction: ChatInputCommandInteraction) {
         const { assistanceCategoryName, repos } = this.config.getAll();
-        const devRoleId = process.env.GITHUB_DEV_ROLE_ID;
+        const devRoleId = await settingsService.getString(SettingKeys.bot.github.roleDev);
 
         // Vérification : channel dans la catégorie Assistance
         const channel = interaction.channel as TextChannel;
@@ -233,8 +235,41 @@ export class GithubManager {
             ? imagesRaw.split('\n').map(u => u.trim()).filter(u => u.startsWith('http'))
             : [];
 
+        // Infos automatiques du ticket Discord
+        const channel = interaction.channel as TextChannel | null;
+
+        const channelName = channel?.name ?? 'channel-inconnu';
+        const channelId = interaction.channelId;
+        const guildId = interaction.guildId;
+
+        // Essaie de récupérer un numéro depuis le nom du channel : ticket-1234, ticket_1234, assistance-1234, etc.
+        const ticketMatch =
+            channelName.match(/(?:ticket|assistance|support)[-_ ]?(\d+)/i) ||
+            channelName.match(/(\d+)/);
+
+        const ticketNumber = ticketMatch?.[1] ?? 'non détecté';
+
+        const discordChannelUrl = guildId
+            ? `https://discord.com/channels/${guildId}/${channelId}`
+            : 'Lien indisponible';
+
+        // Titre envoyé à GitHub
+        const githubTitle =
+            ticketNumber !== 'non détecté'
+                ? `[Ticket #${ticketNumber}] ${title}`
+                : `[${channelName}] ${title}`;
+
         // Construction du corps de l'issue
-        let fullBody = bodyText;
+        let fullBody = `### Ticket Discord
+
+        - **Numéro du ticket :** ${ticketNumber}
+        - **Channel :** #${channelName}
+        - **Lien Discord :** ${discordChannelUrl}
+        - **Reporté par :** ${interaction.user.tag}
+
+        ---
+
+        ${bodyText}`;
         if (images.length > 0) {
             fullBody += '\n\n---\n### Images\n' + images.map(url => `![image](${url})`).join('\n');
         }
@@ -261,15 +296,28 @@ export class GithubManager {
                         'X-GitHub-Api-Version': '2022-11-28',
                         'Content-Type': 'application/json',
                     },
-                    body: JSON.stringify({ title, body: fullBody, labels, assignees }),
+                    body: JSON.stringify({
+                        title: githubTitle,
+                        body: fullBody,
+                        ...(labels.length > 0 ? { labels } : {}),
+                        ...(assignees.length > 0 ? { assignees } : {}),
+                    }),
                 }
             );
 
             if (!response.ok) {
                 const error = await response.json() as any;
-                this.logger.error({ msg: `GitHub API error ${response.status}`, error });
+
+                console.error('GitHub API error:', JSON.stringify(error, null, 2));
+
+                const details = Array.isArray(error.errors)
+                    ? error.errors
+                        .map((e: any) => `- ${e.field ?? 'field'}: ${e.message ?? e.code}`)
+                        .join('\n')
+                    : '';
+
                 await interaction.editReply({
-                    content: `⚠️ Erreur GitHub API (${response.status}): ${error.message ?? response.statusText}`,
+                    content: `⚠️ Erreur GitHub API (${response.status}): ${error.message ?? response.statusText}\n${details}`,
                 });
                 return;
             }
@@ -281,7 +329,9 @@ export class GithubManager {
                 .setURL(issue.html_url)
                 .setColor(0x238636)
                 .addFields(
-                    { name: 'Titre', value: title, inline: false },
+                    { name: 'Titre', value: githubTitle, inline: false },
+                    { name: 'Ticket Discord', value: `#${channelName}`, inline: true },
+                    { name: 'Numéro ticket', value: ticketNumber, inline: true },
                     { name: 'Repository', value: `\`${repo}\``, inline: true },
                     { name: 'Statut', value: issue.state, inline: true },
                 )

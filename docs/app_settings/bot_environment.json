@@ -1,0 +1,127 @@
+{
+  "key": "bot_environment",
+  "label": "Bot",
+  "description": "Rôles, salons vocaux, événements, réunions et contrats du bot.",
+  "order": 120,
+  "groups": {
+    "bot_env_roles": {
+      "label": "Rôles",
+      "description": "Rôles utilisés par la synchronisation et les commandes du bot.",
+      "order": 10
+    },
+    "bot_env_voice": {
+      "label": "Salons vocaux",
+      "description": "Création des salons vocaux temporaires.",
+      "order": 20
+    },
+    "bot_env_events": {
+      "label": "Événements",
+      "description": "Publication hebdomadaire et briefings.",
+      "order": 30
+    },
+    "bot_env_meetings": {
+      "label": "Réunions",
+      "description": "Transcription et conservation des enregistrements.",
+      "order": 40
+    },
+    "bot_env_contracts": {
+      "label": "Contrats",
+      "description": "Notifications des demandes Fidelis.",
+      "order": 50
+    }
+  },
+  "settings": [
+    {
+      "key": "bot.roles.reserviste",
+      "type": "entity",
+      "group": "bot_env_roles",
+      "label": "Rôle réserviste",
+      "default": "1011680225110802463",
+      "description": "Rôle exclu de la synchronisation des membres actifs.",
+      "entity": "discord_role"
+    },
+    {
+      "key": "bot.github.role_dev",
+      "type": "entity",
+      "group": "bot_env_roles",
+      "label": "Rôle développeur",
+      "default": "1041648768317132841",
+      "description": "Rôle autorisé à utiliser les commandes GitHub réservées aux développeurs.",
+      "entity": "discord_role"
+    },
+    {
+      "key": "bot.voice.channel_creation",
+      "type": "entity",
+      "group": "bot_env_voice",
+      "label": "Salon de création vocale",
+      "default": "1230063683275722762",
+      "description": "Salon vocal à rejoindre pour créer un salon temporaire.",
+      "entity": "discord_channel"
+    },
+    {
+      "key": "bot.events.briefing_tag",
+      "type": "string",
+      "group": "bot_env_events",
+      "label": "ID du tag des briefings",
+      "default": "1161053418069168248",
+      "description": "Identifiant Discord du tag à appliquer dans le forum des briefings."
+    },
+    {
+      "key": "bot.events.publication_day",
+      "type": "select",
+      "group": "bot_env_events",
+      "label": "Jour de publication",
+      "default": "5",
+      "description": "Jour de publication hebdomadaire des événements ; dimanche vaut 0 et lundi vaut 1.",
+      "choices": {
+        "Dimanche": "0",
+        "Lundi": "1",
+        "Mardi": "2",
+        "Mercredi": "3",
+        "Jeudi": "4",
+        "Vendredi": "5",
+        "Samedi": "6"
+      }
+    },
+    {
+      "key": "bot.events.publication_time",
+      "type": "string",
+      "group": "bot_env_events",
+      "label": "Heure de publication",
+      "default": "21:00",
+      "description": "Heure au format HH:mm, dans le fuseau horaire du processus bot."
+    },
+    {
+      "key": "bot.meeting.transcription_model",
+      "type": "string",
+      "group": "bot_env_meetings",
+      "label": "Modèle de transcription",
+      "default": "base",
+      "description": "Nom du modèle de transcription chargé par le service."
+    },
+    {
+      "key": "bot.meeting.transcription_language",
+      "type": "string",
+      "group": "bot_env_meetings",
+      "label": "Langue de transcription",
+      "default": "fr",
+      "description": "Code de langue utilisé pour la transcription, par exemple fr."
+    },
+    {
+      "key": "bot.meeting.keep_audio",
+      "type": "boolean",
+      "group": "bot_env_meetings",
+      "label": "Conserver les fichiers audio",
+      "default": false,
+      "description": "Conserver les fichiers audio après le traitement de la réunion."
+    },
+    {
+      "key": "bot.contracts.fidelis_responsibles",
+      "type": "textarea",
+      "group": "bot_env_contracts",
+      "label": "Responsables Fidelis",
+      "default": "216305802296688640;399051916996247582;339800670985125890;317750442706731026;793924649829269514",
+      "description": "IDs Discord des utilisateurs à mentionner, séparés par des points-virgules. Le bot devra valider chaque ID."
+    }
+  ]
+}

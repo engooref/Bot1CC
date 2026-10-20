@@ -14,14 +14,23 @@ export class Channel {
   @Property({ length: 255 })
   name!: string;
 
+  @Property({fieldName: 'category_name' })
+  categoryName!: string;
+
+  @Property({fieldName: 'category_id' })
+  categoryId!: string;
+
+
   /**
    * @param name        Le nom du channel
    * @param discordId   L’ID Discord du channel (string ou number)
    */
-  constructor(name: string, discordId: string | number) {
+  constructor(name: string, discordId: string | number, categoryName: string, categoryId: string) {
     this.name = name;
     // on stocke les bigints en string pour éviter les limites JS
     this.discordId = String(discordId);
+    this.categoryName = categoryName;
+    this.categoryId = categoryId;
   }
 
 }

@@ -1,3 +1,5 @@
+import { SettingKeys } from '../../constants/SettingKeys.js';
+import { settingsService } from '../../services/SettingsService.js';
 import { Router, Request } from 'express';
 import { BotManager } from '../../BotManager.js';
 import multer from 'multer';
@@ -83,7 +85,7 @@ export default function createRankRouter(bot: BotManager): Router {
 
             const em = bot.db.getEm();
             // Récupère le channel RH nommé Promotions
-            const channelRh = bot.guild.channels.cache.get(bot.getParameter('CHANNEL_RH') as string) as TextChannel;
+            const channelRh = bot.guild.channels.cache.get(await settingsService.getString(SettingKeys.bot.channels.rh)) as TextChannel;
             
 
             if (!channelRh) {
@@ -102,7 +104,7 @@ export default function createRankRouter(bot: BotManager): Router {
                 }
             }
 
-            const rhRole = bot.guild.roles.cache.get((bot.getParameter('ROLE_RH') as string[])[0]) as Role;
+            const rhRole = bot.guild.roles.cache.get(await settingsService.getString(SettingKeys.site.roles.rh)) as Role;
                     
             
             const results: { discordId: string; success: boolean; error?: string }[] = [];

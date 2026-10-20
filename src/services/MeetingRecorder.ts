@@ -1,3 +1,5 @@
+import { SettingKeys } from '../constants/SettingKeys.js';
+import { settingsService } from './SettingsService.js';
 import { ChatInputCommandInteraction, TextChannel } from 'discord.js';
 import { joinVoiceChannel, EndBehaviorType, VoiceConnection } from '@discordjs/voice';
 import * as prism from 'prism-media';
@@ -365,7 +367,7 @@ export class MeetingRecorder {
         }
       }
 
-      if (process.env.MEETING_KEEP_AUDIO !== 'true') {
+      if (!await settingsService.getBool(SettingKeys.bot.meeting.keepAudio)) {
         await this.audioStorage.cleanupMeeting(context);
       }
     } catch (err) {

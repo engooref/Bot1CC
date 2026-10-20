@@ -1,3 +1,6 @@
+import { ParrainageManager } from '../managers/ParrainageManager.js';
+import { RecrutementManager } from '../managers/RecrutementManager.js';
+import { DiploManager } from '../managers/DiploManager.js';
 import { BotManager } from '../BotManager.js';
 import { botLogger } from '../logger.js';
 import { EventManager } from '../managers/EventManager.js';
@@ -36,12 +39,16 @@ export async function createManagers(bot: BotManager): Promise<void> {
   bot.meetingManager = new MeetingManager(bot);
   bot.autoMessageManager = new AutoMessageManager(bot);
   bot.contractManager = new ContractManager(bot);
+  bot.diploManager = new DiploManager(bot);
+  bot.recrutementManager = new RecrutementManager(bot);
+  bot.parrainageManager = new ParrainageManager(bot);
 
   // --- Raffinerie ---
   bot.refineryManager = new RefineryManager(bot.db.getEm(), bot);
 
   // Fusion dynamique des handlers exposés par chaque manager
   const handlersMap = {
+    ...bot.parrainageManager.getSlashHandlers(),
     ...bot.screenManager.getSlashHandlers(),
     ...bot.eventManager.getSlashHandlers(),
     ...bot.db.getSlashHandlers(),

@@ -1,6 +1,6 @@
 import { TSMigrationGenerator } from '@mikro-orm/migrations';
 
-const ALLOWED_TABLES = ['view_context'];  // tableName en base
+const ALLOWED_TABLES = ['view_context', 'diplomatie_corporation', 'diplomatie_demande', 'recrutement_demande', 'recrutement_parrainage', 'recrutement_parrain_preference'];  // tableName en base
 
 export class FilteredMigrationGenerator extends TSMigrationGenerator {
 

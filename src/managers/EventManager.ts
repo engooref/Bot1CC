@@ -1,3 +1,5 @@
+import { SettingKeys, EventChannelSettings, type SettingKey } from '../constants/SettingKeys.js';
+import { settingsService } from '../services/SettingsService.js';
 // src/managers/EventManager.js
 import fs from 'fs';
 import { promises as fsp } from 'fs';
@@ -55,7 +57,7 @@ export class EventManager {
   @SafeMethod
   async setEvent(event: Event) {
     try {
-      const channel = this.getChannel(event);
+      const channel = await this.getChannel(event);
       // 1) URL Google Calendar
       const startISO = event.start.toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z');
       const calUrl = new URL('https://calendar.google.com/calendar/render');
@@ -109,12 +111,10 @@ export class EventManager {
         try {
           msg = await channel.messages.fetch(event.discord.messageId);
         } catch {
-          const channelIds = [
-            this.bot.getParameter('CHANNEL_GROS_EVENT') as string,
-            this.bot.getParameter('CHANNEL_TRAINING') as string,
-            ...['CHANNEL_LUNDI', 'CHANNEL_MARDI', 'CHANNEL_MERCREDI', 'CHANNEL_JEUDI', 'CHANNEL_VENDREDI', 'CHANNEL_SAMEDI', 'CHANNEL_DIMANCHE']
-              .map(day => this.bot.getParameter(day) as string)
-          ];
+          const channelIds = await Promise.all(([
+            'gros_event', 'training', 'lundi', 'mardi', 'mercredi',
+            'jeudi', 'vendredi', 'samedi', 'dimanche',
+          ] as const).map(name => settingsService.getString(EventChannelSettings[name])));
 
           let found = false;
           for (const chId of channelIds) {
@@ -186,7 +186,7 @@ export class EventManager {
   @SafeMethod
   async updateEvent(event: Event) {
     try {
-      const channel = this.getChannel(event);
+      const channel = await this.getChannel(event);
       const message = await channel.messages.fetch(event.discord.messageId!);
       const embed   = EmbedBuilder.from(message.embeds[0]);
 
@@ -228,7 +228,7 @@ export class EventManager {
   @SafeMethod
   async suppEvent(event: Event) {
     try {
-      const channel = this.getChannel(event);
+      const channel = await this.getChannel(event);
       if (!event.discord.messageId) return;
       const message = await channel.messages.fetch(event.discord.messageId).catch(() => null);
       if (!message) return;
@@ -247,7 +247,7 @@ export class EventManager {
       if (event.discord.briefingMessageId) {
         // Supprimer le briefing s’il existe
         const forum = /** @type {ForumChannel} */ (
-          this.bot.guild.channels.cache.get(this.bot.getParameter('CHANNEL_BRIEFING') as string)
+          this.bot.guild.channels.cache.get(await settingsService.getString(SettingKeys.bot.channels.briefing))
         );
         if (forum && forum.type === ChannelType.GuildForum) {
           for (const thread of forum.threads.cache.values()) {
@@ -265,7 +265,7 @@ export class EventManager {
       if (event.discord.attributionMessageId) {
         // Supprimer l’attribution s’il existe
         const forum = /** @type {ForumChannel} */ (
-          this.bot.guild.channels.cache.get(this.bot.getParameter('CHANNEL_BRIEFING') as string)
+          this.bot.guild.channels.cache.get(await settingsService.getString(SettingKeys.bot.channels.briefing))
         );
         if (forum && forum.type === ChannelType.GuildForum) {
           for (const thread of forum.threads.cache.values()) {
@@ -302,10 +302,10 @@ export class EventManager {
     try {
       // 1) Récupère le forum
       const forum = /** @type {ForumChannel} */ (
-        this.bot.guild.channels.cache.get(this.bot.getParameter('CHANNEL_BRIEFING') as string)
+        this.bot.guild.channels.cache.get(await settingsService.getString(SettingKeys.bot.channels.briefing))
       );
       if (!forum || forum.type !== ChannelType.GuildForum) {
-        throw new Error('CHANNEL_BRIEFING n’est pas un ForumChannel valide');
+        throw new Error(`${SettingKeys.bot.channels.briefing} n’est pas un ForumChannel valide`);
       }
 
       // 1) Si on a un briefing, on cherche d’abord le thread associé
@@ -354,7 +354,8 @@ export class EventManager {
       } else {
 
         // 4) …sinon on crée un tout nouveau thread
-        const tag = forum.availableTags.find(t => t.id === process.env.EVENT_TAG!);
+        const tagId = await settingsService.getString(SettingKeys.bot.events.briefingTag);
+        const tag = forum.availableTags.find(t => t.id === tagId);
         const thread = await forum.threads.create({
           name:        event.name,
           appliedTags: tag ? [tag.id] : [],
@@ -459,8 +460,8 @@ export class EventManager {
   @SafeMethod
   async _handleBriefing(event: Event) {
    
-    const templatesDir = this.bot.getParameter('DIRECTORY_TEMPLATES') as string;
-    const outputDir    = this.bot.getParameter('DIRECTORY_EVENT_TEMPLATE') as string;
+    const templatesDir = await settingsService.getString(SettingKeys.site.directories.briefingTemplates);
+    const outputDir    = await settingsService.getString(SettingKeys.site.directories.eventTemplates);
     const outDir = path.join('Data', outputDir);
     fs.mkdirSync(outDir, { recursive: true });
     const fileName = `${nanoid()}.png`;
@@ -506,7 +507,7 @@ export class EventManager {
 
     const SVGMgr = new SVGManager(data, config)
     await SVGMgr.generateImage();
-    const channelBrief : ForumChannel = this.bot.guild.channels.cache.get(this.bot.getParameter('CHANNEL_BRIEFING') as string) as ForumChannel;
+    const channelBrief : ForumChannel = this.bot.guild.channels.cache.get(await settingsService.getString(SettingKeys.bot.channels.briefing)) as ForumChannel;
     const file = new AttachmentBuilder(outputPath);
 
     await channelBrief.threads.fetch();
@@ -534,7 +535,8 @@ export class EventManager {
 
     // 3. Si on n’a pas trouvé le message (cas 1 ou 2), on crée un nouveau thread
     if (!message) {
-      const tag = channelBrief.availableTags.find(t => t.id === process.env.EVENT_TAG!);
+      const tagId = await settingsService.getString(SettingKeys.bot.events.briefingTag);
+      const tag = channelBrief.availableTags.find(t => t.id === tagId);
       const newThread = await channelBrief.threads.create({
         name: event.name,
         appliedTags: tag ? [tag.id] : [],
@@ -563,17 +565,20 @@ export class EventManager {
 
   
   /** Sélectionne le bon canal TextChannel en fonction du type d’event */
-  getChannel(event: Event): TextChannel {
-    let param = '';
+  async getChannel(event: Event): Promise<TextChannel> {
+    let param: SettingKey | undefined;
     if (event.type) {
-      const type = event.type!.name.toUpperCase() ?? "";
-      if (type.includes('ENTRAINEMENT COMPÉTITION')) param = 'CHANNEL_TRAINING';
-      else if (type.includes('GROS EVENT')) param = 'CHANNEL_GROS_EVENT';
+      const type = event.type.name.toUpperCase() ?? "";
+      if (type.includes('ENTRAINEMENT COMPÉTITION')) param = SettingKeys.bot.channels.training;
+      else if (type.includes('GROS EVENT')) param = SettingKeys.bot.channels.grosEvent;
     }
 
-    if (!param) param = 'CHANNEL_' + event.start.toLocaleDateString('fr-FR', { weekday: 'long' }).toUpperCase();
+    if (!param) {
+      const day = event.start.toLocaleDateString('fr-FR', { weekday: 'long' }).toLowerCase() as keyof typeof EventChannelSettings;
+      param = EventChannelSettings[day];
+    }
 
-    const id = this.bot.getParameter(param) as string;
+    const id = await settingsService.getString(param);
     const ch = this.bot.guild.channels.cache.get(id);
     if (!ch) throw new Error(`Channel non trouvé pour ${param}`);
     return ch as TextChannel;
@@ -699,6 +704,9 @@ export class EventManager {
       case 'scheduler':
         await this.handleScheduler(interaction);
         break;
+      case 'createchannels':
+        await this.handleCreateChannels(interaction);
+        break;
     }
   }
 
@@ -780,6 +788,27 @@ export class EventManager {
     }
     const count = await this.bot.schedulerManager.appEvent.sendEventsWeek();
     await interaction.followUp(`Les événements planifiés de la semaine ont été lancés. (${count} événements)`);
+  }
+
+  public async handleCreateChannels(interaction: ChatInputCommandInteraction) {
+    const ownerId = process.env.ENGOO_ID;
+    if (!ownerId || interaction.user.id !== ownerId) {
+      await interaction.followUp({ content: '⛔ Sous-commande réservée à Engoo.', ephemeral: true });
+      return;
+    }
+
+    const eventId = interaction.options.getInteger('event_id', true);
+    const event = await this.em.findOne(Event, { id: eventId });
+    if (!event) {
+      await interaction.followUp({ content: `❌ Event introuvable pour l'ID ${eventId}.`, ephemeral: true });
+      return;
+    }
+
+    await this.bot.schedulerManager.event.ensureEventVoiceChannels(event);
+    await interaction.followUp({
+      content: `✅ Channels vocaux créés pour l'event #${event.id} (${event.name}).`,
+      ephemeral: true,
+    });
   }
 
   public getSlashHandlers(): Record<string, CommandHandler> {

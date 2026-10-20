@@ -1,3 +1,5 @@
+import { SettingKeys } from '../constants/SettingKeys.js';
+import { settingsService } from '../services/SettingsService.js';
 import { EntityManager } from '@mikro-orm/core';
 import { getManagerLogger } from '../logger.js';
 import { User } from '../entities/core/User.js';
@@ -18,7 +20,7 @@ export class PurgeManager {
     const discordMembers = await this.bot.guild.members.fetch();
     const roleMemberId = this.bot.roleMember!.id;
     const dbUsers = await this.em.find(User, {}, { populate: ['rolesDiscord'] });
-    const reservistRoleId = process.env.RES_ID!;
+    const reservistRoleId = await settingsService.getString(SettingKeys.bot.roles.reserviste);
 
     for (const dbUser of dbUsers) {
       const discordMember = discordMembers.get(dbUser.discordId);
@@ -29,8 +31,8 @@ export class PurgeManager {
       }
 
       if (!discordMember || !discordMember.roles.cache.has(roleMemberId) || discordMember?.roles.cache.has(reservistRoleId) || !discordMember.displayName.startsWith('[1CC]')) {
-        // L'utilisateur n'est pas un membre valide, suppression
-        await this.removeUserAndRelations(dbUser);
+        // L'utilisateur n'est pas un membre valide, anonymisation
+        await this.anonymizeUserData(dbUser);
         continue;
       }
 
@@ -43,37 +45,20 @@ export class PurgeManager {
   }
 
   /**
-   * Supprime un utilisateur et ses relations associées
+   * Anonymise un utilisateur sans supprimer ses données historiques
    */
-  private async removeUserAndRelations(user: User): Promise<void> {
+  private async anonymizeUserData(user: User): Promise<void> {
     // Récupérer le RHMember associé à l'utilisateur
     const rhMember = await this.em.findOne<RHMember>('RHMember', { user: user.id });
     if (rhMember) {
       if (rhMember.status === 'Candidatures') {
         return;
       }
-
-      // Supprimer les transactions associées uniquement si RHMember existe
-      await this.em.nativeDelete('XpTransaction', { rHMember: rhMember.id });
-      await this.em.nativeDelete('ObjectifsAward', { member: rhMember.id });
-
-      await this.em.nativeDelete('RHLog', { member: rhMember.id });
     }
 
-    await this.em.nativeDelete('VoicePresence', { user: user.id });
-    await this.em.nativeDelete('FleetLink', { user: user.id });
-
-
-    // Supprimer les réponses aux événements associées
-    await this.em.nativeDelete('Response', { users: user.id });
-
-    await this.em.nativeDelete('Traces', { user: user.id });
-
     await this.purgeContract(user);
-
-    // Supprimer l'utilisateur
-    await this.em.remove(user).flush();
-    await this.logger.debug(`Utilisateur supprimé : ${user.username}`);
+    await this.bot.userManager.deleteUser(user);
+    await this.logger.debug(`Utilisateur anonymisé : ${user.username}`);
   }
 
   /**
@@ -81,12 +66,11 @@ export class PurgeManager {
    */
   public async purgeInvalidRoles(): Promise<void> {
     const discordRoles = this.bot.guild.roles.cache;
-    const dbRoles = await this.em.find(Role, {}, { populate: ['parameters', 'users'] });
+    const dbRoles = await this.em.find(Role, {}, { populate: ['users'] });
 
     for (const dbRole of dbRoles) {
       if (!discordRoles.has(dbRole.discordId)) {
         // Supprimer les relations associées
-        dbRole.parameters.removeAll();
         dbRole.users.removeAll();
         await this.em.flush();
 
@@ -106,9 +90,6 @@ export class PurgeManager {
 
     for (const dbChannel of dbChannels) {
       if (!discordChannels.has(dbChannel.discordId)) {
-        // Supprimer les paramètres associés au canal
-        await this.em.nativeDelete('Parameter', { valueChannel: dbChannel.id });
-
         // Supprimer le canal
         await this.em.removeAndFlush(dbChannel);
         await this.logger.debug(`Canal supprimé : ${dbChannel.name}`);
@@ -142,7 +123,7 @@ export class PurgeManager {
         if (row.discord_thread_id) {
           const thread = await channel?.threads.fetch(row.discord_thread_id);
           if (thread) {
-            await thread.setLocked(true, 'Purge des contrats pour l\'utilisateur supprimé');
+            await thread.setLocked(true, 'Purge des contrats pour utilisateur anonymisé');
             await this.logger.debug(`Thread de contrat verrouillé : ${row.discord_thread_id}`);
           }
         }
@@ -168,10 +149,8 @@ export class PurgeManager {
           }
         }
       } catch (error) {
-        await this.logger.error(`Erreur lors de la suppression du contrat Discord (ID: ${row.id}): ${error}`);
+        await this.logger.error(`Erreur lors de la mise à jour du contrat Discord (ID: ${row.id}): ${error}`);
       }
     }
-
-    await em.nativeDelete('contract', { responsable_id: user.id });
   }
 }

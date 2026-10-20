@@ -1,3 +1,6 @@
+import { ButtonInteractionGuard } from '../utils/ButtonInteractionGuard.js';
+import { SettingKeys } from '../constants/SettingKeys.js';
+import { applyArrivalPrefix } from '../utils/ArrivalPrefix.js';
 import {
   Role,
   GuildChannel,
@@ -23,31 +26,34 @@ import {
 import { BotManager } from '../BotManager.js';
 import { botLogger } from '../logger.js';
 import { Role as DBRole } from '../entities/core/Role.js';
-import { Channel } from '../entities/core/Channel.js';
+import { Channel as DBChannel } from '../entities/core/Channel.js';
 import { User } from '../entities/core/User.js';
 import { Event } from '../entities/event/Event.js';
 import { Response } from '../entities/event/Response.js';
 import { VoicePresence } from '../entities/event/VoicePresence.js';
 import { InteractionContext } from '../entities/ui/ViewContext.js';
 import { componentHandlerRegistry } from '../registry/ComponentHandlerRegistry.js';
+import { settingsService } from '../services/SettingsService.js';
 import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
 
 export function registerDiscordEvents(bot: BotManager): void {
-  bot.on('roleCreate', (role) => _onGuildRoleCreate(bot, role));
-  bot.on('roleDelete', (role) => _onGuildRoleDelete(bot, role));
-  bot.on('roleUpdate', (oldRole, newRole) => _onGuildRoleUpdate(bot, oldRole, newRole));
-  bot.on('channelCreate', (channel) => _onGuildChannelCreate(bot, channel));
-  bot.on('channelDelete', (channel) => _onGuildChannelDelete(bot, channel));
-  bot.on('channelUpdate', (oldCh, newCh) => _onGuildChannelUpdate(bot, oldCh, newCh));
-  bot.on('guildMemberAdd', (member) => _onGuildMemberAdd(bot, member));
-  bot.on('guildMemberUpdate', (before, after) => _onGuildMemberUpdate(bot, before, after as GuildMember));
-  bot.on('guildMemberRemove', (member) => _onGuildMemberRemove(bot, member));
+  bot.on(Events.MessageCreate, message => {
+    void bot.recrutementManager?.onMessage(message).catch(err => botLogger.error({ op: 'RECRUTEMENT_ACTIVITY', err }));
+  });
+  bot.on(Events.GuildRoleCreate, (role) => _onGuildRoleCreate(bot, role));
+  bot.on(Events.GuildRoleDelete, (role) => _onGuildRoleDelete(bot, role));
+  bot.on(Events.GuildRoleUpdate, (oldRole, newRole) => _onGuildRoleUpdate(bot, oldRole, newRole));
+  bot.on(Events.ChannelCreate, (channel) => _onGuildChannelCreate(bot, channel));
+  bot.on(Events.ChannelDelete, (channel) => _onGuildChannelDelete(bot, channel));
+  bot.on(Events.ChannelUpdate, (oldCh, newCh) => _onGuildChannelUpdate(bot, oldCh, newCh));
+  bot.on(Events.GuildMemberAdd, (member) => _onGuildMemberAdd(bot, member));
+  bot.on(Events.GuildMemberUpdate, (before, after) => _onGuildMemberUpdate(bot, before, after as GuildMember));
+  bot.on(Events.GuildMemberRemove, (member) => _onGuildMemberRemove(bot, member));
   bot.on(Events.InteractionCreate, (interaction) => _onInteraction(bot, interaction));
-  bot.on('voiceStateUpdate', (oldState, newState) => _onVoiceStateUpdate(bot, oldState, newState));
-  bot.on('messageCreate', (message) => _onMessageCreate(bot, message));
-  bot.on('messageReactionAdd', (reaction, user) => _onMessageReactionAdd(bot, reaction, user));
-  bot.on('messageReactionRemove', (reaction, user) => _onMessageReactionRemove(bot, reaction, user));
+  bot.on(Events.VoiceStateUpdate, (oldState, newState) => _onVoiceStateUpdate(bot, oldState, newState));
+  bot.on(Events.MessageReactionAdd, (reaction, user) => _onMessageReactionAdd(bot, reaction, user));
+  bot.on(Events.MessageReactionRemove, (reaction, user) => _onMessageReactionRemove(bot, reaction, user));
 }
 
 async function _onGuildMemberAdd(bot: BotManager, member: GuildMember): Promise<void> {
@@ -55,14 +61,54 @@ async function _onGuildMemberAdd(bot: BotManager, member: GuildMember): Promise<
     const accountAgeMs = Date.now() - member.user.createdTimestamp;
     const threeMonthsMs = 3 * 30 * 24 * 60 * 60 * 1000;
 
-    if (accountAgeMs < threeMonthsMs) {
+    if (accountAgeMs < threeMonthsMs && !member.user.bot && !(member.user.id === "1554434884641103953")) {
       const reason = "Compte trop jeune (moins de 3 mois)";
+
       await member.kick(reason);
+
+      // Supprime le message système Discord "Ravi de te voir..."
+      const systemChannel = member.guild.systemChannel;
+
+      if (systemChannel) {
+        try {
+          const messages = await systemChannel.messages.fetch({ limit: 10 });
+
+          const joinMessage = messages.find(
+            (message) =>
+              message.type === 7 && // GUILD_MEMBER_JOIN
+              message.author.id === member.id
+          );
+
+          if (joinMessage) {
+            await joinMessage.delete();
+          }
+        } catch (error) {
+          await botLogger.error(
+            {
+              op: "DELETE_JOIN_MESSAGE",
+              user: member.id,
+            },
+            "Impossible de supprimer le message système d'arrivée"
+          );
+        }
+      }
+
       await botLogger.info(
-        { op: "GUILD_MEMBER_ADD", user: member.id, username: member.user.username },
+        {
+          op: "GUILD_MEMBER_ADD",
+          user: member.id,
+          username: member.user.username,
+        },
         `Utilisateur expulsé: ${reason}`
       );
     }
+
+    if (accountAgeMs < threeMonthsMs && !member.user.bot) return;
+    if (!member.user.bot) {
+      try { await applyArrivalPrefix(member); }
+      catch (err) { await botLogger.error({ op: 'ARRIVAL_PREFIX', err, user: member.id }); }
+    }
+    await bot.recrutementManager?.onMember(member);
   } catch (e) {
     await botLogger.error({ op: "GUILD_MEMBER_ADD", err: e, user: member.id });
   }
@@ -119,7 +165,7 @@ async function _onGuildChannelDelete(bot: BotManager, channel: DMChannel | Guild
   try {
     if (channel as DMChannel) return;
     const em = bot.db.getEm();
-    await em.nativeDelete(Channel, { discordId: channel.id });
+    await em.nativeDelete(DBChannel, { discordId: channel.id });
     await botLogger.info({ op: "GUILD_CHANNEL_DELETE" }, `Suppression du canal : ${(channel as GuildChannel).name}`);
   } catch (e) {
     await botLogger.error({ op: "GUILD_CHANNEL_DELETE", err: e, channel: channel.id });
@@ -136,7 +182,7 @@ async function _onGuildChannelUpdate(
     if (newChannel as DMChannel) return;
     if ((oldChannel as GuildChannel).name === (newChannel as GuildChannel).name) return;
 
-    const channelEntity = await em.findOne(Channel, { discordId: newChannel.id });
+    const channelEntity = await em.findOne(DBChannel, { discordId: newChannel.id });
     if (!channelEntity) return;
 
     channelEntity.name = (newChannel as GuildChannel).name;
@@ -147,94 +193,89 @@ async function _onGuildChannelUpdate(
   }
 }
 
-async function _onGuildMemberUpdate(
+export async function _onGuildMemberUpdate(
   bot: BotManager,
   before: GuildMember | PartialGuildMember,
   after: GuildMember,
 ): Promise<void> {
-  try {
-    const em = bot.db.getEm();
-    let user: User | null = await em.findOne(
-      User,
-      { discordId: after.id },
-      { populate: ['*'] }
-    );
+  if (after.guild.id !== bot.guild?.id) return;
 
-    const newRoles = after.roles.cache.filter(r => !before.roles.cache.has(r.id));
-    const removedRoles = before.roles.cache.filter(r => !after.roles.cache.has(r.id));
+  
+  const addedRoles = after.roles.cache.filter(role => before.partial || !before.roles.cache.has(role.id));
+  const removedRoles = before.partial
+    ? new Collection<string, Role>()
+    : before.roles.cache.filter(role => !after.roles.cache.has(role.id));
+  
+  const rolesChanged = addedRoles.size > 0 || removedRoles.size > 0;
+  const nameChanged = before.partial || before.displayName !== after.displayName;
+  if (before.pending && !after.pending && !after.user.bot) {
+    try {
+      await bot.recrutementManager?.onMember(after);
+    } catch (err) {
+      await botLogger.error({ op: 'RECRUTEMENT_ADMISSION', err, user: after.id });
+    }
+  }
+  if (!rolesChanged && !nameChanged) return;
+
+  if (!after.user.bot && addedRoles.size) {
+    for (const [setting, operation, handler] of [
+      [SettingKeys.bot.roles.postulant, 'RECRUTEMENT_MEMBER_UPDATE', () => bot.recrutementManager?.onMember(after)],
+      [SettingKeys.bot.diplomatie.roleAmbassadeur, 'DIPLOMATIE_MEMBER_UPDATE', () => bot.diploManager?.createRequest(after)],
+    ] as const) {
+      try {
+        const roleId = await settingsService.getString(setting);
+        if (roleId && addedRoles.has(roleId)) await handler();
+      } catch (err) {
+        await botLogger.error({ op: operation, err, user: after.id });
+      }
+    }
+  }
+
+  try {
+    // Onboarding handlers can themselves update roles/nicknames. Use the current
+    // Discord state rather than overwrite the database with the older event snapshot.
+    const member = await after.guild.members.fetch({ user: after.id, force: true });
+    const em = bot.db.getEm();
+    let user: User | null = await em.findOne(User, { discordId: member.id }, { populate: ['rolesDiscord'] });
+    const officialRoleId = bot.roleMember?.id;
+
+    if (user && officialRoleId && removedRoles.has(officialRoleId) && !member.roles.cache.has(officialRoleId)) {
+      // Preserve historical relations, as in the existing member-leave handler.
+      await bot.userManager.deleteUser(user);
+      return;
+    }
 
     if (!user) {
-      if (!newRoles.has(bot.roleMember!.id)) {
-        return;
-      }
-      user = await bot.db.insertAndGetUser(after);
+      if (!officialRoleId || !member.roles.cache.has(officialRoleId)) return;
+      user = em.create(User, { username: member.displayName, discordId: member.id, avatar: member.user.avatar ?? '' });
     }
 
-    if (newRoles.size || removedRoles.size) {
-      if (removedRoles.has(bot.roleMember!.id)) {
-        await em.removeAndFlush(user);
-        return;
-      }
-
-      await bot.db.syncRoles(newRoles);
-
-      let changeGrade = false;
-
-      for (const r of newRoles.values()) {
-        const dbRole = await em.findOne(DBRole, { discordId: r.id }, { populate: ['rank'] });
-        if (dbRole && !user.rolesDiscord.contains(dbRole)) {
-          changeGrade = changeGrade || (dbRole.rank !== null);
-          user.rolesDiscord.add(dbRole);
-        }
-      }
-
-      for (const r of removedRoles.values()) {
-        const dbRole = await em.findOne(DBRole, { discordId: r.id });
-        if (dbRole && user.rolesDiscord.contains(dbRole)) {
-          changeGrade = changeGrade || (dbRole.rank !== null);
-          user.rolesDiscord.remove(dbRole);
-        }
-      }
-
-      await botLogger.info({ op: "GUILD_MEMBER_UPDATE" }, `Modification des rôles de ${user.username}`);
-      await em.persist(user).flush();
-
-      if (newRoles.has(bot.roleMember!.id) || changeGrade) {
-        try {
-          await bot.userManager.initMemberRh(user.discordId, !changeGrade);
-        } catch (err) {
-          await botLogger.error({ op: "GUILD_MEMBER_UPDATE", err, user: user.username });
-          throw err;
-        }
-      }
+    const refreshEvents = user.id != null && user.username !== member.displayName;
+    if (rolesChanged || user.id == null) {
+      const roles = await bot.db.syncRoles(member.roles.cache, em);
+      user.rolesDiscord.set(roles);
     }
+    user.username = member.displayName;
+    user.avatar = member.user.avatar ?? '';
+    await em.persist(user).flush();
 
-    if (before.displayName !== after.displayName) {
-      user.username = after.displayName;
-      await em.persist(user).flush();
-
+    if (refreshEvents) {
       const today = new Date();
-      const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-      const endOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0);
-
       const events = await em.find(Event, {
         start: {
-          $gte: startOfMonth,
-          $lte: endOfMonth,
+          $gte: new Date(today.getFullYear(), today.getMonth(), 1),
+          $lt: new Date(today.getFullYear(), today.getMonth() + 1, 1),
         },
-      }, {
-        populate: ['*', 'responses.users'],
-      });
+        responses: { users: { id: user.id } },
+      }, { populate: ['*', 'responses.users'] });
 
       for (const event of events) {
-        const resp = await em.findOne(Response, { users: user.id, event: event.id });
-        if (resp) {
-          await bot.eventManager.updateEvent(event);
-        }
+        try { await bot.eventManager.updateEvent(event); }
+        catch (err) { await botLogger.error({ op: 'GUILD_MEMBER_UPDATE_EVENT', err, user: member.id, event: event.id }); }
       }
     }
-  } catch (e) {
-    await botLogger.error({ op: "GUILD_MEMBER_UPDATE", err: e });
+  } catch (err) {
+    await botLogger.error({ op: 'GUILD_MEMBER_UPDATE', err, user: after.id });
   }
 }
 
@@ -248,8 +289,20 @@ async function _onGuildMemberRemove(bot: BotManager, member: GuildMember | Parti
   }
 }
 
+const buttonInteractionGuard = new ButtonInteractionGuard();
+
 async function _onInteraction(bot: BotManager, interaction: Interaction): Promise<void> {
+  let releaseButton: (() => void) | undefined;
   try {
+    if (interaction.isButton()) {
+      releaseButton = buttonInteractionGuard.acquire(
+        `${interaction.message.id}:${interaction.user.id}`,
+      );
+      if (!releaseButton) {
+        await interaction.deferUpdate();
+        return;
+      }
+    }
     if (interaction.isButton() || interaction.isAnySelectMenu() || interaction.isModalSubmit()) {
       const { customId, message } = interaction;
 
@@ -265,6 +318,8 @@ async function _onInteraction(bot: BotManager, interaction: Interaction): Promis
     }
   } catch (e) {
     await botLogger.error({ op: "INTERACTION", err: e });
+  } finally {
+    releaseButton?.();
   }
 }
 
@@ -275,7 +330,7 @@ async function _onVoiceStateUpdate(bot: BotManager, oldState: VoiceState, newSta
     // =========================================================
     // SYSTÈME "CRÉATEUR DE VOCAL" (indépendant des events)
     // =========================================================
-    const CREATE_VOICE_ID = process.env.VOICE_CREATE_CHANNEL_ID ?? null;
+    const CREATE_VOICE_ID = await settingsService.getString(SettingKeys.bot.voice.channelCreation);
     const FORCE_CATEGORY_ID = process.env.VOICE_CREATE_CATEGORY_ID ?? null;
 
     const isAutoVoice = (ch: VoiceChannel | null) =>
@@ -529,100 +584,6 @@ async function _onVoiceStateUpdate(bot: BotManager, oldState: VoiceState, newSta
     }
   } catch (err) {
     await botLogger.error({ op: "VOICE_STATE_UPDATE", err });
-  }
-}
-
-async function _onMessageCreate(bot: BotManager, message: Message): Promise<void> {
-  try {
-    const targetUserId = '216305802296688640';
-
-    if (message.author.bot || message.webhookId) return;
-    if (message.guildId !== bot.guildId) return;
-    if (message.author.id === targetUserId) return;
-
-    const inAmbassadeCategory = (() => {
-      const ch = message.channel as GuildBasedChannel;
-      const AMBASSADES_CATEGORY_ID = process.env.AMBASSADES_CATEGORY_ID ?? null;
-
-      if ((ch as ThreadChannel).isThread?.()) {
-        const parent = (ch as ThreadChannel).parent;
-        const categoryId = (parent as any)?.parentId ?? null;
-        if (!categoryId) return false;
-
-        if (AMBASSADES_CATEGORY_ID) {
-          return categoryId === AMBASSADES_CATEGORY_ID;
-        }
-        const cat = message.guild?.channels.cache.get(categoryId);
-        return (cat as any)?.name === 'Ambassades';
-      }
-
-      const categoryId = (ch as TextChannel).parentId ?? null;
-      if (!categoryId) return false;
-
-      if (AMBASSADES_CATEGORY_ID) {
-        return categoryId === AMBASSADES_CATEGORY_ID;
-      }
-      const cat = message.guild?.channels.cache.get(categoryId);
-      return (cat as any)?.name === 'Ambassades';
-    })();
-
-    if (!inAmbassadeCategory) return;
-
-    const dir = path.resolve('config');
-    const filePath = path.join(dir, 'time_amb.txt');
-    await fsp.mkdir(dir, { recursive: true });
-
-    let lastTs: number | null = null;
-    try {
-      const raw = await fsp.readFile(filePath, 'utf8');
-      const parsed = Number(raw.trim());
-      if (Number.isFinite(parsed)) lastTs = parsed;
-    } catch (err: unknown) {
-      if ((err as NodeJS.ErrnoException)?.code !== 'ENOENT') {
-        await botLogger.error({ op: "MESSAGE_CREATE", err });
-      }
-    }
-
-    const now = Date.now();
-    const DAY_MS = 24 * 60 * 60 * 1000;
-    if (lastTs !== null && now - lastTs < DAY_MS) {
-      await botLogger.debug({ op: "MESSAGE_CREATE" }, `Timestamp récent (${Math.floor((now - lastTs) / 1000)}s), sortie.`);
-      return;
-    }
-
-    await fsp.writeFile(filePath, String(now), 'utf8');
-    await botLogger.debug({ op: "MESSAGE_CREATE" }, `Timestamp mis à jour dans ${filePath}`);
-
-    const user = await message.client.users.fetch(targetUserId);
-
-    const diplomaticMessages = [
-      "🛸 **Nouvelle Transmission Diplomatique**\nUn message est arrivé à l'ambassade.\nNiveau d'importance : impossible à déterminer.\nNiveau de connerie : probablement élevé.",
-      "📡 **ALERTE AMBASSADE**\nUn diplomate vient de parler.\nNous espérons que ce n'est pas encore une demande d'alliance en échange de *5 caisses de Laranite*.",
-      "🚨 **PROTOCOLE DE PAIX… OU PAS**\nNouveau message reçu.\nMerci de lire avant de sortir les A2 et les bombes.",
-      "🧠 **Communication Inter-Corpo**\nQuelqu'un a écrit un message.\nOn dirait une alliance, mais on a aussi repéré des insultes subtilement cachées.",
-      "🛰️ **Transmission diplomatique**\nMessage reçu.\nSi ça parle encore d'organiser un event \"Course de Mule dans Lorville\"… On refuse.",
-      "🛠️ **ATTENTION, TENTATIVE DE RÉUNION SÉRIEUSE**\nNouveau message à l'ambassade.\nMerci de faire semblant d'être *professionnels* pendant au moins 12 secondes.",
-      "📦 **MESSAGE PRIORITAIRE**\nContenu supposé :\n- Alliance\n- Demande de taxe sur un outpost\n- Invitation à un \"Event surprise\" (80% de chance que ça finisse en explosion)",
-      "🧊 **Dépêche Diplomatique**\nMessage reçu.\nSi ça parle encore de bloquer Orison avec des Hull-C, on ne répond pas.",
-      "🚀 **TRANSMISSION RSI**\nUn message est arrivé.\nScan du contenu : ✅ mots ✅ emojis ❓ bon sens",
-      "🍺 **Invitation Potentielle**\nNouveau message à l'ambassade.\nÇa pourrait être un event diplomatique autour d'un bar sur un 890 Jump.\nOu juste un mec ivre qui veut montrer son Aurora.",
-      "🦾 **Contact Inter-Corporation**\nNouveau message reçu.\nRappel : Ne promettez PAS de \"soutien militaire total\" avant d'avoir lu tout le message.",
-      "🪐 **MESSAGE CLASSÉ — TOP IMPORTANT**\nOn dirait une alliance.\nOu un spam.\nOn n'est plus sûrs.",
-      "🛑 **ERREUR DE COMMUNICATION**\nNouveau message.\nProbabilité que ce soit dans le mauvais canal : **87%**.",
-      "🔥 **PROTOCOLE D'URGENCE**\nNouveau message d'ambassade reçu.\nTenez prêt un diplomate… et un Fire Extinguisher, on sait jamais.",
-      "💀 **ALERTE DRAMA**\nUn message vient d'arriver.\nUn seul mot dedans : \"On doit parler.\"\nÇa sent pas bon.",
-      "🧨 **INFO ÉVÉNEMENT**\nOn dirait une proposition de rencontre pacifique.\nOn dirait aussi un piège.\nTu vas le découvrir.",
-      "🌌 **RÉCEPTION DE MESSAGE**\nLe serveur t'informe que tu dois aller lire.\nNous, on s'en fout, mais le serveur insiste.",
-      "🎯 **Communication d4une corpo**\nNouveau message dans l'ambassade.\nSi tu réponds avec *un gif d'explosion*, c'est encore un refus.",
-      "📑 **NOTE DIPLOMATIQUE**\nQuelqu'un t'a écrit.\nEt non, tu ne peux pas répondre \"ratio\".",
-      "🎁 **SURPRISE !**\nUn message est arrivé.\nContenu estimé : 90% diplomatie + 10% bêtise = 100% divertissant."
-    ];
-
-    const msg = diplomaticMessages[Math.floor(Math.random() * diplomaticMessages.length)];
-    await user.send(msg + '\n' + `>>> ${message.url}`);
-
-  } catch (err) {
-    await botLogger.error({ op: "MESSAGE_CREATE", err });
   }
 }
 

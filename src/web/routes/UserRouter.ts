@@ -44,7 +44,6 @@ export default function createUserRouter(bot: BotManager): Router {
 
   router.use(async (_req, res, next) => {
     try {
-      await bot.refreshParameters();
       next();
     } catch (err: any) {
       res.status(500).json({ success: false, message: 'Bot -> Erreur lors de la vérification des paramètres.', error: err?.message });

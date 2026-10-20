@@ -506,7 +506,20 @@ export class OperationView extends BaseComponentView {
 
         // 9️⃣ Valider → appeler ton manager pour créer l’opération
         case this.customIds[7]:
-          await this.bot.operationManager.createOperation(interaction,this.state);
+          try {
+            await this.bot.operationManager.createOperation(interaction, this.state);
+          } catch (err: unknown) {
+            await this.logger.error({ err }, "Impossible d'envoyer l'opération");
+            const detail = err instanceof Error
+              ? err.message
+              : typeof err === 'string' ? err : 'Erreur inconnue';
+            await interaction.followUp({
+              content: `❌ Impossible d'envoyer l'opération : ${detail}`.slice(0, 2000),
+              ephemeral: true,
+              allowedMentions: { parse: [] },
+            });
+            return;
+          }
           await this.cleanupFormMessages(interaction);
           return;
 

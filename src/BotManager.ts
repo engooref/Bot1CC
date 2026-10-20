@@ -1,3 +1,6 @@
+import { ParrainageManager } from './managers/ParrainageManager.js';
+import { RecrutementManager } from './managers/RecrutementManager.js';
+import { DiploManager } from './managers/DiploManager.js';
 // src/BotManager.ts
 import {
   Client,
@@ -9,7 +12,7 @@ import {
 } from 'discord.js';
 import { botLogger } from './logger.js';
 import { DatabaseManager } from './managers/DatabaseManager.js';
-import { Parameter } from './entities/core/Parameter.js';
+import { settingsService } from './services/SettingsService.js';
 import { EventManager } from './managers/EventManager.js';
 import { SchedulerManager } from './managers/schedulers/SchedulerManager.js';
 import { RefineryManager } from './managers/RefineryManager.js';
@@ -49,10 +52,12 @@ export class BotManager extends Client {
   public meetingManager!: MeetingManager;
   public autoMessageManager!: AutoMessageManager;
   public contractManager!: ContractManager;
+  public diploManager!: DiploManager;
+  public recrutementManager!: RecrutementManager;
+  public parrainageManager!: ParrainageManager;
   public reactionManager!: ReactionManager;
 
   private hasStarted = false;
-  private parameters: Record<string, Parameter> = {};
 
   public excludeCategory: string[] = ['Cimetière des canaux'];
 
@@ -106,7 +111,7 @@ export class BotManager extends Client {
     const me = await this.guild.members.fetchMe();
     await this.db.insertAndGetUser(me);
 
-    await this.loadParameters();
+    await settingsService.load();
     await createManagers(this);
 
     await botLogger.debug({ op: "BOOT" }, 'Synchronisation des Rôles');
@@ -119,31 +124,4 @@ export class BotManager extends Client {
     await botLogger.info({ op: "BOOT" }, `Discord connecté en tant que ${this.user?.tag}`);
   }
 
-  /** Charge tous les paramètres depuis la BDD dans le cache `this.parameters` */
-  @SafeMethod
-  public async loadParameters(): Promise<void> {
-    const all = await this.db.getEm().find(Parameter, {}, { populate: ['valueType', 'valueChannel', 'roles'] });
-    this.parameters = {};
-    for (const p of all) {
-      this.parameters[p.name] = p;
-    }
-  }
-
-  /** Récupère la valeur d'un paramètre déjà chargé */
-  public getParameter(name: string): string | string[] {
-    const p = this.parameters[name];
-    if (!p) {
-      throw new Error(`Le paramètre ${name} n'existe pas !`);
-    }
-    return p.getValue();
-  }
-
-  /**
-   * Recharge les paramètres en base, puis réinitialise le scheduler d'events.
-   */
-  @SafeMethod
-  public async refreshParameters(): Promise<void> {
-    await this.loadParameters();
-    this.schedulerManager.appEvent.resetScheduler();
-  }
 }
