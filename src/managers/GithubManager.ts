@@ -35,6 +35,15 @@ export const GithubHandlers = {
     SubmitIssue: 'github_submit_issue',
 } as const;
 
+/** Labels posés automatiquement sur chaque issue créée depuis Discord. */
+const AUTO_LABELS = ['from-discord', 'a-trier'];
+
+/**
+ * Les labels `agent:*` pilotent les agents IA (en particulier `agent:go`, le feu vert).
+ * Ils ne peuvent pas être posés depuis Discord : seul le propriétaire du dépôt les gère sur GitHub.
+ */
+const AGENT_LABEL_PREFIX = 'agent:';
+
 export class GithubManager {
     private em;
     private bot: BotManager;
@@ -225,9 +234,14 @@ export class GithubManager {
         const assigneesRaw = interaction.fields.getTextInputValue('issue_assignees');
         const imagesRaw = interaction.fields.getTextInputValue('issue_images');
 
-        const labels = labelsRaw
+        const requestedLabels = labelsRaw
             ? labelsRaw.split(',').map(l => l.trim()).filter(Boolean)
             : [];
+        const ignoredLabels = requestedLabels.filter(l => l.toLowerCase().startsWith(AGENT_LABEL_PREFIX));
+        const labels = Array.from(new Set([
+            ...requestedLabels.filter(l => !l.toLowerCase().startsWith(AGENT_LABEL_PREFIX)),
+            ...AUTO_LABELS,
+        ]));
         const assignees = assigneesRaw
             ? assigneesRaw.split(',').map(a => a.trim()).filter(Boolean)
             : [];
@@ -259,21 +273,28 @@ export class GithubManager {
                 ? `[Ticket #${ticketNumber}] ${title}`
                 : `[${channelName}] ${title}`;
 
-        // Construction du corps de l'issue
-        let fullBody = `### Ticket Discord
-
-        - **Numéro du ticket :** ${ticketNumber}
-        - **Channel :** #${channelName}
-        - **Lien Discord :** ${discordChannelUrl}
-        - **Reporté par :** ${interaction.user.tag}
-
-        ---
-
-        ${bodyText}`;
+        // Construction du corps de l'issue.
+        // Les lignes sont assemblées sans indentation : une indentation de 4 espaces ou plus
+        // après une ligne vide ferait afficher le contenu comme un bloc de code dans GitHub.
+        let fullBody = [
+            '### Ticket Discord',
+            '',
+            `- **Numéro du ticket :** ${ticketNumber}`,
+            `- **Channel :** #${channelName}`,
+            `- **Lien Discord :** ${discordChannelUrl}`,
+            `- **Reporté par :** ${interaction.user.tag}`,
+            '',
+            '---',
+            '',
+            bodyText,
+        ].join('\n');
         if (images.length > 0) {
             fullBody += '\n\n---\n### Images\n' + images.map(url => `![image](${url})`).join('\n');
         }
         fullBody += `\n\n---\n*Reporté par ${interaction.user.tag} via Discord*`;
+        // Marqueur invisible dans GitHub : permet de retrouver le salon Discord d'une issue
+        // (par exemple pour lui renvoyer son avancement) sans table de liaison en base.
+        fullBody += `\n\n<!-- discord-ticket: guild=${guildId ?? 'inconnu'} channel=${channelId} -->`;
 
         const token = process.env.GITHUB_TOKEN;
         if (!token) {
@@ -340,6 +361,13 @@ export class GithubManager {
 
             if (labels.length > 0) {
                 embed.addFields({ name: 'Labels', value: labels.map(l => `\`${l}\``).join(', '), inline: false });
+            }
+            if (ignoredLabels.length > 0) {
+                embed.addFields({
+                    name: 'Labels ignorés',
+                    value: `${ignoredLabels.map(l => `\`${l}\``).join(', ')} (les labels \`${AGENT_LABEL_PREFIX}*\` se gèrent uniquement sur GitHub)`,
+                    inline: false,
+                });
             }
             if (assignees.length > 0) {
                 embed.addFields({ name: 'Assignés', value: assignees.join(', '), inline: false });
