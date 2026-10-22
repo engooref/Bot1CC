@@ -39,7 +39,7 @@ Les tests sont des fichiers `tests/*.test.mjs` exécutés avec `node --test` sur
 ## Zones interdites
 
 - `.env`, `config/`, tout fichier contenant un secret ou un identifiant de production. Ne les lis pas pour les recopier, ne les affiche pas dans un commentaire ou une PR.
-- `t.bat` : script de test manuel contenant des valeurs sensibles. Ne le modifie pas, ne le recopie pas.
+- `t.bat` : script de test manuel du propriétaire (valeurs de test, pas de clé réelle). Ne le modifie pas sauf si le ticket le demande, et ne prends pas ses valeurs comme modèle pour de vrais secrets.
 - `prod.session.sql` et tout ce qui touche à la base de production.
 - Les migrations existantes.
 - La branche `main` : on ne pousse jamais dessus.
