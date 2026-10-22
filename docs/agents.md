@@ -10,7 +10,9 @@ Ce document décrit comment les tickets de Bot1CC sont triés et comment les age
 
 ## Labels
 
-**Type** : `bug`, `feature`, `tache`, `question`
+**Type** : `bug`, `enhancement` (nouvelle fonctionnalité ou amélioration), `tache`, `question`
+
+Le label historique `ticket` (posé par l'ancien flux Discord, sur les issues #2 à #9) est conservé tel quel. Les nouveaux tickets venus de Discord portent `from-discord`.
 
 **Priorité** : `P0` (critique, le bot est inutilisable), `P1` (haute), `P2` (normale), `P3` (basse)
 

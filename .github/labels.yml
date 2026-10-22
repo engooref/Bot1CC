@@ -6,7 +6,7 @@
 - name: bug
   color: d73a4a
   description: Comportement incorrect
-- name: feature
+- name: enhancement
   color: a2eeef
   description: Nouvelle fonctionnalité ou amélioration
 - name: tache

@@ -1,6 +1,6 @@
 name: Amélioration ou nouvelle fonctionnalité
 description: Proposer une évolution du bot
-labels: ["feature", "a-trier"]
+labels: ["enhancement", "a-trier"]
 body:
   - type: input
     id: resume
