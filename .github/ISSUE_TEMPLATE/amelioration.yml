@@ -1,0 +1,27 @@
+name: Amélioration ou nouvelle fonctionnalité
+description: Proposer une évolution du bot
+labels: ["feature", "a-trier"]
+body:
+  - type: input
+    id: resume
+    attributes:
+      label: Résumé
+      description: Une phrase qui décrit l'idée.
+    validations:
+      required: true
+  - type: textarea
+    id: besoin
+    attributes:
+      label: Le besoin
+      description: Quel problème cela résout, pour qui, dans quelle situation ?
+    validations:
+      required: true
+  - type: textarea
+    id: proposition
+    attributes:
+      label: Proposition
+      description: Comment tu imagines que ça marche (commande, bouton, message, règle).
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives ou contournements actuels

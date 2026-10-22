@@ -1,0 +1,21 @@
+name: Tâche
+description: Maintenance, nettoyage, documentation, dette technique
+labels: ["tache", "a-trier"]
+body:
+  - type: input
+    id: resume
+    attributes:
+      label: Résumé
+    validations:
+      required: true
+  - type: textarea
+    id: detail
+    attributes:
+      label: Ce qu'il faut faire
+    validations:
+      required: true
+  - type: textarea
+    id: fin
+    attributes:
+      label: Critère de fin
+      description: Comment savoir que c'est terminé.
