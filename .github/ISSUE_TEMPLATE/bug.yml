@@ -1,0 +1,61 @@
+name: Bug
+description: Un comportement du bot est incorrect
+labels: ["bug", "a-trier"]
+body:
+  - type: input
+    id: resume
+    attributes:
+      label: Résumé
+      description: Une phrase qui décrit le problème.
+    validations:
+      required: true
+  - type: dropdown
+    id: zone
+    attributes:
+      label: Zone concernée
+      options:
+        - Tickets / Assistance
+        - Recrutement
+        - Parrainage
+        - Diplomatie
+        - Opérations / Raffinerie / Contrats
+        - Événements
+        - Réunions
+        - Musique
+        - Web / API (site)
+        - Je ne sais pas
+    validations:
+      required: true
+  - type: textarea
+    id: etapes
+    attributes:
+      label: Étapes pour reproduire
+      placeholder: |
+        1. ...
+        2. ...
+    validations:
+      required: true
+  - type: textarea
+    id: attendu
+    attributes:
+      label: Comportement attendu
+    validations:
+      required: true
+  - type: textarea
+    id: observe
+    attributes:
+      label: Comportement observé
+      description: Message d'erreur, extrait de logs, captures d'écran. Ne colle jamais de token ni de secret.
+    validations:
+      required: true
+  - type: dropdown
+    id: agent
+    attributes:
+      label: Un agent pourrait-il le traiter ?
+      description: Un petit bug localisé et bien décrit peut l'être. Le feu vert reste donné par le propriétaire.
+      options:
+        - Je ne sais pas
+        - Oui, petit bug localisé
+        - Non, trop large ou sensible
+    validations:
+      required: true

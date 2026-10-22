@@ -1,0 +1,56 @@
+# Source de vérité des labels du dépôt.
+# Appliquer avec : scripts/sync-labels.sh engooref/Bot1CC
+# Le même fichier sert aux autres dépôts (Site1CC, 1CCCompagnon).
+
+# --- Type ---
+- name: bug
+  color: d73a4a
+  description: Comportement incorrect
+- name: enhancement
+  color: a2eeef
+  description: Nouvelle fonctionnalité ou amélioration
+- name: tache
+  color: c5def5
+  description: Tâche technique, maintenance, documentation
+- name: question
+  color: d876e3
+  description: Question ou demande d'information
+
+# --- Priorité ---
+- name: P0
+  color: b60205
+  description: Critique, le bot est inutilisable
+- name: P1
+  color: d93f0b
+  description: Haute
+- name: P2
+  color: fbca04
+  description: Normale
+- name: P3
+  color: 0e8a16
+  description: Basse
+
+# --- Triage ---
+- name: a-trier
+  color: ededed
+  description: Pas encore examiné
+- name: from-discord
+  color: 5865f2
+  description: Ticket venu de Discord, texte écrit par des tiers
+
+# --- Agents ---
+- name: agent:ok
+  color: bfdadc
+  description: Petit bug, un agent peut le traiter
+- name: agent:go
+  color: 0e8a16
+  description: Feu vert du propriétaire, l'agent peut commencer
+- name: agent:en-cours
+  color: 1d76db
+  description: Un agent travaille dessus
+- name: agent:pr-prete
+  color: 5319e7
+  description: Une PR d'agent attend la relecture
+- name: agent:bloque
+  color: e99695
+  description: L'agent s'est arrêté, voir son commentaire
