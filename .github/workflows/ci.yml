@@ -1,0 +1,39 @@
+name: CI
+
+# Vérifie chaque pull request : compilation TypeScript et tests.
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-et-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Installer les dépendances
+        run: npm ci
+
+      # Les scripts de test recompilent d'abord (npm run build), puis lancent node --test.
+      - name: Compiler
+        run: npm run build
+
+      - name: Tests
+        run: |
+          npm run test:diplomatie
+          npm run test:recrutement
+          npm run test:parrainage
+          npm run test:github

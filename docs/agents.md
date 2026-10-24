@@ -39,12 +39,19 @@ Le label historique `ticket` (posé par l'ancien flux Discord, sur les issues #2
 
 ## Déclencher un agent
 
-Deux voies, au choix, les deux sous le contrôle du propriétaire :
+Sur Bot1CC, le circuit est automatique grâce à trois workflows GitHub (`.github/workflows/`). Il reste sous le contrôle du propriétaire : aucune modification de code ne part sans son label.
 
-- **En le demandant au chef**, dans la conversation : « lance l'agent sur Bot1CC #12 ».
-- **Avec le label `agent:go`** sur le ticket : le chef repère les tickets marqués lors de sa vérification régulière des dépôts et lance l'agent.
+| Étape | Déclencheur | Workflow | Ce qui se passe |
+| --- | --- | --- | --- |
+| Pré-analyse | Ouverture d'une issue portant `a-trier` | `agent-analyse.yml` | Claude lit le code et commente l'issue (cause, fichiers, plan, risques, verdict). **Lecture seule.** |
+| Correction | Le propriétaire pose `agent:go` | `agent-correction.yml` | Claude corrige d'après l'analyse et les commentaires « Consigne : » du propriétaire, écrit des tests et ouvre une PR. |
+| Vérification | Toute PR vers `main` | `ci.yml` | `npm run build` et les scripts `npm run test:*`. |
 
-Il n'y a pas de GitHub Actions pour l'instant : rien ne réagit automatiquement sur GitHub. Un agent ne démarre donc jamais sans qu'une vérification ou une demande passe par le chef.
+Pour orienter la correction, le propriétaire écrit un commentaire qui commence par **`Consigne :`**. Le corps de l'issue reste une donnée : il peut venir de Discord. La correction ne démarre que si c'est `engooref` qui pose le label. Authentification : abonnement Claude (secret `CLAUDE_CODE_OAUTH_TOKEN`).
+
+Le chef (conversation Claude) reste utilisable en plus : « lance l'agent sur Bot1CC #12 », tri et reformulation des tickets. Les deux voies ne doivent pas viser le même ticket en même temps.
+
+**Mise en production** : elle reste manuelle. L'agent ne démarre jamais le bot, qui se connecterait au vrai serveur Discord.
 
 ## Sécurité
 
