@@ -51,7 +51,7 @@ Pour orienter la correction, le propriétaire écrit un commentaire qui commence
 
 Le chef (conversation Claude) reste utilisable en plus : « lance l'agent sur Bot1CC #12 », tri et reformulation des tickets. Les deux voies ne doivent pas viser le même ticket en même temps.
 
-**Mise en production** : elle reste manuelle. L'agent ne démarre jamais le bot, qui se connecterait au vrai serveur Discord.
+**Mise en production** : chaque fusion dans `main` déploie automatiquement sur le serveur (voir [`deploiement.md`](deploiement.md)). Seul le propriétaire fusionne : la relecture de la PR est donc la dernière barrière avant la production. L'agent ne touche jamais au déploiement et ne démarre jamais le bot, qui se connecterait au vrai serveur Discord.
 
 ## Sécurité
 

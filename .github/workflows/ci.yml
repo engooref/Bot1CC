@@ -1,9 +1,11 @@
 name: CI
 
 # Vérifie chaque pull request : compilation TypeScript et tests.
+# Réutilisé par deploy.yml (workflow_call) pour revérifier main avant de déployer.
 on:
   pull_request:
     branches: [main]
+  workflow_call:
 
 permissions:
   contents: read
