@@ -36,9 +36,27 @@ jobs:
           DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
         run: |
           install -m 700 -d ~/.ssh
-          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          # Tolère les maladresses de collage : fins de ligne Windows (CRLF), retours à la ligne
+          # perdus (clé sur une seule ligne), ou clé fournie en base64. Le contenu de la clé
+          # n'est jamais affiché.
+          key="$(printf '%s' "$DEPLOY_SSH_KEY" | tr -d '\r')"
+          case "$key" in
+            *"BEGIN "*)
+              if [ "$(printf '%s\n' "$key" | wc -l)" -le 1 ]; then
+                hdr="$(printf '%s' "$key" | grep -o -E -e '-----BEGIN [A-Z ]+-----' || true)"
+                ftr="$(printf '%s' "$key" | grep -o -E -e '-----END [A-Z ]+-----' || true)"
+                body="$(printf '%s' "$key" | sed -E 's/-----(BEGIN|END) [A-Z ]+-----//g' | tr -d ' \t')"
+                key="${hdr}"$'\n'"$(printf '%s' "$body" | fold -w 70)"$'\n'"${ftr}"
+              fi ;;
+            *) key="$(printf '%s' "$key" | base64 -d 2>/dev/null | tr -d '\r' || true)" ;;
+          esac
+          printf '%s\n' "$key" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
-          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          if ! ssh-keygen -y -f ~/.ssh/deploy_key > /dev/null 2>&1; then
+            echo "::error::Le secret DEPLOY_SSH_KEY n'est pas une clé privée SSH lisible (voir docs/deploiement.md)."
+            exit 1
+          fi
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" | tr -d '\r' > ~/.ssh/known_hosts
 
       # La clé ne peut lancer que scripts/deploy.sh (commande forcée côté serveur) :
       # ce qu'on envoie ici n'est que l'identifiant du commit à déployer.
