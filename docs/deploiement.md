@@ -48,7 +48,7 @@ Le script n'applique **jamais** de migration. Elles ne sont pas versionnées de 
 
    | Secret | Contenu |
    | --- | --- |
-   | `DEPLOY_SSH_KEY` | la clé **privée** (`deploiement_bot1cc`), puis supprime le fichier de ta machine |
+   | `DEPLOY_SSH_KEY` | la clé **privée** (`deploiement_bot1cc`), de `-----BEGIN` à `-----END` inclus, puis supprime le fichier de ta machine. Le workflow tolère les fins de ligne Windows, une clé collée sur une seule ligne, ou une clé encodée en base64 (`base64 -w0 deploiement_bot1cc`) ; il s'arrête avec un message clair si le secret n'est pas une clé lisible |
    | `DEPLOY_KNOWN_HOSTS` | la ligne de clé d'hôte du serveur, obtenue avec `ssh-keyscan -t ed25519 <hôte>` ; compare son empreinte avec `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` lancé sur le serveur |
    | `DEPLOY_HOST` | adresse ou nom du serveur |
    | `DEPLOY_USER` | utilisateur du service |
@@ -58,6 +58,10 @@ Le script n'applique **jamais** de migration. Elles ne sont pas versionnées de 
 8. **Après la fusion de la PR**, sur le serveur : `git pull --ff-only` dans le dossier du bot, pour que `scripts/deploy.sh` existe. Si tu le fais après le premier déploiement automatique, celui-ci échoue (la clé lance un fichier absent) sans rien toucher : relance-le ensuite depuis GitHub (Actions → Déploiement → Run workflow). Fais ensuite un **premier essai à la main** : `git fetch origin main` puis `bash scripts/deploy.sh $(git rev-parse origin/main)`. Le script doit finir par « Déploiement terminé » (le bot redémarre pendant l'essai). Lance enfin le workflow depuis GitHub pour tester la chaîne complète.
 
 ## Si un déploiement échoue
+
+- **« Le secret DEPLOY_SSH_KEY n'est pas une clé privée SSH lisible »** (ou, avec l'ancienne version du workflow, `error in libcrypto` puis `Permission denied`) : le contenu du secret n'est pas une clé privée valide. Cause fréquente : clé copiée depuis un terminal Windows, incomplète (ligne `END` manquante) ou clé publique collée à la place. Recopie la clé complète, ou fournis-la en base64, et mets à jour le secret.
+- **`Permission denied (publickey)` avec une clé lisible** : la clé publique n'est pas dans `~/.ssh/authorized_keys` de l'utilisateur indiqué dans `DEPLOY_USER`, ou les droits de `~/.ssh` (700) et du fichier (600) sont trop larges.
+- **`Host key verification failed`** : `DEPLOY_KNOWN_HOSTS` ne correspond pas à l'adresse de `DEPLOY_HOST` ou à la clé d'hôte du serveur.
 
 - Le workflow est rouge et le journal indique l'étape. Le serveur est revenu à la version précédente : vérifie avec `systemctl status bot1CC.service`.
 - Si le journal dit que le bot ne répond pas non plus après le retour arrière, intervention manuelle : `journalctl -u bot1CC.service -n 100`, puis `git log -1` pour savoir sur quel commit est le serveur.
