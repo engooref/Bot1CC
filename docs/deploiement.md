@@ -27,7 +27,7 @@ Le script n'applique **jamais** de migration. Elles ne sont pas versionnées de 
 À faire une fois, dans cet ordre. Les commandes ci-dessous n'ont pas été exécutées par l'auteur de la PR : relis-les avant de les lancer.
 
 1. **Node 22.** La production doit tourner comme la CI. Installe Node 22 de façon globale (par exemple avec le dépôt NodeSource), puis, dans le dossier du bot : `npm ci`, `npm run build`, `sudo systemctl restart bot1CC.service` et vérifie que le bot se reconnecte. Le module vocal `@discordjs/opus` doit avoir un binaire pour Node 22 ; il échoue avec Node 24.
-2. **Récupérer le script.** Avant la première fusion, mets le dépôt du serveur à jour une fois à la main (`git pull --ff-only`) pour que `scripts/deploy.sh` existe.
+2. **Rien à faire pour le script à ce stade** : `scripts/deploy.sh` n'existe sur `main` qu'après la fusion de la PR qui l'apporte. L'étape 8 dit quand le récupérer sur le serveur. Les étapes 3 à 7 peuvent être faites avant la fusion : la ligne `command=` peut pointer vers un fichier qui n'existe pas encore.
 3. **Autoriser le redémarrage, et lui seul.** Avec `sudo visudo -f /etc/sudoers.d/deploiement-bot`, une seule ligne (adapte le chemin de `systemctl` avec `command -v systemctl`) :
 
    ```
@@ -55,7 +55,7 @@ Le script n'applique **jamais** de migration. Elles ne sont pas versionnées de 
    | `DEPLOY_PORT` | port SSH (facultatif, 22 par défaut) |
 
    Les dépôts sont publics : ne mets ni hôte, ni utilisateur, ni clé dans un fichier, un ticket ou une PR.
-8. **Premier essai à la main**, sur le serveur : `bash scripts/deploy.sh $(git rev-parse origin/main)` (après un `git fetch origin main`). Le script doit finir par « Déploiement terminé ». Lance ensuite le workflow à la main depuis GitHub pour tester la chaîne complète.
+8. **Après la fusion de la PR**, sur le serveur : `git pull --ff-only` dans le dossier du bot, pour que `scripts/deploy.sh` existe. Si tu le fais après le premier déploiement automatique, celui-ci échoue (la clé lance un fichier absent) sans rien toucher : relance-le ensuite depuis GitHub (Actions → Déploiement → Run workflow). Fais ensuite un **premier essai à la main** : `git fetch origin main` puis `bash scripts/deploy.sh $(git rev-parse origin/main)`. Le script doit finir par « Déploiement terminé » (le bot redémarre pendant l'essai). Lance enfin le workflow depuis GitHub pour tester la chaîne complète.
 
 ## Si un déploiement échoue
 
