@@ -1,0 +1,56 @@
+name: Déploiement
+
+# À chaque fusion dans main : on revérifie le code (même CI que les PR), puis le serveur de
+# production est mis à jour par SSH. Le serveur exécute scripts/deploy.sh, qui revient en
+# arrière tout seul si la compilation ou le redémarrage échoue.
+# Aucun secret dans ce fichier : l'accès vient des secrets de l'environnement « production ».
+# Mise en place et dépannage : docs/deploiement.md.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Un seul déploiement à la fois, sans jamais interrompre celui qui est en cours.
+concurrency:
+  group: deploiement-production
+  cancel-in-progress: false
+
+jobs:
+  verifier:
+    if: github.ref == 'refs/heads/main'
+    uses: ./.github/workflows/ci.yml
+
+  deployer:
+    needs: verifier
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: production
+    steps:
+      - name: Préparer l'accès SSH
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+
+      # La clé ne peut lancer que scripts/deploy.sh (commande forcée côté serveur) :
+      # ce qu'on envoie ici n'est que l'identifiant du commit à déployer.
+      - name: Déployer le commit ${{ github.sha }}
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
+        run: |
+          ssh -i ~/.ssh/deploy_key \
+            -p "${DEPLOY_PORT:-22}" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            "${DEPLOY_USER}@${DEPLOY_HOST}" "${GITHUB_SHA}"

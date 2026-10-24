@@ -42,6 +42,7 @@ Les tests sont des fichiers `tests/*.test.mjs` exécutés avec `node --test` sur
 - `.env`, `config/`, tout fichier contenant un secret ou un identifiant de production. Ne les lis pas pour les recopier, ne les affiche pas dans un commentaire ou une PR.
 - `t.bat` : script de test manuel du propriétaire (valeurs de test, pas de clé réelle). Ne le modifie pas sauf si le ticket le demande, et ne prends pas ses valeurs comme modèle pour de vrais secrets.
 - `prod.session.sql` et tout ce qui touche à la base de production.
+- Le déploiement : `scripts/deploy.sh`, `.github/workflows/deploy.yml` et `docs/deploiement.md`. Chaque fusion dans `main` met la production à jour : ne les modifie pas dans une PR de correction et ne lance jamais le script.
 - Les migrations existantes.
 - La branche `main` : on ne pousse jamais dessus.
 
