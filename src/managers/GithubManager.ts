@@ -19,6 +19,7 @@ import { ComponentType, InteractionContext } from '../entities/ui/ViewContext.js
 import { ViewHandlers } from '../view/BaseView.js';
 import { JSONConfigManager } from '../utils/JSONConfigManager.js';
 import path from 'path';
+import { resolveLabels } from '../utils/GithubLabels.js';
 
 interface GithubRepo {
     label: string;
@@ -238,10 +239,7 @@ export class GithubManager {
             ? labelsRaw.split(',').map(l => l.trim()).filter(Boolean)
             : [];
         const ignoredLabels = requestedLabels.filter(l => l.toLowerCase().startsWith(AGENT_LABEL_PREFIX));
-        const labels = Array.from(new Set([
-            ...requestedLabels.filter(l => !l.toLowerCase().startsWith(AGENT_LABEL_PREFIX)),
-            ...AUTO_LABELS,
-        ]));
+        const wantedLabels = requestedLabels.filter(l => !l.toLowerCase().startsWith(AGENT_LABEL_PREFIX));
         const assignees = assigneesRaw
             ? assigneesRaw.split(',').map(a => a.trim()).filter(Boolean)
             : [];
@@ -306,6 +304,20 @@ export class GithubManager {
 
         const [owner, repoName] = repo.split('/');
 
+        // Rapproche la saisie des labels existants (sans casse ni accents), sinon GitHub
+        // tente de créer `amelioration` alors que `amélioration` existe et répond 422.
+        // Si la liste n'est pas lisible, on retombe sur l'ancien comportement (noms tels quels).
+        let labels: string[];
+        let unknownLabels: string[] = [];
+        const existingLabels = await this.fetchRepoLabels(owner, repoName, token);
+        if (existingLabels) {
+            const resolved = resolveLabels(wantedLabels, existingLabels, AUTO_LABELS);
+            labels = resolved.labels;
+            unknownLabels = resolved.unknown;
+        } else {
+            labels = Array.from(new Set([...wantedLabels, ...AUTO_LABELS]));
+        }
+
         try {
             const response = await fetch(
                 `https://api.github.com/repos/${owner}/${repoName}/issues`,
@@ -369,6 +381,13 @@ export class GithubManager {
                     inline: false,
                 });
             }
+            if (unknownLabels.length > 0) {
+                embed.addFields({
+                    name: 'Labels inconnus (non posés)',
+                    value: `${unknownLabels.map(l => `\`${l}\``).join(', ')} : ce label n'existe pas sur \`${repo}\`, ajoute-le sur GitHub si besoin`,
+                    inline: false,
+                });
+            }
             if (assignees.length > 0) {
                 embed.addFields({ name: 'Assignés', value: assignees.join(', '), inline: false });
             }
@@ -386,6 +405,36 @@ export class GithubManager {
             await interaction.editReply({
                 content: '⚠️ Une erreur est survenue lors de la création de l\'issue.',
             });
+        }
+    }
+
+    /** Noms exacts des labels du dépôt, ou `null` si la lecture échoue. */
+    private async fetchRepoLabels(owner: string, repoName: string, token: string): Promise<string[] | null> {
+        const names: string[] = [];
+        try {
+            for (let page = 1; page <= 5; page++) {
+                const res = await fetch(
+                    `https://api.github.com/repos/${owner}/${repoName}/labels?per_page=100&page=${page}`,
+                    {
+                        headers: {
+                            Authorization: `Bearer ${token}`,
+                            Accept: 'application/vnd.github+json',
+                            'X-GitHub-Api-Version': '2022-11-28',
+                        },
+                    }
+                );
+                if (!res.ok) {
+                    this.logger.warn({ msg: 'Lecture des labels GitHub impossible', status: res.status, repo: `${owner}/${repoName}` });
+                    return null;
+                }
+                const batch = await res.json() as Array<{ name: string }>;
+                names.push(...batch.map(l => l.name));
+                if (batch.length < 100) break;
+            }
+            return names;
+        } catch (err) {
+            this.logger.warn({ msg: 'Lecture des labels GitHub impossible', err });
+            return null;
         }
     }
 }

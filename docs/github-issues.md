@@ -11,7 +11,8 @@ La commande `/github issue` crée une issue GitHub à partir d'un ticket Discord
 ## Labels
 
 - Chaque issue reçoit automatiquement `from-discord` et `a-trier`.
-- Les labels saisis dans le formulaire sont ajoutés, sans doublon.
+- Les labels saisis dans le formulaire sont ajoutés, sans doublon. Ils sont rapprochés des labels du dépôt **sans tenir compte de la casse ni des accents** (`amelioration` devient `amélioration` si ce label existe), car GitHub refuse sinon la création (422 `already_exists`).
+- Un label saisi qui n'existe pas sur le dépôt n'est pas posé : il est signalé dans la réponse (« Labels inconnus »). Si la liste des labels du dépôt n'est pas lisible, le bot envoie les noms tels quels, comme avant.
 - Les labels qui commencent par `agent:` sont **ignorés** et signalés dans la réponse. Ils pilotent les agents IA, et le feu vert (`agent:go`) ne doit pouvoir être donné que par le propriétaire du dépôt, sur GitHub.
 
 ## Marqueur de liaison
