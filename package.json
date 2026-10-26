@@ -14,7 +14,7 @@
         "migrate:down": "npm run build && npm run mikro-orm -- migration:down",
         "test:recrutement": "npm run build && node --test tests/recrutement.test.mjs tests/guild-members.test.mjs",
         "test:parrainage": "npm run build && node --test tests/parrainage.test.mjs tests/guild-members.test.mjs",
-        "test:github": "npm run build && node --test tests/github-labels.test.mjs"
+        "test:github": "npm run build && node --test tests/github-labels.test.mjs tests/github-ticket.test.mjs"
     },
     "dependencies": {
         "@discord-player/extractor": "^7.1.0",

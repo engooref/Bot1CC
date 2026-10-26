@@ -20,6 +20,8 @@ import { ViewHandlers } from '../view/BaseView.js';
 import { JSONConfigManager } from '../utils/JSONConfigManager.js';
 import path from 'path';
 import { resolveLabels } from '../utils/GithubLabels.js';
+import { buildIssueTitle, ticketNumberFromChannelName } from '../utils/GithubTicket.js';
+import { TicketBots } from '../entities/tickets/TicketBots.js';
 
 interface GithubRepo {
     label: string;
@@ -254,22 +256,25 @@ export class GithubManager {
         const channelId = interaction.channelId;
         const guildId = interaction.guildId;
 
-        // Essaie de récupérer un numéro depuis le nom du channel : ticket-1234, ticket_1234, assistance-1234, etc.
-        const ticketMatch =
-            channelName.match(/(?:ticket|assistance|support)[-_ ]?(\d+)/i) ||
-            channelName.match(/(\d+)/);
+        // Numéro du ticket : celui de la base, le même que « Ticket n°… » affiché dans le salon.
+        // Le nom du salon (`tickets-<pseudo>`) ne porte pas de numéro fiable : il ne sert qu'en dernier recours.
+        let ticketId: string | null = null;
+        try {
+            const ticket = await this.em.findOne(TicketBots, { channelId });
+            if (ticket) ticketId = String(ticket.id);
+        } catch (err) {
+            this.logger.warn({ msg: 'Ticket introuvable en base pour ce salon', err, channelId });
+        }
+        if (!ticketId) ticketId = ticketNumberFromChannelName(channelName);
 
-        const ticketNumber = ticketMatch?.[1] ?? 'non détecté';
+        const ticketNumber = ticketId ?? 'non détecté';
 
         const discordChannelUrl = guildId
             ? `https://discord.com/channels/${guildId}/${channelId}`
             : 'Lien indisponible';
 
-        // Titre envoyé à GitHub
-        const githubTitle =
-            ticketNumber !== 'non détecté'
-                ? `[Ticket #${ticketNumber}] ${title}`
-                : `[${channelName}] ${title}`;
+        // Titre envoyé à GitHub (tronqué à 256 caractères, limite de GitHub)
+        const githubTitle = buildIssueTitle(ticketId, channelName, title);
 
         // Construction du corps de l'issue.
         // Les lignes sont assemblées sans indentation : une indentation de 4 espaces ou plus
@@ -280,7 +285,7 @@ export class GithubManager {
             `- **Numéro du ticket :** ${ticketNumber}`,
             `- **Channel :** #${channelName}`,
             `- **Lien Discord :** ${discordChannelUrl}`,
-            `- **Reporté par :** ${interaction.user.tag}`,
+            `- **Relayé par :** ${interaction.user.tag}`,
             '',
             '---',
             '',
@@ -289,7 +294,7 @@ export class GithubManager {
         if (images.length > 0) {
             fullBody += '\n\n---\n### Images\n' + images.map(url => `![image](${url})`).join('\n');
         }
-        fullBody += `\n\n---\n*Reporté par ${interaction.user.tag} via Discord*`;
+        fullBody += `\n\n---\n*Relayé par ${interaction.user.tag} via Discord*`;
         // Marqueur invisible dans GitHub : permet de retrouver le salon Discord d'une issue
         // (par exemple pour lui renvoyer son avancement) sans table de liaison en base.
         fullBody += `\n\n<!-- discord-ticket: guild=${guildId ?? 'inconnu'} channel=${channelId} -->`;
@@ -394,6 +399,19 @@ export class GithubManager {
 
             await interaction.editReply({ embeds: [embed] });
             this.logger.info({ msg: `Issue créée: ${issue.html_url}`, user: interaction.user.tag });
+
+            // Confirmation visible du membre dans son salon. Pas de lien vers l'issue : le dépôt est public
+            // et rien n'est encore décidé sur ce que le membre peut voir (voir docs/github-issues.md).
+            try {
+                if (channel) {
+                    await channel.send({
+                        content: `📨 Votre demande a été transmise à l'équipe technique (référence **${repoName}#${issue.number}**).`,
+                        allowedMentions: { parse: [] },
+                    });
+                }
+            } catch (err) {
+                this.logger.warn({ msg: 'Confirmation non envoyée dans le salon du ticket', err, channelId });
+            }
 
             // Nettoyage du contexte modal
             await this.em.nativeDelete(InteractionContext, {
