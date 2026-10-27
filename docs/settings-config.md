@@ -9,6 +9,9 @@ Toutes les clés définies dans ces fichiers figurent dans `src/constants/Settin
 - Le recrutement utilise `bot.channels.rh`, déjà défini dans le site, pour son fil RH. La clé supplémentaire `bot.recrutement.channel_rh` est supprimée.
 - `site.roles.rh` est un ID Discord unique (`entity`, `discord_role`).
 - `bot.contracts.fidelis_responsibles` est un tableau d’IDs (`entities`, `discord_user`) ; le bot utilise désormais `getList`.
+- Règle du compte Discord trop jeune (arrivée sur le serveur, `_onGuildMemberAdd`, et rapport `new_accounts_report`) :
+  - `bot.recrutement.young_account_min_days` : âge minimal en jours (entier, 90 par défaut si absent ou invalide).
+  - `bot.recrutement.young_account_exempt_ids` : tableau d’IDs Discord (`entities`, `discord_user`) non soumis à cette règle ; lu avec `getList`. Liste vide ou absente : aucune exemption. Liste illisible : le bot laisse entrer. Un membre exempté suit le parcours d’arrivée normal (préfixe, recrutement). Ces deux clés doivent être déclarées côté site avant la fusion, sinon l’exemption précédemment codée en dur disparaît.
 - Les clés site pour les membres, les gestionnaires d’événements, les images, les badges, la synchronisation Discord et la certification capitaine sont aussi déclarées dans les constantes. Leur présence ne modifie pas automatiquement le comportement du bot ; le rôle Membre du bot est encore initialisé depuis `ROLE_ID`.
 
 ## Définitions ajoutées au site

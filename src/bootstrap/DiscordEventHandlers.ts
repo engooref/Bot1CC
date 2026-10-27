@@ -1,6 +1,7 @@
 import { ButtonInteractionGuard } from '../utils/ButtonInteractionGuard.js';
 import { SettingKeys } from '../constants/SettingKeys.js';
 import { applyArrivalPrefix } from '../utils/ArrivalPrefix.js';
+import { DEFAULT_YOUNG_ACCOUNT_MIN_DAYS, isYoungAccount, shouldRejectYoungAccount } from '../utils/YoungAccount.js';
 import {
   Role,
   GuildChannel,
@@ -58,11 +59,28 @@ export function registerDiscordEvents(bot: BotManager): void {
 
 async function _onGuildMemberAdd(bot: BotManager, member: GuildMember): Promise<void> {
   try {
-    const accountAgeMs = Date.now() - member.user.createdTimestamp;
-    const threeMonthsMs = 3 * 30 * 24 * 60 * 60 * 1000;
+    const now = Date.now();
+    const minDays = await settingsService.getInt(
+      SettingKeys.bot.recrutement.youngAccountMinDays,
+      DEFAULT_YOUNG_ACCOUNT_MIN_DAYS,
+    ).catch(() => DEFAULT_YOUNG_ACCOUNT_MIN_DAYS);
+    // Liste illisible : on laisse entrer plutôt que d'expulser par erreur.
+    let exemptIds: string[] | null = null;
+    try {
+      exemptIds = await settingsService.getList(SettingKeys.bot.recrutement.youngAccountExemptIds);
+    } catch (err) {
+      await botLogger.error({ op: "GUILD_MEMBER_ADD", err, user: member.id }, "Liste d'exemption illisible : aucune expulsion");
+    }
 
-    if (accountAgeMs < threeMonthsMs && !member.user.bot && !(member.user.id === "1554434884641103953")) {
-      const reason = "Compte trop jeune (moins de 3 mois)";
+    if (exemptIds && shouldRejectYoungAccount({
+      createdTimestamp: member.user.createdTimestamp,
+      at: now,
+      minDays,
+      isBot: member.user.bot,
+      userId: member.user.id,
+      exemptIds,
+    })) {
+      const reason = `Compte trop jeune (moins de ${minDays} jours)`;
 
       await member.kick(reason);
 
@@ -103,7 +121,8 @@ async function _onGuildMemberAdd(bot: BotManager, member: GuildMember): Promise<
       );
     }
 
-    if (accountAgeMs < threeMonthsMs && !member.user.bot) return;
+    const exempt = !!exemptIds?.includes(member.user.id);
+    if (!exempt && !member.user.bot && isYoungAccount(member.user.createdTimestamp, now, minDays)) return;
     if (!member.user.bot) {
       try { await applyArrivalPrefix(member); }
       catch (err) { await botLogger.error({ op: 'ARRIVAL_PREFIX', err, user: member.id }); }
