@@ -6,7 +6,7 @@ import { BotManager } from '../BotManager.js';
 import { componentHandlerRegistry } from '../registry/ComponentHandlerRegistry.js';
 import { ComponentInteraction, ViewHandlers } from '../view/BaseView.js';
 import { Handlers } from '../view/TicketsView.js';
-import { sendCandidatures } from '../view/EngaView.js';
+import { RecruitmentActions } from '../view/RecrutementView.js';
 import { GithubHandlers } from '../managers/GithubManager.js';
 import type { AutoMessageState } from '../managers/AutoMessageManager.js';
 
@@ -18,6 +18,8 @@ export function registerComponentHandlers(bot: BotManager): void {
   componentHandlerRegistry.register(ViewHandlers.RecrutementHandler, async (interaction, data) => {
     if ((interaction.isButton() || interaction.isStringSelectMenu() || interaction.isModalSubmit()) && interaction.customId.startsWith('parrain_'))
       await bot.parrainageManager.handler(interaction, data);
+    else if (interaction.isButton() && interaction.customId === RecruitmentActions.Apply)
+      await bot.recrutementManager.applyFromButton(interaction);
     else if (interaction.isButton() || interaction.isModalSubmit())
       await bot.recrutementManager.handler(interaction, data);
   });
@@ -53,7 +55,7 @@ export function registerComponentHandlers(bot: BotManager): void {
 
   componentHandlerRegistry.register(ViewHandlers.EngaHandler, async (interaction, _) => {
     if (interaction.isButton())
-      await sendCandidatures(interaction, bot);
+      await bot.recrutementManager.applyFromButton(interaction);
   });
 
   componentHandlerRegistry.register(ViewHandlers.ScreenHandler, async (interaction, data) => {
