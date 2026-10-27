@@ -3,6 +3,7 @@ import { BotManager } from '../../BotManager.js';
 import { User } from '../../entities/core/User.js';
 import multer from 'multer';
 import { Role } from '../../entities/core/Role.js';
+import { recruitmentNickname } from '../../utils/ArrivalPrefix.js';
 
 
 export interface UserDto {
@@ -61,11 +62,8 @@ export default function createUserRouter(bot: BotManager): Router {
 
       // Modifie le pseudo pour ajouter [1CC] devant si absent
       const member = await bot.guild.members.fetch(discordId);
-      let newNickname = member.displayName;
-      if (!newNickname.startsWith('[1CC]')) {
-        newNickname = `[1CC] ${newNickname}`;
-        await member.setNickname(newNickname);
-      }
+      const newNickname = recruitmentNickname(member.displayName, '[1CC]');
+      if (newNickname !== member.displayName) await member.setNickname(newNickname);
 
       res.json({ success: true });
     } catch (err) {

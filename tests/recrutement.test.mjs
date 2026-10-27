@@ -313,6 +313,15 @@ test('vues de fin sans décisions, préfixes connus uniquement et longueur Disco
     assert.equal(recruitmentNickname('x'.repeat(50), '[P]').length, 32);
 });
 
+test('pseudo à l\'acceptation : préfixes de recrutement retirés, [1CC] unique, 32 caractères', () => {
+    assert.equal(recruitmentNickname('[C-1CC] Alice', '[1CC]'), '[1CC] Alice');
+    assert.equal(recruitmentNickname('[P] [A] Alice', '[1CC]'), '[1CC] Alice');
+    assert.equal(recruitmentNickname('[1CC] Alice', '[1CC]'), '[1CC] Alice');
+    const long = recruitmentNickname('x'.repeat(50), '[1CC]');
+    assert.equal(long.length, 32);
+    assert.ok(long.startsWith('[1CC] '));
+});
+
 
 test('bouton Refuser puis formulaire : contexte persistant lié au RH', async () => {
     const f = fixture({ status: 'review' });
