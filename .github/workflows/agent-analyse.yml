@@ -48,12 +48,9 @@ jobs:
             - Si l'issue touche une zone interdite de CLAUDE.md, ou demande une fonctionnalité,
               une refonte ou un changement de schéma, dis-le : ce n'est pas un petit bug.
 
-            Publie UN commentaire en deux gestes exacts, sans autre outil :
-            1. Écris le texte avec l'outil Write dans /tmp/analyse.md.
-            2. Exécute exactement `gh issue comment ${{ github.event.issue.number }} --body-file /tmp/analyse.md`
-               (pas de heredoc, pas de `$(...)`, pas de redirection : ces formes sont refusées).
-            Si la publication est refusée, donne le texte COMPLET de l'analyse comme réponse finale :
-            le workflow le publiera à ta place.
+            Ne publie rien toi-même et n'écris aucun fichier : le workflow publiera ta réponse finale
+            comme commentaire. Ta réponse finale est donc UNIQUEMENT le texte du commentaire (markdown),
+            sans phrase d'introduction.
 
             Le commentaire a ces sections :
             1. Compréhension du problème (une ou deux phrases)
@@ -66,12 +63,12 @@ jobs:
             correction, pose le label agent:go et ajoute si besoin un commentaire qui commence par Consigne :
           claude_args: >-
             --max-turns 30
-            --allowedTools "Read,Grep,Glob,Write(//tmp/*),Bash(gh issue view:*),Bash(gh issue comment:*)"
+            --allowedTools "Read,Grep,Glob,Bash(gh issue view:*)"
 
-      # Repli : si l'agent n'a posté aucun commentaire (appel d'outil refusé, tours épuisés...),
-      # le workflow publie lui-même sa réponse finale, ou à défaut un diagnostic court.
+      # Publication : l'agent n'écrit ni fichier ni commentaire (l'écriture dans /tmp était refusée,
+      # constat du 27/10). Le workflow publie sa réponse finale, ou à défaut un diagnostic court.
       # Rien n'est lu dans l'issue ici : seul le fichier d'exécution de l'agent est utilisé.
-      - name: Repli - publier l'analyse ou un diagnostic
+      - name: Publier l'analyse (ou un diagnostic)
         if: always()
         env:
           GH_TOKEN: ${{ github.token }}
@@ -96,7 +93,7 @@ jobs:
           fi
           {
             if [ "${#resultat}" -gt 300 ]; then
-              printf '%s\n\n---\n_Commentaire publié par le workflow : l'"'"'agent n'"'"'a pas pu le publier lui-même (%s)._\n' "$resultat" "$resume"
+              printf '%s\n' "$resultat"
             else
               printf '**Pré-analyse sans résultat exploitable.** Conclusion de l'"'"'action : %s. Détail : %s.\n' "${CONCLUSION:-inconnue}" "$resume"
               [ -n "$resultat" ] && printf '\nDernier message de l'"'"'agent :\n\n> %s\n' "$(printf '%s' "$resultat" | head -c 600 | tr '\n' ' ')"
