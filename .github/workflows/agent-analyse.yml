@@ -26,7 +26,12 @@ jobs:
         with:
           fetch-depth: 1
 
-      - uses: anthropics/claude-code-action@v1
+      - name: Horodatage de départ
+        id: depart
+        run: echo "debut=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
+      - id: claude
+        uses: anthropics/claude-code-action@v1
         env:
           GH_TOKEN: ${{ github.token }}
         with:
@@ -43,8 +48,14 @@ jobs:
             - Si l'issue touche une zone interdite de CLAUDE.md, ou demande une fonctionnalité,
               une refonte ou un changement de schéma, dis-le : ce n'est pas un petit bug.
 
-            Publie UN commentaire avec `gh issue comment ${{ github.event.issue.number }} --body-file <fichier>`
-            après l'avoir écrit dans /tmp, avec ces sections :
+            Publie UN commentaire en deux gestes exacts, sans autre outil :
+            1. Écris le texte avec l'outil Write dans /tmp/analyse.md.
+            2. Exécute exactement `gh issue comment ${{ github.event.issue.number }} --body-file /tmp/analyse.md`
+               (pas de heredoc, pas de `$(...)`, pas de redirection : ces formes sont refusées).
+            Si la publication est refusée, donne le texte COMPLET de l'analyse comme réponse finale :
+            le workflow le publiera à ta place.
+
+            Le commentaire a ces sections :
             1. Compréhension du problème (une ou deux phrases)
             2. Cause probable, avec fichiers et lignes précis
             3. Plan de correction proposé (changements minimaux) et tests à écrire
@@ -54,5 +65,42 @@ jobs:
             Termine par cette phrase : Analyse automatique, aucune modification faite. Pour lancer la
             correction, pose le label agent:go et ajoute si besoin un commentaire qui commence par Consigne :
           claude_args: >-
-            --max-turns 20
-            --allowedTools "Read,Grep,Glob,Write(/tmp/*),Bash(gh issue view:*),Bash(gh issue comment:*)"
+            --max-turns 30
+            --allowedTools "Read,Grep,Glob,Write(//tmp/*),Bash(gh issue view:*),Bash(gh issue comment:*)"
+
+      # Repli : si l'agent n'a posté aucun commentaire (appel d'outil refusé, tours épuisés...),
+      # le workflow publie lui-même sa réponse finale, ou à défaut un diagnostic court.
+      # Rien n'est lu dans l'issue ici : seul le fichier d'exécution de l'agent est utilisé.
+      - name: Repli - publier l'analyse ou un diagnostic
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE: ${{ github.event.issue.number }}
+          REPO: ${{ github.repository }}
+          DEBUT: ${{ steps.depart.outputs.debut }}
+          EXEC_FILE: ${{ steps.claude.outputs.execution_file }}
+          CONCLUSION: ${{ steps.claude.outputs.conclusion }}
+        run: |
+          set -u
+          deja=$(gh api "repos/$REPO/issues/$ISSUE/comments" --paginate \
+            --jq ".[] | select(.created_at >= \"$DEBUT\") | .id" | wc -l)
+          if [ "${deja:-0}" -gt 0 ]; then
+            echo "L'agent a publié son commentaire : rien à faire."
+            exit 0
+          fi
+          resultat=""; resume="fichier d'exécution absent"; refus=""
+          if [ -n "${EXEC_FILE:-}" ] && [ -f "$EXEC_FILE" ]; then
+            resultat=$(jq -r '[.[] | select(.type=="result")] | last | .result // ""' "$EXEC_FILE")
+            resume=$(jq -r '[.[] | select(.type=="result")] | last | "sous-type \(.subtype), erreur \(.is_error), \(.num_turns) tours, \((.permission_denials // []) | length) refus"' "$EXEC_FILE")
+            refus=$(jq -r '[.[] | select(.type=="result")] | last | (.permission_denials // [])[] | "- `\(.tool_name)` : \((.tool_input | tostring | gsub("`";"'"'"'") | .[0:160]))"' "$EXEC_FILE")
+          fi
+          {
+            if [ "${#resultat}" -gt 300 ]; then
+              printf '%s\n\n---\n_Commentaire publié par le workflow : l'"'"'agent n'"'"'a pas pu le publier lui-même (%s)._\n' "$resultat" "$resume"
+            else
+              printf '**Pré-analyse sans résultat exploitable.** Conclusion de l'"'"'action : %s. Détail : %s.\n' "${CONCLUSION:-inconnue}" "$resume"
+              [ -n "$resultat" ] && printf '\nDernier message de l'"'"'agent :\n\n> %s\n' "$(printf '%s' "$resultat" | head -c 600 | tr '\n' ' ')"
+            fi
+            if [ -n "$refus" ]; then printf '\nAppels refusés :\n%s\n' "$refus"; fi
+          } | head -c 60000 | sed 's/@/@\xE2\x80\x8B/g' > /tmp/repli.md   # neutralise les mentions @
+          gh issue comment "$ISSUE" --body-file /tmp/repli.md
