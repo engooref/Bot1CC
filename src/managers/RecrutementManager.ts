@@ -119,7 +119,7 @@ export class RecrutementManager {
                 }
             }
         }
-        if (demande.status === 'refused' || demande.status === 'expired') {
+        if (demande.status === 'refused' || demande.status === 'expired' || demande.status === 'integrated') {
             return;
         }
         await this.resume(demande.id);
@@ -218,6 +218,9 @@ export class RecrutementManager {
         const target = demande.pendingStatus;
         if (!target) {
             return;
+        }
+        if (target === 'integrated') {
+            return; // Déjà membre : aucun rôle ni accès à modifier.
         }
         const ticket = await this.getTextChannel(demande.channelId!);
         if (target === 'expired') {
@@ -527,7 +530,7 @@ export class RecrutementManager {
                 const demande = await this.bot.db.getEm().findOne(RecrutementDemande, { guildId: interaction.guildId, applicantId: interaction.user.id });
                 let response = 'Sélectionnez « Je postule » dans l’intégration Discord. Si vous avez une ancienne candidature, contactez les RH.';
                 if (demande) {
-                    const hasActiveTicket = demande.channelId && !['refused', 'expired'].includes(demande.status);
+                    const hasActiveTicket = demande.channelId && !['refused', 'expired', 'integrated'].includes(demande.status);
                     response = hasActiveTicket
                         ? `Votre ticket : <#${demande.channelId}>`
                         : 'Votre demande est terminée. Contactez les RH.';

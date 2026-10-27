@@ -1,6 +1,6 @@
 import { Entity, PrimaryKey, Property, Unique } from '@mikro-orm/core';
 
-export type RecrutementStatus = 'waiting_rsi' | 'review' | 'postulant' | 'candidate' | 'refused' | 'expired';
+export type RecrutementStatus = 'waiting_rsi' | 'review' | 'postulant' | 'candidate' | 'refused' | 'expired' | 'integrated';
 export interface PostulantChannelAccess { viewChannel: boolean | null; hadOverwrite: boolean; }
 export interface RecruitmentDecision { from: RecrutementStatus; to: RecrutementStatus; actorId: string; at: string; reason?: string; ticketMessageId?: string; }
 

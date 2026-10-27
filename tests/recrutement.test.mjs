@@ -337,6 +337,44 @@ test('le scheduler expire un ticket inactif et reprend après redémarrage', asy
     assert.equal(f.d.pendingStatus, undefined);
 });
 
+for (const status of ['waiting_rsi', 'review']) {
+    test(`le scheduler clôt en « integrated » une demande ${status} dont le demandeur est déjà Membre`, async () => {
+        const f = fixture();
+        f.d.status = status;
+        f.d.lastActivityAt = new Date(Date.now() - 8 * 86400_000);
+        f.applicant.roles.cache.set(ids.official, f.bot.roleMember);
+        f.manager.publishEngagement = async () => {};
+        f.operations.length = 0;
+        await f.scheduler.checkRH();
+        assert.equal(f.d.status, 'integrated');
+        assert.equal(f.d.pendingStatus, undefined);
+        assert.ok(!f.operations.some(([name, value]) => name === 'remove-role' && value === ids.postulant));
+        assert.ok(f.applicant.roles.cache.has(ids.postulant));
+        assert.ok(!f.d.decisions.some(d => d.to === 'expired'));
+    });
+}
+
+test('le scheduler clôt aussi une demande récente dont le demandeur est déjà Membre', async () => {
+    const f = fixture();
+    f.applicant.roles.cache.set(ids.official, f.bot.roleMember);
+    f.manager.publishEngagement = async () => {};
+    await f.scheduler.checkRH();
+    assert.equal(f.d.status, 'integrated');
+});
+
+test('un demandeur parti du serveur ne bloque pas le scheduler (code 10007)', async () => {
+    const f = fixture();
+    f.d.lastActivityAt = new Date(Date.now() - 8 * 86400_000);
+    const fetch = f.bot.guild.members.fetch;
+    f.bot.guild.members.fetch = async key => {
+        if (key && typeof key === 'object' && key.user === ids.applicant) throw Object.assign(new Error('Unknown Member'), { code: 10007 });
+        return fetch(key);
+    };
+    f.manager.publishEngagement = async () => {};
+    await f.scheduler.checkRH();
+    assert.notEqual(f.d.status, 'integrated');
+});
+
 test('un message envoyé pendant un arrêt du bot empêche une expiration erronée', async () => {
     const f = fixture();
     f.d.lastActivityAt = new Date(Date.now() - 8 * 86400_000);
