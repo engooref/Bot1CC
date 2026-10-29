@@ -12,7 +12,7 @@
         "migrate:create": "npm run build && npm run mikro-orm -- migration:create",
         "migrate:up": "npm run build && npm run mikro-orm -- migration:up",
         "migrate:down": "npm run build && npm run mikro-orm -- migration:down",
-        "test:recrutement": "npm run build && node --test tests/recrutement.test.mjs tests/guild-members.test.mjs",
+        "test:recrutement": "npm run build && node --test tests/recrutement.test.mjs tests/guild-members.test.mjs tests/young-account.test.mjs",
         "test:parrainage": "npm run build && node --test tests/parrainage.test.mjs tests/guild-members.test.mjs",
         "test:github": "npm run build && node --test tests/github-labels.test.mjs tests/github-ticket.test.mjs"
     },

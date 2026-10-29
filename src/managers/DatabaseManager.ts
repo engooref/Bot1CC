@@ -1,5 +1,6 @@
 import { SettingKeys } from '../constants/SettingKeys.js';
 import { settingsService } from '../services/SettingsService.js';
+import { DEFAULT_YOUNG_ACCOUNT_MIN_DAYS, isYoungAccount } from '../utils/YoungAccount.js';
 import { 
   ChannelType, 
   GuildBasedChannel, 
@@ -189,7 +190,10 @@ export class DatabaseManager {
    */
   private async generateNewAccountsReport(interaction: any): Promise<void> {
     const discordMembers = await this.bot.guild.members.fetch();
-    const ninetyDaysMs = 90 * 24 * 60 * 60 * 1000; // 90 jours en millisecondes
+    const minDays = await settingsService.getInt(
+      SettingKeys.bot.recrutement.youngAccountMinDays,
+      DEFAULT_YOUNG_ACCOUNT_MIN_DAYS,
+    );
 
     const suspiciousAccounts: Array<{
       username: string;
@@ -209,7 +213,7 @@ export class DatabaseManager {
       const daysBeforeJoin = Math.floor(accountAge / (24 * 60 * 60 * 1000)); // Convertir en jours
 
       // Si le compte a moins de 3 mois avant de rejoindre le serveur
-      if (accountAge < ninetyDaysMs) {
+      if (isYoungAccount(member.user.createdTimestamp, member.joinedTimestamp, minDays)) {
         suspiciousAccounts.push({
           username: member.displayName,
           discordId: member.id,
