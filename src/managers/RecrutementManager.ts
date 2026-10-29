@@ -32,6 +32,19 @@ export function recruitmentTarget(action: string, status: RecrutementStatus): Re
     }
     throw new Error('Cette action ne correspond plus à l’état de la demande.');
 }
+export type SiteDecision = 'accepted' | 'rejected';
+
+/**
+ * Décision prise sur le site (onglet RH > Candidatures) : statut cible de la demande, ou null si rien à faire.
+ * Acceptée : les demandes encore en phase Postulant sont clôturées en « integrated » ; un Candidat est
+ * clôturé par le suivi de parrainage dès qu'il porte le rôle Membre. Rejetée : refus à tout stade avant l'intégration.
+ */
+export function siteDecisionTarget(decision: SiteDecision, status: RecrutementStatus): RecrutementStatus | null {
+    const inProgress = status === 'waiting_rsi' || status === 'review' || status === 'postulant';
+    if (decision === 'accepted') return inProgress ? 'integrated' : null;
+    return inProgress || status === 'candidate' ? 'refused' : null;
+}
+
 export class RecrutementManager {
 
     private logger = getManagerLogger('RecrutementManager');
@@ -92,6 +105,43 @@ export class RecrutementManager {
             return;
         }
         await this.ensureRequest(member);
+    }
+
+    /**
+     * Répercute une acceptation ou un rejet décidé sur le site. L'intention est enregistrée avant les changements
+     * Discord (reprise automatique par le scheduler en cas d'échec). Aucune demande : rien à faire, ce n'est pas une erreur.
+     */
+    async applySiteDecision(discordId: string, decision: SiteDecision, actorId: string): Promise<{ found: boolean; changed: boolean; status?: RecrutementStatus }> {
+        const found = await this.bot.db.getEm().findOne(RecrutementDemande, { guildId: this.bot.guild.id, applicantId: discordId });
+        if (!found) {
+            return { found: false, changed: false };
+        }
+        if (decision === 'rejected' && found.status === 'candidate') {
+            await this.bot.parrainageManager?.closeForRequest(found.id, actorId, 'Candidature rejetée depuis le site');
+        }
+        const reason = decision === 'accepted' ? 'Acceptée depuis le site.' : 'Rejetée depuis le site.';
+        const changed = await this.withLockedRequest(found.id, async (demande, entityManager) => {
+            const target = siteDecisionTarget(decision, demande.status);
+            if (!target) return false;
+            if (demande.pendingStatus) {
+                throw new Error('Une opération est déjà en cours de reprise pour cette demande.');
+            }
+            demande.pendingStatus = target;
+            demande.needsSync = true;
+            demande.decisions.push({ from: demande.status, to: target, actorId, at: new Date().toISOString(), reason });
+            await entityManager.flush();
+            return true;
+        });
+        if (changed) {
+            try {
+                await this.resume(found.id);
+            } catch (error) {
+                // La décision est enregistrée : le scheduler terminera les changements Discord.
+                await this.logger.error({ err: error, demandeId: found.id }, 'Décision du site enregistrée, application Discord à reprendre');
+            }
+        }
+        const current = await this.bot.db.getEm().findOne(RecrutementDemande, { id: found.id, guildId: this.bot.guild.id });
+        return { found: true, changed, status: current?.status ?? found.status };
     }
 
     async applyFromButton(interaction: ButtonInteraction) {

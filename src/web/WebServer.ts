@@ -5,6 +5,7 @@ import { httpDebug } from "./middlewares/HttpDebug.js";
 
 import createRankRouter from "./routes/RankRouter.js";
 import createUserRouter from "./routes/UserRouter.js";
+import createRecrutementRouter from "./routes/RecrutementRouter.js";
 import createLeaderboardsRouter from "./routes/LeaderRoute.js";
 import createEventRouter from "./routes/EventRouter.js";
 import createOperationRouter from "./routes/OperationRouter.js";
@@ -42,6 +43,7 @@ export default class WebServer {
   private setupRoutes(): void {
     this.app.use("/rank", createRankRouter(this.bot));
     this.app.use("/user", createUserRouter(this.bot));
+    this.app.use("/recrutement", createRecrutementRouter(this.bot));
     this.app.use("/leaderboards", createLeaderboardsRouter(this.bot));
     this.app.use("/event", createEventRouter(this.bot));
     this.app.use("/settings", createSettingsRouter(this.bot));
