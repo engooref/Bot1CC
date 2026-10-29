@@ -54,6 +54,20 @@ Les demandes disposent d’une contrainte unique serveur/demandeur et d’un ver
 
 Les opérations Discord et SQL ne sont pas atomiques : le salon est retrouvé grâce à son marqueur de dossier, mais un arrêt entre l’envoi d’un message et l’enregistrement de son ID peut encore produire un doublon de message.
 
+## Décisions prises sur le site
+
+L'onglet RH > Candidatures du site accepte ou rejette un candidat. Le site prévient le bot par la route signée `POST /recrutement/decision` (mêmes en-têtes que les autres routes), avec `discordId`, `decision` (`accepted` ou `rejected`) et, facultativement, `actorId` (identifiant Discord du RH ; à défaut le bot lui-même). La réponse est `{ success, found, changed, status }`.
+
+| Décision | Étape de la demande | Effet |
+| --- | --- | --- |
+| `accepted` | `waiting_rsi`, `review`, `postulant` | `integrated` : aucun rôle retiré, aucun message « ticket fermé » |
+| `accepted` | `candidate` | aucun changement : le suivi de parrainage clôt le dossier dès que le rôle Membre est présent |
+| `rejected` | `waiting_rsi`, `review`, `postulant` | `refused` : comportement du refus RH (rôles attribuables et préfixe retirés, ticket conservé) |
+| `rejected` | `candidate` | suivi de parrainage clôturé puis `refused` |
+| toute décision | `refused`, `expired`, `integrated` | aucun changement |
+
+Pas de demande pour ce Discord (ancien circuit) : `found: false`, ce n'est pas une erreur. Comme pour les boutons RH, l'intention est enregistrée avant les changements Discord et reprise par le scheduler en cas d'échec. Une opération déjà en reprise fait répondre une erreur : le site peut réessayer.
+
 ## Validation
 
 `npm run test:recrutement` compile et teste le parcours sans connexion réelle à Discord, au site ou à MySQL. Après compilation, `node --test tests/diplomatie.test.mjs` vérifie la diplomatie.
