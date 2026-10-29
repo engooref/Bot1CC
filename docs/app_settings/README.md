@@ -5,7 +5,7 @@ Copier `bot_environment.json` dans le dossier `config/app_settings/` du site. Le
 Ne pas redéfinir les clés déjà existantes :
 
 - `ROLE_ID` : réutiliser `site.roles.members`, après adaptation du bot aux rôles multiples.
-- `ADMISSION_CATEGORY_ID` : réutiliser `bot.recrutement.category_admission`, après vérification de la catégorie configurée pour l'ancien parcours.
+- `ADMISSION_CATEGORY_ID` : remplacée par `bot.recrutement.category_admission` ; l'ancien bouton d'engagement qui la lisait est supprimé.
 
 Les dix nouvelles clés sont maintenant lues via SettingsService, sans recours aux anciennes variables d’environnement. Installer ce JSON dans le registre du site avant de démarrer le bot, puis recharger les settings si le bot tourne déjà. Les valeurs personnalisées du site restent prioritaires et le cache du bot conserve sa durée de cinq minutes.
 

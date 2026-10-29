@@ -742,3 +742,55 @@ test('échec de la liste REST : les dossiers RH et les parrainages restent trait
     assert.equal(f.d.status, 'expired');
     assert.equal(f.scheduler.checking, false);
 });
+
+test('bouton « Je postule » : rôle Postulant ajouté, ticket créé, clic répété sans doublon', async () => {
+    const f = fixture({ noRequest: true });
+    f.applicant.roles.cache.delete(ids.postulant); f.applicant.pending = false;
+    const first = f.interaction(A.Apply, ids.applicant);
+    await f.manager.applyFromButton(first);
+    assert.equal(f.applicant.roles.cache.has(ids.postulant), true);
+    assert.equal(f.requests.length, 1);
+    assert.match(first.response, /Votre ticket de candidature/);
+    await f.manager.applyFromButton(f.interaction(A.Apply, ids.applicant));
+    assert.equal(f.requests.length, 1);
+    assert.equal(f.operations.filter(x => x[0] === 'create-channel').length, 1);
+});
+
+test('bouton « Je postule » : membre officiel refusé sans demande ni rôle', async () => {
+    const f = fixture({ noRequest: true });
+    f.applicant.roles.cache.delete(ids.postulant); f.applicant.roles.cache.set(ids.official, { id: ids.official });
+    const i = f.interaction(A.Apply, ids.applicant);
+    await f.manager.applyFromButton(i);
+    assert.equal(f.requests.length, 0);
+    assert.equal(f.applicant.roles.cache.has(ids.postulant), false);
+    assert.match(i.response, /déjà partie/);
+});
+
+test('bouton « Je postule » : demande refusée ou expirée sans nouveau ticket', async () => {
+    for (const status of ['refused', 'expired']) {
+        const f = fixture({ status });
+        f.applicant.roles.cache.delete(ids.postulant);
+        const i = f.interaction(A.Apply, ids.applicant);
+        await f.manager.applyFromButton(i);
+        assert.equal(f.requests.length, 1);
+        assert.equal(f.operations.some(x => x[0] === 'create-channel'), false);
+        assert.match(i.response, /terminée/);
+    }
+});
+
+test('bouton « Je postule » : ancienne candidature RH conservée, aucun rôle ni ticket', async () => {
+    const f = fixture({ legacy: true, noRequest: true });
+    f.applicant.roles.cache.delete(ids.postulant);
+    const i = f.interaction(A.Apply, ids.applicant);
+    await f.manager.applyFromButton(i);
+    assert.equal(f.requests.length, 0);
+    assert.equal(f.applicant.roles.cache.has(ids.postulant), false);
+    assert.match(i.response, /demande en cours/);
+});
+
+test('l’annonce publique contient « Je postule » et « Accéder à mon ticket »', () => {
+    const f = fixture();
+    const view = View.public(f.bot);
+    const customIds = view.rows.flatMap(row => row.components.map(c => c.data.custom_id));
+    assert.deepEqual(customIds, [A.Apply, A.Ticket]);
+});

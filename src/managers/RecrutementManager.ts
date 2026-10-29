@@ -94,6 +94,49 @@ export class RecrutementManager {
         await this.ensureRequest(member);
     }
 
+    async applyFromButton(interaction: ButtonInteraction) {
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        try {
+            if (interaction.guildId !== this.bot.guild.id) {
+                throw new Error('Serveur invalide.');
+            }
+            const member = await this.bot.guild.members.fetch({ user: interaction.user.id, force: true });
+            let response: string;
+            if (member.user.bot || member.roles.cache.has(this.bot.roleMember?.id ?? '')) {
+                response = 'Vous faites déjà partie du Corps.';
+            } else if (member.pending) {
+                response = 'Acceptez d’abord le règlement du serveur, puis cliquez de nouveau sur « Je postule ».';
+            } else {
+                const entityManager = this.bot.db.getEm();
+                const existing = await entityManager.findOne(RecrutementDemande, { guildId: member.guild.id, applicantId: member.id });
+                if (!existing && await entityManager.findOne(RHMember, { user: { discordId: member.id }, status: 'Candidatures' })) {
+                    response = 'Vous avez déjà une demande en cours. Contactez les RH si besoin.';
+                } else {
+                    const roleId = await settingsService.getString(SettingKeys.bot.roles.postulant);
+                    if (!roleId) {
+                        throw new Error(`Le paramètre ${SettingKeys.bot.roles.postulant} est vide.`);
+                    }
+                    if (!member.roles.cache.has(roleId)) {
+                        await member.roles.add(roleId, 'Candidature via le bouton « Je postule »');
+                    }
+                    await this.ensureRequest(member);
+                    const demande = await this.bot.db.getEm().findOne(RecrutementDemande, { guildId: member.guild.id, applicantId: member.id });
+                    if (demande?.channelId && !['refused', 'expired'].includes(demande.status)) {
+                        response = `Votre ticket de candidature : <#${demande.channelId}>`;
+                    } else if (demande) {
+                        response = 'Votre demande est terminée. Contactez les RH.';
+                    } else {
+                        response = 'Votre ticket est en cours de création. Réessayez dans un instant.';
+                    }
+                }
+            }
+            await interaction.editReply(response);
+        } catch (error) {
+            await this.logger.error({ msg: 'Erreur lors de la candidature par bouton', error });
+            await interaction.editReply('Impossible de traiter votre candidature pour le moment. Contactez les RH.');
+        }
+    }
+
     private async ensureRequest(member: GuildMember) {
         const trigger = await settingsService.getString(SettingKeys.bot.roles.postulant);
         if (!member.roles.cache.has(trigger) || member.roles.cache.has(this.bot.roleMember?.id ?? '')) {
@@ -605,9 +648,9 @@ export class RecrutementManager {
         }
         const channel = await this.getTextChannel(channelId);
         const fetched = await channel.messages.fetch({ limit: 100 });
-        const old = fetched.find(m => m.author.id === this.bot.user!.id && m.components.some(row => 'components' in row && row.components.some(c => 'customId' in c && (c.customId === RecruitmentActions.Ticket || c.customId === 'button_enga'))));
+        const old = fetched.find(m => m.author.id === this.bot.user!.id && m.components.some(row => 'components' in row && row.components.some(c => 'customId' in c && (c.customId === RecruitmentActions.Ticket || c.customId === RecruitmentActions.Apply))));
         await RecrutementView.public(this.bot).sendOrEdit(channel, old, {
-            content: '### Rejoindre le 1er Corps Colonial\nSélectionnez « Je postule » dans l’intégration Discord : votre ticket privé sera créé automatiquement. Déposez ensuite votre candidature RSI et confirmez son dépôt dans ce ticket. Les RH prendront en charge votre demande.',
+            content: '### Rejoindre le 1er Corps Colonial\nCliquez sur « Je postule » (ou sélectionnez-le dans l’intégration Discord) : le rôle Postulant vous est attribué et votre ticket privé est créé automatiquement. Le bouton « Accéder à mon ticket » vous y ramène. Déposez ensuite votre candidature RSI et confirmez son dépôt dans ce ticket. Les RH prendront en charge votre demande.',
             files: [new AttachmentBuilder('res/AFFICHE-1CC.png')], attachments: [],
         });
         this.engagementPublishedChannel = channel.id;

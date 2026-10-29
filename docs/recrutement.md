@@ -24,7 +24,7 @@ Le salon RH doit être privé pour `@everyone`. Placer le rôle du bot au-dessus
 ## Parcours
 
 1. À l’arrivée d’un membre humain admis par les règles existantes du serveur, le bot ajoute `[A]` devant son pseudo. Le filtrage existant des comptes de moins de trois mois reste applicable.
-2. Le choix « Je postule » dans l’onboarding attribue le rôle Postulant. L’ajout de ce rôle crée une demande, remplace le préfixe par `[P]` et crée un ticket privé dans la catégorie configurée, accessible au demandeur, aux RH et au bot.
+2. Le choix « Je postule » dans l’onboarding, ou le bouton « Je postule » de l’annonce du salon d’engagement (`button_enga`), attribue le rôle Postulant (le bouton l’ajoute lui-même et répond en éphémère avec le lien du ticket). L’ajout de ce rôle crée une demande, remplace le préfixe par `[P]` et crée un ticket privé dans la catégorie configurée, accessible au demandeur, aux RH et au bot.
 3. Un message épinglé fournit le lien https://robertsspaceindustries.com/orgs/1CC et explique le délai de sept jours. Chaque message humain du demandeur ou d’un RH/administrateur dans le ticket relance ce délai. Les bots et les autres membres ne le relancent pas.
 4. Dès l’ouverture, une fiche avec mention RH est publiée dans le fil Candidatures du salon RH. Elle comporte « Candidature RSI vérifiée et validée », « Refuser » et un lien vers le ticket. Le bouton facultatif du demandeur pour déclarer son dépôt ne conditionne pas la validation RH et ne stoppe pas l’expiration.
 5. La validation RSI par un RH conserve `[P]` et supprime l’expiration. Le message du ticket invite à organiser un entretien vocal. Sur la même fiche RH, le bouton devient « Valider l’entretien → Candidat ».
@@ -50,7 +50,7 @@ Après sept jours sans activité admissible et avant validation RSI par les RH, 
 
 Le scheduler retire aussi `[A]` sept jours après l’arrivée, indépendamment du ticket, sans retirer `[P]` ou `[C-1CC]`. La création de la demande remplace immédiatement `[A]` par `[P]` s’il est encore présent.
 
-Les demandes disposent d’une contrainte unique serveur/demandeur et d’un verrou SQL individuel. Les décisions sont enregistrées avant les changements Discord, avec reprise automatique après échec. Un dossier refusé ou expiré n’est pas rouvert automatiquement ; le demandeur doit contacter les RH. Les anciens profils RH `Candidatures` ne reçoivent pas de deuxième ticket.
+Les demandes disposent d’une contrainte unique serveur/demandeur et d’un verrou SQL individuel. Les décisions sont enregistrées avant les changements Discord, avec reprise automatique après échec. Un dossier refusé ou expiré n’est pas rouvert automatiquement ; le demandeur doit contacter les RH. Les anciens profils RH `Candidatures` ne reçoivent pas de deuxième ticket : ces candidats, passés par l’ancien bouton, sont à migrer manuellement (le bouton leur répond qu’une demande est en cours). L’ancien circuit du bouton (fil RH, salon `admission-*` créé via `ADMISSION_CATEGORY_ID`) est supprimé.
 
 Les opérations Discord et SQL ne sont pas atomiques : le salon est retrouvé grâce à son marqueur de dossier, mais un arrêt entre l’envoi d’un message et l’enregistrement de son ID peut encore produire un doublon de message.
 

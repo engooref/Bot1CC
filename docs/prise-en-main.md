@@ -58,7 +58,7 @@ Utilisées dans certaines fonctions :
 | `GITHUB_TOKEN` | Jeton GitHub pour `/github issue` (droit de créer des issues sur les dépôts listés) |
 | `APP_URL` | Adresse publique utilisée pour générer des liens (événements, liens temporaires) |
 | `ROLE_ID` | Rôle Membre (encore lu depuis l'environnement, voir `docs/settings-config.md`) |
-| `ADMISSION_CATEGORY_ID`, `VOICE_CREATE_CATEGORY_ID` | Catégories Discord d'admission et de création de salons vocaux |
+| `VOICE_CREATE_CATEGORY_ID` | Catégorie Discord de création de salons vocaux (l'admission utilise `bot.recrutement.category_admission`) |
 | `MEETING_STT_PYTHON`, `MEETING_STT_DEVICE`, `MEETING_STT_COMPUTE_TYPE`, `MEETING_FFMPEG_PATH`, `MEETING_TMP_DIR` | Transcription des réunions |
 | `NODE_ENV`, `LOG_MIKRO` | Mode de production et journalisation de l'ORM |
 

@@ -5,7 +5,7 @@ import { RecrutementDemande } from '../entities/recrutement/RecrutementDemande.j
 import { JSONTypeComponent as T, type JSONComponent } from '../utils/Type.js';
 
 export const RecruitmentActions = {
-    Ticket: 'recrutement_ticket', Submit: 'recrutement_submit', Validate: 'recrutement_validate_rsi',
+    Ticket: 'recrutement_ticket', Apply: 'button_enga', Submit: 'recrutement_submit', Validate: 'recrutement_validate_rsi',
     Interview: 'recrutement_validate_interview', Refuse: 'recrutement_refuse', ConfirmRefuse: 'recrutement_confirm_refuse',
 } as const;
 export const recruitmentLabels = {
@@ -19,7 +19,10 @@ export default class RecrutementView extends BaseComponentView {
     }
     protected getData() { return this.context; }
     static public(bot: BotManager) {
-        return new RecrutementView(bot, {}, [{ type: T.Button, customId: RecruitmentActions.Ticket, label: 'Accéder à mon ticket', style: 'Primary' }]);
+        return new RecrutementView(bot, {}, [
+            { type: T.Button, customId: RecruitmentActions.Apply, label: 'Je postule', style: 'Success' },
+            { type: T.Button, customId: RecruitmentActions.Ticket, label: 'Accéder à mon ticket', style: 'Primary' },
+        ]);
     }
     static ticket(bot: BotManager, d: RecrutementDemande) {
         return new RecrutementView(bot, { demandeId: d.id, guildId: d.guildId }, [
