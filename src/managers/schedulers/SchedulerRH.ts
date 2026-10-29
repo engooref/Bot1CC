@@ -53,6 +53,12 @@ export class SchedulerRH {
                     const needsSync = await this.bot.db.getEm().transactional(async em => {
                         const current = await em.findOneOrFail(RecrutementDemande,
                             { id: demande.id, guildId: this.bot.guild.id }, { lockMode: LockMode.PESSIMISTIC_WRITE });
+                        if (await this.alreadyMember(current)) {
+                            current.pendingStatus = 'integrated';
+                            current.needsSync = true;
+                            current.decisions.push({ from: current.status, to: 'integrated', actorId: this.bot.user!.id,
+                                at: new Date().toISOString(), reason: 'Rôle Membre déjà attribué : demande clôturée sans expiration.' });
+                        }
                         if (recruitmentExpired(current, Date.now())) {
                             await this.refreshApplicantActivity(current);
                         }
@@ -74,6 +80,18 @@ export class SchedulerRH {
         } finally {
             this.checking = false;
         }
+    }
+
+    private async alreadyMember(demande: RecrutementDemande): Promise<boolean> {
+        const roleId = this.bot.roleMember?.id;
+        if (!roleId || !(demande.status === 'waiting_rsi' || demande.status === 'review') || (demande.pendingStatus && demande.pendingStatus !== 'review')) {
+            return false;
+        }
+        const member = await this.bot.guild.members.fetch({ user: demande.applicantId, force: true }).catch((err: { code?: number }) => {
+            if (err.code === 10007) return null;
+            throw err;
+        });
+        return !!member?.roles.cache.has(roleId);
     }
 
     private async refreshApplicantActivity(demande: RecrutementDemande) {

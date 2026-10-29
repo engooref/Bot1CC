@@ -11,6 +11,7 @@ export const RecruitmentActions = {
 export const recruitmentLabels = {
     waiting_rsi: 'En attente du dépôt RSI', review: 'Dépôt déclaré — vérification RH en attente',
     postulant: 'Postulant — entretien à réaliser', candidate: 'Candidat', refused: 'Candidature refusée', expired: 'Demande expirée',
+    integrated: 'Déjà intégré comme membre',
 };
 export default class RecrutementView extends BaseComponentView {
     constructor(bot: BotManager, private context: Record<string, unknown>, definitions: JSONComponent[]) {

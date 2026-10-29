@@ -46,7 +46,7 @@ Appliquer la migration `Migration20260917190000` avant de démarrer cette versio
 
 `SchedulerRH`, enregistré dans `SchedulerManager`, vérifie les dossiers au démarrage puis toutes les cinq minutes. Un passage en cours empêche le chevauchement du suivant.
 
-Après sept jours sans activité admissible et avant validation RSI par les RH, le rôle Postulant est retiré et l’accès individuel au ticket est refusé. Le salon et l’historique restent disponibles aux RH. L’expiration peut donc intervenir jusqu’à cinq minutes après l’échéance. Avant d’expirer, le scheduler consulte l’historique pour tenir compte des messages du candidat ou du staff envoyés pendant un arrêt du bot.
+Après sept jours sans activité admissible et avant validation RSI par les RH, le rôle Postulant est retiré et l’accès individuel au ticket est refusé. Le salon et l’historique restent disponibles aux RH. L’expiration peut donc intervenir jusqu’à cinq minutes après l’échéance. Si le demandeur a déjà le rôle Membre (acceptation faite sur le site) alors que sa demande est en `waiting_rsi` ou `review`, le scheduler la passe au statut `integrated` au lieu de l’expirer : aucun message, aucun retrait de rôle, et la demande n’est pas rouverte. Avant d’expirer, le scheduler consulte l’historique pour tenir compte des messages du candidat ou du staff envoyés pendant un arrêt du bot.
 
 Le scheduler retire aussi `[A]` sept jours après l’arrivée, indépendamment du ticket, sans retirer `[P]` ou `[C-1CC]`. La création de la demande remplace immédiatement `[A]` par `[P]` s’il est encore présent.
 
