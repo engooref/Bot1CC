@@ -80,7 +80,7 @@ export class ParrainageManager {
     }
     private async preference(userId: string, em = this.bot.db.getEm()) {
         // Ne jamais réinitialiser les préférences lors de deux premières utilisations simultanées.
-        await em.getConnection().execute('insert ignore into recrutement_parrain_preference (guild_id, user_id, capacity, paused, history) values (?, ?, ?, 0, ?)', [this.bot.guild.id, userId, Math.min(2, await this.maxCapacity()), '[]']);
+        await em.getConnection().execute('insert ignore into recruitment_mentor_preference (guild_id, user_id, capacity, paused, history) values (?, ?, ?, 0, ?)', [this.bot.guild.id, userId, Math.min(2, await this.maxCapacity()), '[]']);
         return em.findOneOrFail(Preference, { guildId: this.bot.guild.id, userId });
     }
     private active(demandeId: number, em = this.bot.db.getEm()) {

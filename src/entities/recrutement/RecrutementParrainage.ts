@@ -14,7 +14,8 @@ export interface ParrainageDetails {
     announced?: boolean;
 }
 /** Historique des accompagnements, indépendant du profil membre et de l’XP. */
-@Entity({ tableName: 'recrutement_parrainage' })
+// Schéma géré par Site1CC, ne pas migrer ici.
+@Entity({ tableName: 'recruitment_mentorship' })
 export class RecrutementParrainage {
     @PrimaryKey() id!: number;
     @ManyToOne(() => RecrutementDemande, { deleteRule: 'restrict' }) demande!: Rel<RecrutementDemande>;

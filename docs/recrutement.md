@@ -42,7 +42,7 @@ Le rôle Postulant reste attribué dès l’onboarding, mais ses salons sont mas
 
 La validation RSI, qui ouvre l’étape entretien vocal, restaure les droits individuels antérieurs. Un refus ou une expiration retire les rôles selon le parcours puis nettoie les blocages temporaires. Les autres permissions individuelles sont préservées.
 
-Appliquer la migration `Migration20260917190000` avant de démarrer cette version du bot : elle ajoute la colonne JSON nullable `postulant_channel_access` à `recrutement_demande` pour sauvegarder les états de visibilité. La migration n’est pas appliquée automatiquement au démarrage. Les dossiers existants sont traités au prochain passage du scheduler.
+La colonne JSON nullable `postulant_channel_access` de `recruitment_application` sauvegarde les états de visibilité. Le schéma des tables du recrutement est géré par Site1CC (migration du site, Site1CC #79) : le bot ne les migre plus. Les dossiers existants sont traités au prochain passage du scheduler.
 
 ## Expiration et reprise
 
@@ -89,4 +89,4 @@ Sur un serveur de test, vérifier l’attribution `[A]`, la réponse d’onboard
 
 ## Parrainage après l’entretien
 
-La validation de l’entretien ouvre désormais un panneau d’attribution immédiate ou différée. La fiche RH permet de gérer le parrainage et les volontaires ; `/parrain` ouvre leur espace personnel. Voir [Parrainage Discord](parrainage.md) pour la migration `Migration20260928120000`, les paramètres et les règles de suivi. L’XP et la décision d’officialisation restent indépendantes.
+La validation de l’entretien ouvre désormais un panneau d’attribution immédiate ou différée. La fiche RH permet de gérer le parrainage et les volontaires ; `/parrain` ouvre leur espace personnel. Voir [Parrainage Discord](parrainage.md) pour les paramètres et les règles de suivi. L’XP et la décision d’officialisation restent indépendantes.
