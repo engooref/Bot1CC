@@ -204,6 +204,10 @@ export class ParrainageManager {
         });
         await this.sync(demandeId);
     }
+    /** Clôture le suivi de parrainage d'un dossier (rejet depuis le site, par exemple), sans passer par le panneau RH. */
+    async closeForRequest(demandeId: number, actorId: string, reason: string) {
+        await this.finish(demandeId, actorId, reason, true);
+    }
     private async finish(demandeId: number, actorId: string, reason: string, close: boolean, expectedId?: number) {
         await this.bot.db.getEm().transactional(async em => {
             const d = await this.request(demandeId, em, true), a = await this.active(d.id, em);

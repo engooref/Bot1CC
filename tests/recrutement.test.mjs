@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import { ChannelType, Collection, PermissionsBitField, PermissionFlagsBits as P } from 'discord.js';
 process.env.URL_SITE = 'https://example.invalid';
 process.env.BOT_TOKEN = 'test-only';
-const { RecrutementManager, recruitmentNickname } = await import('../dist/src/managers/RecrutementManager.js');
+const { RecrutementManager, recruitmentNickname, siteDecisionTarget } = await import('../dist/src/managers/RecrutementManager.js');
 const { SchedulerRH, recruitmentExpired } = await import('../dist/src/managers/schedulers/SchedulerRH.js');
 const { RecrutementDemande: Demande } = await import('../dist/src/entities/recrutement/RecrutementDemande.js');
 const { RHMember } = await import('../dist/src/entities/rh/RHMember.js');
@@ -802,4 +802,60 @@ test('l’annonce publique contient « Je postule » et « Accéder à mon ticke
     const view = View.public(f.bot);
     const customIds = view.rows.flatMap(row => row.components.map(c => c.data.custom_id));
     assert.deepEqual(customIds, [A.Apply, A.Ticket]);
+});
+
+test('décision du site : statut cible selon la décision et l\'étape', () => {
+    for (const status of ['waiting_rsi', 'review', 'postulant']) {
+        assert.equal(siteDecisionTarget('accepted', status), 'integrated', status);
+        assert.equal(siteDecisionTarget('rejected', status), 'refused', status);
+    }
+    assert.equal(siteDecisionTarget('accepted', 'candidate'), null);
+    assert.equal(siteDecisionTarget('rejected', 'candidate'), 'refused');
+    for (const status of ['refused', 'expired', 'integrated']) {
+        assert.equal(siteDecisionTarget('accepted', status), null, status);
+        assert.equal(siteDecisionTarget('rejected', status), null, status);
+    }
+});
+
+test('décision du site : rejet d\'une demande en cours = refus avec rôles retirés et acteur enregistré', async () => {
+    const f = fixture({ status: 'review' });
+    const result = await f.manager.applySiteDecision(ids.applicant, 'rejected', ids.rh);
+    assert.deepEqual(result, { found: true, changed: true, status: 'refused' });
+    assert.equal(f.d.status, 'refused'); assert.equal(f.d.pendingStatus, undefined);
+    assert.equal(f.d.decisions.at(-1).actorId, ids.rh);
+    assert.equal(f.applicant.roles.cache.has(ids.postulant), false);
+});
+
+test('décision du site : acceptation d\'une demande Postulant = intégrée, sans retrait de rôle', async () => {
+    const f = fixture({ status: 'postulant' });
+    f.operations.length = 0;
+    const result = await f.manager.applySiteDecision(ids.applicant, 'accepted', ids.rh);
+    assert.deepEqual(result, { found: true, changed: true, status: 'integrated' });
+    assert.equal(f.d.status, 'integrated');
+    assert.equal(f.operations.some(x => x[0] === 'remove-role'), false);
+});
+
+test('décision du site : acceptation d\'un Candidat laissée au suivi de parrainage, rejet = parrainage clôturé puis refus', async () => {
+    const accepted = fixture({ status: 'candidate' });
+    assert.deepEqual(await accepted.manager.applySiteDecision(ids.applicant, 'accepted', ids.rh), { found: true, changed: false, status: 'candidate' });
+    const rejected = fixture({ status: 'candidate' });
+    const closed = [];
+    rejected.bot.parrainageManager = { async closeForRequest(...args) { closed.push(args); } };
+    const result = await rejected.manager.applySiteDecision(ids.applicant, 'rejected', ids.rh);
+    assert.equal(result.status, 'refused');
+    assert.deepEqual(closed, [[1, ids.rh, 'Candidature rejetée depuis le site']]);
+});
+
+test('décision du site : demande inconnue ou déjà terminée sans erreur ni changement', async () => {
+    const unknown = fixture({ noRequest: true });
+    assert.deepEqual(await unknown.manager.applySiteDecision(ids.applicant, 'rejected', ids.rh), { found: false, changed: false });
+    const done = fixture({ status: 'expired' });
+    assert.deepEqual(await done.manager.applySiteDecision(ids.applicant, 'rejected', ids.rh), { found: true, changed: false, status: 'expired' });
+});
+
+test('décision du site : refusée tant qu\'une opération est en reprise', async () => {
+    const f = fixture({ status: 'review' });
+    f.d.pendingStatus = 'review';
+    await assert.rejects(() => f.manager.applySiteDecision(ids.applicant, 'rejected', ids.rh), /déjà en cours/);
+    assert.equal(f.d.status, 'review');
 });
