@@ -490,15 +490,17 @@ test('expiration de A indépendante du recrutement et préservation des préfixe
 
 test('un passage RH en cours empêche le chevauchement du suivant', async () => {
     const f = fixture();
-    let release;
+    let release, reachedList;
     const blocked = new Promise(resolve => { release = resolve; });
+    const listReached = new Promise(resolve => { reachedList = resolve; });
     const listMembers = f.bot.guild.members.list;
     let calls = 0;
     f.bot.guild.members.list = async () => {
-        calls++; await blocked;
+        calls++; reachedList(); await blocked;
         return listMembers();
     };
     const first = f.scheduler.checkRH();
+    await Promise.race([listReached, new Promise((_, reject) => setTimeout(() => reject(new Error('le premier passage n’atteint pas la liste des membres')), 2000).unref())]);
     await f.scheduler.checkRH();
     assert.equal(calls, 1);
     release();
