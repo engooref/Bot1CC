@@ -13,8 +13,8 @@ export async function applyArrivalPrefix(member: GuildMember): Promise<void> {
     await member.setNickname(recruitmentNickname(member.displayName, '[A]'), 'Arrivée sur Discord');
 }
 
-export async function expireArrivalPrefix(member: GuildMember, now = Date.now()): Promise<void> {
-    if (member.user.bot || member.joinedTimestamp == null || now - member.joinedTimestamp < ARRIVAL_DURATION_MS) return;
+export async function expireArrivalPrefix(member: GuildMember, now = Date.now(), durationMs = ARRIVAL_DURATION_MS): Promise<void> {
+    if (member.user.bot || member.joinedTimestamp == null || now - member.joinedTimestamp < durationMs) return;
     if (/^\[A\]\s*/.test(member.displayName))
         await member.setNickname(member.displayName.replace(/^\[A\]\s*/, ''), 'Fin du préfixe Arrivant');
 }

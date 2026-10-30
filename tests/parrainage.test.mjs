@@ -253,6 +253,28 @@ test('attente : initialise les dossiers existants et relance une seule fois apr�
     assert.equal(f.operations.filter(([kind]) => kind === 'rh').length, 1);
 });
 
+test('attente : le rappel suit la durée configurée en jours et l’affiche', async () => {
+    const f = fixture(); config['bot.recrutement.mentor_wait_days'] = 3; await f.manager.check();
+    const rh = () => f.operations.filter(([kind]) => kind === 'rh');
+    f.requests[0].mentorship.waitingSince = new Date(Date.now() - 49 * 3600000).toISOString();
+    await f.manager.check(); assert.equal(rh().length, 0);
+    f.requests[0].mentorship.waitingSince = new Date(Date.now() - 73 * 3600000).toISOString();
+    await f.manager.check(); assert.equal(rh().length, 1);
+    assert.match(rh()[0][1].content, /depuis plus de 3 jours\./);
+});
+
+test('attente : une durée invalide retombe sur 2 jours (48 h)', async () => {
+    for (const bad of [0, -1, 'abc', null]) {
+        const f = fixture(); config['bot.recrutement.mentor_wait_days'] = bad; await f.manager.check();
+        f.requests[0].mentorship.waitingSince = new Date(Date.now() - 47 * 3600000).toISOString();
+        await f.manager.check(); assert.equal(f.operations.filter(([kind]) => kind === 'rh').length, 0, String(bad));
+        f.requests[0].mentorship.waitingSince = new Date(Date.now() - 49 * 3600000).toISOString();
+        await f.manager.check();
+        const rh = f.operations.filter(([kind]) => kind === 'rh');
+        assert.equal(rh.length, 1, String(bad)); assert.match(rh[0][1].content, /depuis plus de 2 jours\./);
+    }
+});
+
 test('retour prévu : un rappel, jamais de reprise automatique', async () => {
     const f = fixture(); const p = f.pref(ids.parrain, { paused: true, returnAt: new Date(Date.now() - 10000) });
     await f.manager.check(); await f.manager.check();

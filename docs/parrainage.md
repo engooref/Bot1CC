@@ -28,7 +28,7 @@ Un seul accompagnement actif est autorisé par candidat. Un remplacement conserv
 
 Le scheduler vérifie les situations au démarrage et toutes les cinq minutes :
 
-- Une attente de 48 heures produit une seule relance RH par période d’attente. Les nouveaux dossiers démarrent leur délai au passage Candidat ; les anciens au premier contrôle.
+- Une attente de `bot.recrutement.mentor_wait_days` jours (2 par défaut, soit 48 heures) produit une seule relance RH par période d’attente. Les nouveaux dossiers démarrent leur délai au passage Candidat ; les anciens au premier contrôle.
 - À 14 jours révolus depuis `candidateAt` (validation de l’entretien), une notification mentionne les RH avec un lien vers le dossier. Elle ne valide pas le candidat, ne clôture pas le parrainage et ne vérifie aucune XP. Le rappel est unique par dossier, y compris après redémarrage ou réattribution. Les dossiers existants déjà au-delà de 14 jours sont signalés au prochain contrôle ; une date absente n’est pas inventée.
 - La perte du rôle Parrain ou le départ du parrain termine l’attribution et alerte les RH pour son remplacement.
 - Le rôle Membre officiel ou le départ du candidat clôture le suivi et libère la place.
