@@ -420,7 +420,7 @@ export class RecrutementManager {
                 if (!['waiting_rsi', 'review'].includes(demande.status) && Object.keys(demande.postulantChannelAccess ?? {}).length) {
                     await this.syncPostulantAccess(demande, entityManager);
                 }
-                if (['waiting_rsi', 'review', 'postulant'].includes(demande.status)) {
+                if (demande.status === 'postulant') {
                     const member = await this.bot.guild.members.fetch({ user: demande.applicantId, force: true });
                     const nickname = recruitmentNickname(member.displayName, '[P]');
                     if (member.displayName !== nickname) {
