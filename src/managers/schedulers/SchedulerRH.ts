@@ -5,11 +5,36 @@ import { RecrutementDemande } from '../../entities/recrutement/RecrutementDemand
 import { getManagerLogger } from '../../logger.js';
 import { expireArrivalPrefix } from '../../utils/ArrivalPrefix.js';
 import { SafeMethod } from '../../exception/Safe.js';
+import { notifyRH, staffLink } from '../../utils/NotifyRH.js';
+import { SettingKeys } from '../../constants/SettingKeys.js';
+import { settingsService } from '../../services/SettingsService.js';
 
 const INACTIVITY_TIMEOUT = 7 * 24 * 60 * 60 * 1000;
 
 export function recruitmentExpired(demande: RecrutementDemande, now: number): boolean {
     return (demande.status === 'waiting_rsi' || demande.status === 'review') && (!demande.pendingStatus || demande.pendingStatus === 'review') && now - demande.lastActivityAt.getTime() >= INACTIVITY_TIMEOUT;
+}
+
+const DAY = 24 * 60 * 60 * 1000;
+const DEFAULT_INTERVIEW_REMINDER_DAYS = 3;
+
+/** Date d'entrée dans l'étape Postulant, déduite de l'historique ; undefined si inconnue. */
+export function postulantSince(demande: Pick<RecrutementDemande, 'decisions'>): number | undefined {
+    for (let i = demande.decisions.length - 1; i >= 0; i--) {
+        if (demande.decisions[i].to === 'postulant') {
+            const at = Date.parse(demande.decisions[i].at);
+            return Number.isNaN(at) ? undefined : at;
+        }
+    }
+    return undefined;
+}
+
+export function interviewReminderDue(demande: Pick<RecrutementDemande, 'status' | 'pendingStatus' | 'decisions' | 'mentorship'>, now: number, days: number): boolean {
+    if (demande.status !== 'postulant' || demande.pendingStatus) return false;
+    const since = postulantSince(demande);
+    if (since === undefined) return false;
+    const last = demande.mentorship?.interviewRemindedAt ? Date.parse(demande.mentorship.interviewRemindedAt) : NaN;
+    return now >= (Number.isNaN(last) ? since : last) + days * DAY;
 }
 
 export class SchedulerRH {
@@ -47,6 +72,7 @@ export class SchedulerRH {
             }
             try { await this.bot.parrainageManager?.check(); }
             catch (err) { await this.logger.error({ err }, 'Suivi des parrainages impossible'); }
+            const reminderDays = await this.interviewReminderDays();
             const requests = await this.bot.db.getEm().find(RecrutementDemande, { guildId: this.bot.guild.id });
             for (const demande of requests) {
                 try {
@@ -69,6 +95,7 @@ export class SchedulerRH {
                                 at: new Date().toISOString(), reason: '7 jours sans activité avant validation RSI par les RH.' });
                         }
                         await this.removeExpiredArrivalPrefix(current);
+                        await this.remindInterview(current, reminderDays);
                         await em.flush();
                         return current.needsSync || !!current.pendingStatus;
                     });
@@ -80,6 +107,22 @@ export class SchedulerRH {
         } finally {
             this.checking = false;
         }
+    }
+
+    private async interviewReminderDays(): Promise<number> {
+        const days = await settingsService.getInt(SettingKeys.bot.recrutement.interviewReminderDays, DEFAULT_INTERVIEW_REMINDER_DAYS);
+        if (days > 0) return days;
+        await this.logger.error({ days }, `Délai de rappel d'entretien invalide : ${DEFAULT_INTERVIEW_REMINDER_DAYS} jours utilisés`);
+        return DEFAULT_INTERVIEW_REMINDER_DAYS;
+    }
+
+    /** Appelé dans la transaction verrouillée : l'envoi et l'enregistrement du rappel vont ensemble. */
+    private async remindInterview(demande: RecrutementDemande, days: number) {
+        const now = Date.now();
+        if (!interviewReminderDue(demande, now, days)) return;
+        const waited = Math.floor((now - postulantSince(demande)!) / DAY);
+        await notifyRH(this.bot.guild, demande, `Le dossier de <@${demande.applicantId}> attend un entretien depuis ${waited} jours.\n${staffLink(demande)}`);
+        demande.mentorship = { ...demande.mentorship, interviewRemindedAt: new Date(now).toISOString() };
     }
 
     private async alreadyMember(demande: RecrutementDemande): Promise<boolean> {
