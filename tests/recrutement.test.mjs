@@ -775,15 +775,29 @@ test('bouton « Je postule » : membre officiel refusé sans demande ni rôle', 
     assert.match(i.response, /déjà partie/);
 });
 
-test('bouton « Je postule » : demande refusée ou expirée sans nouveau ticket', async () => {
-    for (const status of ['refused', 'expired']) {
+test('bouton « Je postule » : demande refusée, expirée, intégrée ou Candidat sans nouveau ticket ni rôle Postulant', async () => {
+    for (const status of ['refused', 'expired', 'integrated', 'candidate']) {
         const f = fixture({ status });
         f.applicant.roles.cache.delete(ids.postulant);
+        f.operations.length = 0;
         const i = f.interaction(A.Apply, ids.applicant);
         await f.manager.applyFromButton(i);
-        assert.equal(f.requests.length, 1);
-        assert.equal(f.operations.some(x => x[0] === 'create-channel'), false);
-        assert.match(i.response, /terminée/);
+        assert.equal(f.requests.length, 1, status);
+        assert.equal(f.operations.some(x => x[0] === 'create-channel'), false, status);
+        assert.equal(f.operations.some(x => x[0] === 'add-role'), false, status);
+        assert.equal(f.applicant.roles.cache.has(ids.postulant), false, status);
+        if (status === 'candidate') assert.match(i.response, /Votre ticket de candidature/);
+        else assert.match(i.response, /terminée/, status);
+    }
+});
+
+test('bouton « Je postule » : demande encore en phase Postulant, le rôle manquant est redonné', async () => {
+    for (const status of ['waiting_rsi', 'review', 'postulant']) {
+        const f = fixture({ status });
+        f.applicant.roles.cache.delete(ids.postulant); f.applicant.pending = false;
+        await f.manager.applyFromButton(f.interaction(A.Apply, ids.applicant));
+        assert.equal(f.applicant.roles.cache.has(ids.postulant), true, status);
+        assert.equal(f.requests.length, 1, status);
     }
 });
 

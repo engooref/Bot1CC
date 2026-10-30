@@ -212,7 +212,7 @@ export class DatabaseManager {
       const accountAge = member.joinedTimestamp - member.user.createdTimestamp;
       const daysBeforeJoin = Math.floor(accountAge / (24 * 60 * 60 * 1000)); // Convertir en jours
 
-      // Si le compte a moins de 3 mois avant de rejoindre le serveur
+      // Si le compte avait moins de `minDays` jours à l'arrivée (paramètre du site, 90 par défaut)
       if (isYoungAccount(member.user.createdTimestamp, member.joinedTimestamp, minDays)) {
         suspiciousAccounts.push({
           username: member.displayName,
@@ -237,7 +237,7 @@ export class DatabaseManager {
     const attachment = new AttachmentBuilder(Buffer.from(fullCsv), { name: 'rapport_nouveaux_comptes.csv' });
 
     await interaction.followUp({
-      content: `✅ Rapport généré : ${suspiciousAccounts.length} compte(s) créé(s) moins de 3 mois avant la date d'adhésion au serveur.`,
+      content: `✅ Rapport généré : ${suspiciousAccounts.length} compte(s) créé(s) moins de ${minDays} jours avant la date d'adhésion au serveur.`,
       files: [attachment],
       ephemeral: true
     });

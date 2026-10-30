@@ -162,16 +162,21 @@ export class RecrutementManager {
                 if (!existing && await entityManager.findOne(RHMember, { user: { discordId: member.id }, status: 'Candidatures' })) {
                     response = 'Vous avez déjà une demande en cours. Contactez les RH si besoin.';
                 } else {
-                    const roleId = await settingsService.getString(SettingKeys.bot.roles.postulant);
-                    if (!roleId) {
-                        throw new Error(`Le paramètre ${SettingKeys.bot.roles.postulant} est vide.`);
+                    // Le rôle Postulant n'est (re)donné que sans demande ou pour une demande encore en phase Postulant.
+                    // Refusé, expiré, intégré ou Candidat : aucun changement de rôle (retour aux RH).
+                    const canApply = !existing || ['waiting_rsi', 'review', 'postulant'].includes(existing.status);
+                    if (canApply) {
+                        const roleId = await settingsService.getString(SettingKeys.bot.roles.postulant);
+                        if (!roleId) {
+                            throw new Error(`Le paramètre ${SettingKeys.bot.roles.postulant} est vide.`);
+                        }
+                        if (!member.roles.cache.has(roleId)) {
+                            await member.roles.add(roleId, 'Candidature via le bouton « Je postule »');
+                        }
+                        await this.ensureRequest(member);
                     }
-                    if (!member.roles.cache.has(roleId)) {
-                        await member.roles.add(roleId, 'Candidature via le bouton « Je postule »');
-                    }
-                    await this.ensureRequest(member);
                     const demande = await this.bot.db.getEm().findOne(RecrutementDemande, { guildId: member.guild.id, applicantId: member.id });
-                    if (demande?.channelId && !['refused', 'expired'].includes(demande.status)) {
+                    if (demande?.channelId && !['refused', 'expired', 'integrated'].includes(demande.status)) {
                         response = `Votre ticket de candidature : <#${demande.channelId}>`;
                     } else if (demande) {
                         response = 'Votre demande est terminée. Contactez les RH.';
