@@ -1,0 +1,39 @@
+{
+  "key": "bot_recrutement_delais",
+  "label": "Délais du recrutement",
+  "description": "Durées, en jours, du préfixe Arrivant, du ticket et de l’attente de parrain.",
+  "order": 126,
+  "groups": {
+    "bot_recrutement_delais_general": {
+      "label": "Délais",
+      "description": "Nombres entiers de jours, au moins 1. Une valeur invalide retombe sur le défaut.",
+      "order": 10
+    }
+  },
+  "settings": [
+    {
+      "key": "bot.recrutement.arrival_days",
+      "type": "string",
+      "group": "bot_recrutement_delais_general",
+      "label": "Durée du préfixe [A] (jours)",
+      "default": "7",
+      "description": "Jours après l’arrivée avant retrait du préfixe [A]. Valeur par défaut : 7."
+    },
+    {
+      "key": "bot.recrutement.ticket_inactivity_days",
+      "type": "string",
+      "group": "bot_recrutement_delais_general",
+      "label": "Inactivité du ticket avant expiration (jours)",
+      "default": "7",
+      "description": "Jours sans activité avant fermeture du ticket, avant validation RSI. Valeur par défaut : 7."
+    },
+    {
+      "key": "bot.recrutement.mentor_wait_days",
+      "type": "string",
+      "group": "bot_recrutement_delais_general",
+      "label": "Attente d’un parrain avant rappel aux RH (jours)",
+      "default": "2",
+      "description": "Jours d’attente d’un parrain avant rappel aux RH. Valeur par défaut : 2 (48 heures)."
+    }
+  ]
+}

@@ -8,6 +8,7 @@ import { ParrainPreference as Preference } from '../entities/recrutement/Parrain
 import { SettingKeys } from '../constants/SettingKeys.js';
 import { settingsService } from '../services/SettingsService.js';
 import { getManagerLogger } from '../logger.js';
+import { daysToMs, formatDays, mentorWaitDays } from '../utils/RecruitmentDelays.js';
 import View, { parrainButton as button, parrainSelect as select } from '../view/ParrainageView.js';
 import type { ComponentInteraction } from '../view/BaseView.js';
 import { JSONTypeComponent as T, type JSONComponent, type ModalField } from '../utils/Type.js';
@@ -494,8 +495,9 @@ export class ParrainageManager {
                         }
                         if (await this.active(d.id, em)) return;
                         d.mentorship.waitingSince ??= new Date().toISOString();
-                        if (!d.mentorship.remindedAt && Date.now() - Date.parse(d.mentorship.waitingSince) >= 48 * 3600000) {
-                            await this.notifyRH(d, `Le candidat <@${d.applicantId}> attend un parrain depuis plus de 48 heures.`);
+                        const waitDays = await mentorWaitDays();
+                        if (!d.mentorship.remindedAt && Date.now() - Date.parse(d.mentorship.waitingSince) >= daysToMs(waitDays)) {
+                            await this.notifyRH(d, `Le candidat <@${d.applicantId}> attend un parrain depuis plus de ${formatDays(waitDays)}.`);
                             d.mentorship.remindedAt = new Date().toISOString();
                         }
                         await em.flush();

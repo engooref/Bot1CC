@@ -6,15 +6,16 @@
     "type": "module",
     "scripts": {
         "build": "node scripts/clean-build.mjs && tsc",
-        "test:diplomatie": "npm run build && node --test tests/diplomatie.test.mjs",
         "start": "npm run build && node dist/src/index.js",
         "mikro-orm": "mikro-orm-esm",
         "migrate:create": "npm run build && npm run mikro-orm -- migration:create",
         "migrate:up": "npm run build && npm run mikro-orm -- migration:up",
         "migrate:down": "npm run build && npm run mikro-orm -- migration:down",
+        "test:diplomatie": "npm run build && node --test tests/diplomatie.test.mjs",
         "test:recrutement": "npm run build && node --test tests/recrutement.test.mjs tests/guild-members.test.mjs tests/young-account.test.mjs",
         "test:parrainage": "npm run build && node --test tests/parrainage.test.mjs tests/guild-members.test.mjs",
-        "test:github": "npm run build && node --test tests/github-labels.test.mjs tests/github-ticket.test.mjs"
+        "test:github": "npm run build && node --test tests/github-labels.test.mjs tests/github-ticket.test.mjs",
+        "test:all": "npm run build && node --test \"tests/*.test.mjs\""
     },
     "dependencies": {
         "@discord-player/extractor": "^7.1.0",

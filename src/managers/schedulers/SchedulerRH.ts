@@ -5,14 +5,15 @@ import { RecrutementDemande } from '../../entities/recrutement/RecrutementDemand
 import { getManagerLogger } from '../../logger.js';
 import { expireArrivalPrefix } from '../../utils/ArrivalPrefix.js';
 import { SafeMethod } from '../../exception/Safe.js';
+import { DEFAULT_TICKET_INACTIVITY_DAYS, arrivalDelayMs, daysToMs, formatDays, ticketInactivityDays } from '../../utils/RecruitmentDelays.js';
 import { notifyRH, staffLink } from '../../utils/NotifyRH.js';
 import { SettingKeys } from '../../constants/SettingKeys.js';
 import { settingsService } from '../../services/SettingsService.js';
 
-const INACTIVITY_TIMEOUT = 7 * 24 * 60 * 60 * 1000;
+const DEFAULT_INACTIVITY_TIMEOUT = daysToMs(DEFAULT_TICKET_INACTIVITY_DAYS);
 
-export function recruitmentExpired(demande: RecrutementDemande, now: number): boolean {
-    return (demande.status === 'waiting_rsi' || demande.status === 'review') && (!demande.pendingStatus || demande.pendingStatus === 'review') && now - demande.lastActivityAt.getTime() >= INACTIVITY_TIMEOUT;
+export function recruitmentExpired(demande: RecrutementDemande, now: number, timeoutMs = DEFAULT_INACTIVITY_TIMEOUT): boolean {
+    return (demande.status === 'waiting_rsi' || demande.status === 'review') && (!demande.pendingStatus || demande.pendingStatus === 'review') && now - demande.lastActivityAt.getTime() >= timeoutMs;
 }
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -51,11 +52,14 @@ export class SchedulerRH {
         if (this.checking) return;
         this.checking = true;
         try {
+            const arrivalMs = await arrivalDelayMs();
+            const inactivityDays = await ticketInactivityDays();
+            const inactivityMs = daysToMs(inactivityDays);
             try {
                 const members = await listGuildMembers(this.bot.guild);
                 for (const member of members.values()) {
                     try {
-                        await expireArrivalPrefix(member);
+                        await expireArrivalPrefix(member, Date.now(), arrivalMs);
                         await this.bot.recrutementManager.onMember(member);
                     } catch (err) {
                         await this.logger.error({ err, applicantId: member.id }, 'Suivi du membre RH impossible');
@@ -85,14 +89,14 @@ export class SchedulerRH {
                             current.decisions.push({ from: current.status, to: 'integrated', actorId: this.bot.user!.id,
                                 at: new Date().toISOString(), reason: 'Rôle Membre déjà attribué : demande clôturée sans expiration.' });
                         }
-                        if (recruitmentExpired(current, Date.now())) {
+                        if (recruitmentExpired(current, Date.now(), inactivityMs)) {
                             await this.refreshApplicantActivity(current);
                         }
-                        if (recruitmentExpired(current, Date.now())) {
+                        if (recruitmentExpired(current, Date.now(), inactivityMs)) {
                             current.pendingStatus = 'expired';
                             current.needsSync = true;
                             current.decisions.push({ from: current.status, to: 'expired', actorId: this.bot.user!.id,
-                                at: new Date().toISOString(), reason: '7 jours sans activité avant validation RSI par les RH.' });
+                                at: new Date().toISOString(), reason: `${formatDays(inactivityDays)} sans activité avant validation RSI par les RH.` });
                         }
                         await this.removeExpiredArrivalPrefix(current);
                         await this.remindInterview(current, reminderDays);
@@ -172,8 +176,8 @@ export class SchedulerRH {
         }
     }
 
-    private async removeExpiredArrivalPrefix(demande: RecrutementDemande) {
-        if (demande.arrivalTaggedAt && !demande.arrivalRemovedAt && Date.now() - demande.arrivalTaggedAt.getTime() >= INACTIVITY_TIMEOUT) {
+    private async removeExpiredArrivalPrefix(demande: RecrutementDemande, arrivalMs: number) {
+        if (demande.arrivalTaggedAt && !demande.arrivalRemovedAt && Date.now() - demande.arrivalTaggedAt.getTime() >= arrivalMs) {
             const member = await this.bot.guild.members.fetch(demande.applicantId).catch((error: { code?: number }) => {
                 if (error.code === 10007) {
                     return null;

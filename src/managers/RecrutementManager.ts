@@ -1,5 +1,6 @@
 import { SettingKeys } from '../constants/SettingKeys.js';
 import { recruitmentNickname } from '../utils/ArrivalPrefix.js';
+import { formatDays, ticketInactivityDays } from '../utils/RecruitmentDelays.js';
 export { recruitmentNickname } from '../utils/ArrivalPrefix.js';
 import { LockMode, type EntityManager } from '@mikro-orm/core';
 import {
@@ -458,13 +459,14 @@ export class RecrutementManager {
     private async syncTicketUpdate(demande: RecrutementDemande, entityManager: EntityManager) {
         const decision = demande.decisions[demande.decisions.length - 1];
         if (!decision || decision.to !== demande.status || decision.ticketMessageId) return;
+        const delai = formatDays(await ticketInactivityDays());
 
         const updates: Partial<Record<RecrutementStatus, string>> = {
             review: 'Votre dépôt de candidature RSI a bien été déclaré. Merci de patienter : les RH vont vérifier votre candidature et poursuivre le processus avec vous.',
-            postulant: 'Les RH ont validé votre candidature RSI. La prochaine étape est un entretien vocal avec les RH : convenez d’un rendez-vous dans ce ticket. Les salons autorisés au rôle Postulant sont désormais accessibles. Le délai d’expiration de 7 jours ne s’applique plus.',
+            postulant: `Les RH ont validé votre candidature RSI. La prochaine étape est un entretien vocal avec les RH : convenez d’un rendez-vous dans ce ticket. Les salons autorisés au rôle Postulant sont désormais accessibles. Le délai d’expiration de ${delai} ne s’applique plus.`,
             candidate: 'Les RH ont validé votre entretien. Vous êtes désormais Candidat : votre préfixe est [C-1CC] et votre rôle Candidat vous a été attribué.',
             refused: 'Les RH ont refusé votre candidature. Votre parcours de recrutement est terminé.',
-            expired: 'Votre ticket a été fermé après 7 jours sans activité. Votre rôle Postulant a été retiré.',
+            expired: `Votre ticket a été fermé après ${delai} sans activité. Votre rôle Postulant a été retiré.`,
         };
         const update = updates[demande.status];
         if (!update) return;
@@ -482,20 +484,21 @@ export class RecrutementManager {
         const ticket = await this.getTextChannel(demande.channelId!);
         const decision = demande.decisions[demande.decisions.length - 1];
         const details = [`**${recruitmentLabels[demande.status]}**`];
+        const delai = formatDays(await ticketInactivityDays());
         if (demande.status === 'review') {
             details.push('Votre dépôt de candidature RSI a bien été déclaré. Merci de patienter pendant que les RH vérifient votre candidature et poursuivent le processus.');
         }
         if (demande.status === 'waiting_rsi') {
-            details.push('Vous avez 7 jours pour déposer votre candidature sur [la page RSI du 1CC](https://robertsspaceindustries.com/orgs/1CC). Les RH vérifieront ensuite votre inscription.',
-                'Chaque message de votre part ou d’un membre du staff dans ce ticket relance le délai de 7 jours. Sans activité, le ticket sera fermé et votre rôle Postulant sera retiré.');
+            details.push(`Vous avez ${delai} pour déposer votre candidature sur [la page RSI du 1CC](https://robertsspaceindustries.com/orgs/1CC). Les RH vérifieront ensuite votre inscription.`,
+                `Chaque message de votre part ou d’un membre du staff dans ce ticket relance le délai de ${delai}. Sans activité, le ticket sera fermé et votre rôle Postulant sera retiré.`);
         } else if (demande.status === 'review') {
-            details.push('Chaque message de votre part ou d’un membre du staff relance le délai de 7 jours. Ce délai reste applicable jusqu’à la validation RSI par les RH.');
+            details.push(`Chaque message de votre part ou d’un membre du staff relance le délai de ${delai}. Ce délai reste applicable jusqu’à la validation RSI par les RH.`);
         } else if (demande.status === 'postulant') {
-            details.push('Votre candidature RSI est validée. Prenez rendez-vous pour un entretien vocal avec les RH. Les salons autorisés au rôle Postulant sont désormais accessibles. Le délai d’expiration de 7 jours ne s’applique plus.');
+            details.push(`Votre candidature RSI est validée. Prenez rendez-vous pour un entretien vocal avec les RH. Les salons autorisés au rôle Postulant sont désormais accessibles. Le délai d’expiration de ${delai} ne s’applique plus.`);
         } else if (demande.status === 'refused') {
             details.push('Les RH ont refusé votre candidature. Votre parcours de recrutement est terminé.');
         } else if (demande.status === 'expired') {
-            details.push('Le ticket a été fermé après 7 jours sans activité. Votre rôle Postulant a été retiré. Contactez les RH pour une nouvelle demande.');
+            details.push(`Le ticket a été fermé après ${delai} sans activité. Votre rôle Postulant a été retiré. Contactez les RH pour une nouvelle demande.`);
         }
         if (decision) {
             details.push(`Dernière décision : ${recruitmentLabels[decision.to]} — <@${decision.actorId}>.`, decision.reason || '');

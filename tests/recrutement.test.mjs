@@ -438,6 +438,47 @@ test('ouvrir un ticket tardivement ne réattribue pas A et ne redémarre pas sa 
     assert.equal(f.requests[0].arrivalTaggedAt.getTime(), f.applicant.joinedTimestamp);
 });
 
+test('délais en jours : formatage, validation et lecture des paramètres', async () => {
+    const { formatDays, validDays, daysToMs, readDelayDays, ticketInactivityDays, arrivalDelayMs } = await import('../dist/src/utils/RecruitmentDelays.js');
+    assert.equal(formatDays(1), '1 jour'); assert.equal(formatDays(7), '7 jours');
+    assert.equal(daysToMs(3), 3 * 86400_000);
+    for (const bad of [0, -2, 1.5, NaN, '3', null, undefined]) assert.equal(validDays(bad, 7), 7);
+    assert.equal(validDays(3, 7), 3);
+    fixture();
+    assert.equal(await ticketInactivityDays(), 7); assert.equal(await arrivalDelayMs(), 7 * 86400_000);
+    settings['bot.recrutement.ticket_inactivity_days'] = 3; settings['bot.recrutement.arrival_days'] = '2';
+    assert.equal(await ticketInactivityDays(), 3); assert.equal(await arrivalDelayMs(), 2 * 86400_000);
+    for (const bad of [0, -4, 'abc', null]) {
+        settings['bot.recrutement.ticket_inactivity_days'] = bad;
+        assert.equal(await ticketInactivityDays(), 7, String(bad));
+    }
+    settingsService.getInt = async () => { throw new Error('indisponible'); };
+    assert.equal(await readDelayDays('bot.recrutement.mentor_wait_days', 2), 2);
+    delete settingsService.getInt;
+});
+
+test('expiration du ticket : 7 jours par défaut, durée personnalisée prise en compte', () => {
+    const f = fixture(); const t = f.d.lastActivityAt.getTime();
+    assert.equal(recruitmentExpired(f.d, t + 7 * 86400_000 - 1), false);
+    assert.equal(recruitmentExpired(f.d, t + 7 * 86400_000), true);
+    assert.equal(recruitmentExpired(f.d, t + 3 * 86400_000 - 1, 3 * 86400_000), false);
+    assert.equal(recruitmentExpired(f.d, t + 3 * 86400_000, 3 * 86400_000), true);
+    assert.equal(recruitmentExpired(f.d, t + 3 * 86400_000), false);
+});
+
+test('préfixe A : 7 jours par défaut, durée personnalisée indépendante de l’inactivité du ticket', async () => {
+    const f = fixture({ noRequest: true }); settings['bot.recrutement.enabled'] = false;
+    f.applicant.roles.cache.delete(ids.postulant);
+    f.applicant.displayName = '[A] Alice'; f.applicant.joinedTimestamp = Date.now() - 4 * 86400_000;
+    await expireArrivalPrefix(f.applicant); assert.equal(f.applicant.displayName, '[A] Alice');
+    await expireArrivalPrefix(f.applicant, Date.now(), 3 * 86400_000); assert.equal(f.applicant.displayName, 'Alice');
+    f.applicant.displayName = '[A] Alice';
+    settings['bot.recrutement.arrival_days'] = 3; settings['bot.recrutement.ticket_inactivity_days'] = 30;
+    await f.scheduler.checkRH(); assert.equal(f.applicant.displayName, 'Alice');
+    f.applicant.displayName = '[A] Alice'; settings['bot.recrutement.arrival_days'] = 'abc';
+    await f.scheduler.checkRH(); assert.equal(f.applicant.displayName, '[A] Alice');
+});
+
 test('expiration de A indépendante du recrutement et préservation des préfixes suivants', async () => {
     const f = fixture({ noRequest: true }); settings['bot.recrutement.enabled'] = false;
     f.applicant.roles.cache.delete(ids.postulant);
@@ -449,21 +490,45 @@ test('expiration de A indépendante du recrutement et préservation des préfixe
 
 test('un passage RH en cours empêche le chevauchement du suivant', async () => {
     const f = fixture();
-    let release;
+    let release, reachedList;
     const blocked = new Promise(resolve => { release = resolve; });
+    const listReached = new Promise(resolve => { reachedList = resolve; });
     const listMembers = f.bot.guild.members.list;
     let calls = 0;
     f.bot.guild.members.list = async () => {
-        calls++; await blocked;
+        calls++; reachedList(); await blocked;
         return listMembers();
     };
     const first = f.scheduler.checkRH();
+    await Promise.race([listReached, new Promise((_, reject) => setTimeout(() => reject(new Error('le premier passage n’atteint pas la liste des membres')), 2000).unref())]);
     await f.scheduler.checkRH();
     assert.equal(calls, 1);
     release();
     await first;
     await f.scheduler.checkRH();
     assert.equal(calls, 2);
+});
+
+test('suivi par dossier : [A] retiré à la durée configurée, sans lien avec l’inactivité du ticket', async () => {
+    const f = fixture({ status: 'postulant' }); f.applicant.displayName = '[A] Alice';
+    f.d.arrivalTaggedAt = new Date(Date.now() - 4 * 86400_000);
+    await f.scheduler.checkRH(); assert.equal(f.d.arrivalRemovedAt, undefined);
+    settings['bot.recrutement.arrival_days'] = 3;
+    await f.scheduler.checkRH(); assert.ok(f.d.arrivalRemovedAt);
+});
+
+test('textes du ticket : durée configurée, « 1 jour » au singulier', async () => {
+    for (const [days, text] of [[undefined, '7 jours'], [3, '3 jours'], [1, '1 jour']]) {
+        const f = fixture({ noRequest: true });
+        if (days !== undefined) settings['bot.recrutement.ticket_inactivity_days'] = days;
+        await f.manager.onMember(f.applicant);
+        const d = f.requests[0];
+        const welcome = await f.channels.get(d.channelId).messages.fetch(d.welcomeMessageId);
+        const description = welcome.embeds[0].data.description;
+        assert.match(description, new RegExp(`Vous avez ${text} pour déposer`));
+        assert.match(description, new RegExp(`relance le délai de ${text}\\.`));
+        if (days !== undefined) assert.doesNotMatch(description, /7 jours/);
+    }
 });
 
 test('parcours direct : ouverture, notification RH, validation RSI puis entretien sur la même fiche', async () => {
