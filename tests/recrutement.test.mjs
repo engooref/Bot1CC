@@ -434,7 +434,7 @@ test('ouvrir un ticket tardivement ne réattribue pas A et ne redémarre pas sa 
     const f = fixture({ noRequest: true });
     f.applicant.joinedTimestamp = Date.now() - 10 * 86400_000; f.applicant.displayName = 'Alice';
     await f.manager.onMember(f.applicant);
-    assert.equal(f.applicant.displayName, '[P] Alice');
+    assert.equal(f.applicant.displayName, 'Alice');
     assert.equal(f.requests[0].arrivalTaggedAt.getTime(), f.applicant.joinedTimestamp);
 });
 
@@ -472,7 +472,7 @@ test('parcours direct : ouverture, notification RH, validation RSI puis entretie
     assert.equal(f.applicant.displayName, '[A] Alice');
     await f.manager.onMember(f.applicant);
     const d = f.requests[0];
-    assert.equal(f.applicant.displayName, '[P] Alice');
+    assert.equal(f.applicant.displayName, '[A] Alice');
     const ticket = f.channels.get(d.channelId);
     const welcome = await ticket.messages.fetch(d.welcomeMessageId);
     assert.match(welcome.embeds[0].data.description, /7 jours/);
@@ -588,8 +588,17 @@ test('fiche RH Candidat : accès au parrainage et lien sans contexte invalide', 
     assert.ok(f.contexts.every(c => typeof c.customId === 'string'));
 });
 
+test('reprise : le pseudo n\'est pas modifié en waiting_rsi et review', async () => {
+    for (const status of ['waiting_rsi', 'review']) {
+        const f = fixture({ status }); f.applicant.displayName = '[A] Alice';
+        await f.manager.resume(1);
+        assert.equal(f.applicant.displayName, '[A] Alice');
+        assert.equal(f.operations.filter(x => x[0] === 'nickname').length, 0);
+    }
+});
+
 test('reprise de demande : P appliqué une seule fois et Candidat préservé', async () => {
-    const f = fixture();
+    const f = fixture({ status: 'postulant' });
     await f.manager.resume(1);
     assert.equal(f.applicant.displayName, '[P] Alice');
     const count = f.operations.filter(x => x[0] === 'nickname').length;
