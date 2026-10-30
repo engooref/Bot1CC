@@ -27,7 +27,7 @@ export class RecrutementDemande {
     @Property({ type: Date, nullable: true }) candidateAt?: Date;
     @Property({ type: Date, nullable: true }) arrivalTaggedAt?: Date;
     @Property({ type: Date, nullable: true }) arrivalRemovedAt?: Date;
-    @Property({ type: 'json', nullable: true }) mentorship?: { closedAt?: string; closedReason?: string; closedBy?: string; waitingSince?: string; remindedAt?: string; needsSync?: boolean; ticketNotice?: string; rhNotice?: string; periodRemindedAt?: string };
+    @Property({ type: 'json', nullable: true }) mentorship?: { closedAt?: string; closedReason?: string; closedBy?: string; waitingSince?: string; remindedAt?: string; needsSync?: boolean; ticketNotice?: string; rhNotice?: string; periodRemindedAt?: string; interviewRemindedAt?: string };
     @Property({ type: 'boolean' }) needsSync = true;
     @Property({ type: 'text', nullable: true }) lastError?: string;
 }

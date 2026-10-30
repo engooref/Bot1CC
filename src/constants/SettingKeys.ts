@@ -45,6 +45,7 @@ export const SettingKeys = {
             parrainCapacityMax: 'bot.recrutement.parrain_capacity_max',
             youngAccountMinDays: 'bot.recrutement.young_account_min_days',
             youngAccountExemptIds: 'bot.recrutement.young_account_exempt_ids',
+            interviewReminderDays: 'bot.recrutement.interview_reminder_days',
         },
         roles: {
             postulant: 'bot.roles.postulant',

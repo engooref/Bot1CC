@@ -11,6 +11,7 @@ import { getManagerLogger } from '../logger.js';
 import View, { parrainButton as button, parrainSelect as select } from '../view/ParrainageView.js';
 import type { ComponentInteraction } from '../view/BaseView.js';
 import { JSONTypeComponent as T, type JSONComponent, type ModalField } from '../utils/Type.js';
+import { notifyRH, staffLink } from '../utils/NotifyRH.js';
 import type { CommandHandler } from '../utils/SlashCommandManager.js';
 
 type Context = Record<string, unknown>;
@@ -382,11 +383,7 @@ export class ParrainageManager {
         const page = Math.max(0, Math.min(Number(data.historyPage || 0) + delta, Math.max(0, pages.length - 1)));
         await this.display(i, pages[page] || 'Aucun accompagnement enregistré.', [button('history_prev', 'Précédent', page === 0), button('history_next', 'Suivant', page + 1 >= pages.length)], { ...data, historyPage: page });
     }
-    private staffLink(d: Demande): string {
-        return d.notificationChannelId && d.notificationMessageId
-            ? `[Ouvrir la fiche RH](https://discord.com/channels/${d.guildId}/${d.notificationChannelId}/${d.notificationMessageId})`
-            : d.channelId ? `[Ouvrir le ticket](https://discord.com/channels/${d.guildId}/${d.channelId})` : '';
-    }
+    private staffLink(d: Demande): string { return staffLink(d); }
     private periodLabel(d: Demande): string {
         if (!d.candidateAt) return 'Date de passage Candidat non renseignée.';
         const end = Math.floor((d.candidateAt.getTime() + CANDIDATE_PERIOD) / 1000);
@@ -394,14 +391,7 @@ export class ParrainageManager {
             ? `Période de 14 jours terminée depuis <t:${end}:D>. Décision RH en attente.`
             : `Fin des 14 jours : <t:${end}:D> (<t:${end}:R>).`;
     }
-    private async notifyRH(d: Demande, content: string) {
-        const channelId = d.notificationChannelId || await settingsService.getString(SettingKeys.bot.channels.rh);
-        const channel = await this.bot.guild.channels.fetch(channelId);
-        if (!channel || (!channel.isThread() && channel.type !== ChannelType.GuildText)) throw new Error('Salon RH inaccessible');
-        if (channel.isThread() && channel.archived) await channel.setArchived(false);
-        const roleId = await settingsService.getString(SettingKeys.site.roles.rh);
-        await channel.send({ content: `<@&${roleId}> ${content}`, allowedMentions: { roles: [roleId], users: [], parse: [] } });
-    }
+    private notifyRH(d: Demande, content: string) { return notifyRH(this.bot.guild, d, content); }
     async sync(demandeId: number) {
         // Sauvegarde durable AVANT toute permission Discord, même en cas d’arrêt brutal.
         await this.bot.db.getEm().transactional(async em => {

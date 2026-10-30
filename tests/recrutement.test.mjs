@@ -882,3 +882,46 @@ test('décision du site : refusée tant qu\'une opération est en reprise', asyn
     await assert.rejects(() => f.manager.applySiteDecision(ids.applicant, 'rejected', ids.rh), /déjà en cours/);
     assert.equal(f.d.status, 'review');
 });
+
+const { interviewReminderDue } = await import('../dist/src/managers/schedulers/SchedulerRH.js');
+const DAY = 24 * 3600 * 1000;
+const since = Date.parse('2026-10-01T10:00:00.000Z');
+const postulant = (extra = {}) => ({ status: 'postulant', decisions: [{ from: 'review', to: 'postulant', actorId: ids.rh, at: new Date(since).toISOString() }], ...extra });
+
+test("rappel d'entretien : échéance, nouveau rappel après le dernier, statut et opération en attente", () => {
+    assert.equal(interviewReminderDue(postulant(), since + 3 * DAY - 1, 3), false);
+    assert.equal(interviewReminderDue(postulant(), since + 3 * DAY, 3), true);
+    const reminded = postulant({ mentorship: { interviewRemindedAt: new Date(since + 3 * DAY).toISOString() } });
+    assert.equal(interviewReminderDue(reminded, since + 5 * DAY, 3), false);
+    assert.equal(interviewReminderDue(reminded, since + 6 * DAY, 3), true);
+    assert.equal(interviewReminderDue(postulant({ status: 'candidate' }), since + 30 * DAY, 3), false);
+    assert.equal(interviewReminderDue(postulant({ pendingStatus: 'candidate' }), since + 30 * DAY, 3), false);
+    assert.equal(interviewReminderDue(postulant({ decisions: [] }), since + 30 * DAY, 3), false);
+});
+
+test("rappel d'entretien : un passage du scheduler envoie un seul rappel, mentionne le rôle RH seul, puis attend", async () => {
+    const f = fixture({ status: 'postulant' });
+    settingsService.getInt = async (key, fallback) => settings[key] ?? fallback;
+    f.d.decisions = [{ from: 'review', to: 'postulant', actorId: ids.rh, at: new Date(Date.now() - 4 * DAY).toISOString() }];
+    const reminders = () => f.operations.filter(o => o[0] === 'send' && o[2].content?.includes('attend un entretien'));
+    await f.scheduler.checkRH();
+    assert.equal(reminders().length, 1);
+    const options = reminders()[0][2];
+    assert.deepEqual(options.allowedMentions, { roles: [ids.staff], users: [], parse: [] });
+    assert.match(options.content, new RegExp(`^<@&${ids.staff}> Le dossier de <@${ids.applicant}> attend un entretien depuis 4 jours`));
+    assert.ok(f.d.mentorship.interviewRemindedAt);
+    await f.scheduler.checkRH();
+    assert.equal(reminders().length, 1);
+});
+
+test("rappel d'entretien : un échec d'envoi n'enregistre rien et le rappel est retenté", async () => {
+    const f = fixture({ status: 'postulant' });
+    settingsService.getInt = async (key, fallback) => settings[key] ?? fallback;
+    f.d.decisions = [{ from: 'review', to: 'postulant', actorId: ids.rh, at: new Date(Date.now() - 4 * DAY).toISOString() }];
+    f.failMessage(true);
+    await f.scheduler.checkRH();
+    assert.equal(f.d.mentorship?.interviewRemindedAt, undefined);
+    f.failMessage(false);
+    await f.scheduler.checkRH();
+    assert.ok(f.d.mentorship.interviewRemindedAt);
+});
