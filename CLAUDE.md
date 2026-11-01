@@ -35,6 +35,7 @@ Les tests sont des fichiers `tests/*.test.mjs` exécutés avec `node --test` sur
 - Toute nouvelle clé de paramètre va dans `SettingKeys.ts`. Les valeurs viennent du site, pas du `.env`. N'ajoute pas de nouvelle variable d'environnement sans accord.
 - Journalisation avec `getManagerLogger('NomDuManager')`, pas de `console.log` dans le code livré.
 - Les migrations sont **ignorées par git** sauf deux exceptions listées dans `.gitignore`. Ne crée pas de migration, ne modifie pas les existantes et ne touche pas au schéma de base sans accord explicite dans le ticket.
+- Les tables du recrutement (`recruitment_application`, `recruitment_mentorship`, `recruitment_mentor_preference`) sont gérées par Site1CC : le bot ne les migre plus et elles ne figurent pas dans `ALLOWED_TABLES`.
 - Change le minimum nécessaire. Pas de refonte, pas de renommage massif, pas de mise à jour de dépendances dans une PR de correction.
 
 ## Zones interdites

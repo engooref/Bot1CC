@@ -4,7 +4,7 @@ Le rôle **Parrain** identifie les volontaires chargés de faire découvrir l’
 
 ## Installation
 
-1. Appliquer `Migration20260928120000` avant de démarrer le bot mis à jour (`npm run migrate:up`, après vérification des migrations en attente). Elle ajoute les préférences, les données de suivi et les métadonnées des accompagnements. Les tables de recrutement existantes restent nécessaires ; la table de parrainage est créée si elle n’existe pas encore.
+1. Le schéma des tables du recrutement (`recruitment_application`, `recruitment_mentorship`, `recruitment_mentor_preference`) est géré par Site1CC : le bot ne les migre plus. Appliquer la migration du site (Site1CC #79) avant de démarrer ce bot ; voir la documentation du site.
 2. Ajouter les deux paramètres ci-dessous dans le registre du site, puis renseigner le rôle. Un exemple au format du registre existant est fourni dans `docs/app_settings/bot_parrainage.json`.
 3. Attribuer manuellement le rôle Parrain aux volontaires retenus. La capacité initiale est de deux candidats, limitée par le plafond RH. Les préférences sont initialisées à la première consultation ou sélection.
 4. Redémarrer le bot : la commande `/parrain` est enregistrée par le chargeur JSON existant.
@@ -50,7 +50,7 @@ Les RH peuvent modifier les préférences d’un parrain depuis leur répertoire
 
 ## Persistance et limites
 
-Les préférences sont stockées dans `recrutement_parrain_preference`, l’historique dans `recrutement_parrainage` et l’état global dans le JSON `mentorship` du dossier. Aucun profil membre ou accès à l’XP n’est nécessaire.
+Les préférences sont stockées dans `recruitment_mentor_preference`, l’historique dans `recruitment_mentorship` et l’état global dans le JSON `mentorship` du dossier. Aucun profil membre ou accès à l’XP n’est nécessaire.
 
 Les décisions et la sauvegarde des permissions précèdent les modifications Discord. Une réattribution restaure uniquement les permissions de ticket modifiées par le module, sans supprimer les droits provenant d’un rôle ou d’autres permissions. Les changements non synchronisés sont repris après redémarrage ; une nouvelle attribution attend la fin d’une synchronisation en cours.
 

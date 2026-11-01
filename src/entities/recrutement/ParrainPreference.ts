@@ -1,6 +1,7 @@
 import { Entity, PrimaryKey, Property, Unique } from '@mikro-orm/core';
 
-@Entity({ tableName: 'recrutement_parrain_preference' })
+// Schéma géré par Site1CC, ne pas migrer ici.
+@Entity({ tableName: 'recruitment_mentor_preference' })
 @Unique({ properties: ['guildId', 'userId'] })
 export class ParrainPreference {
     @PrimaryKey() id!: number;

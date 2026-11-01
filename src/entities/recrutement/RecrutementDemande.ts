@@ -5,7 +5,8 @@ export interface PostulantChannelAccess { viewChannel: boolean | null; hadOverwr
 export interface RecruitmentDecision { from: RecrutementStatus; to: RecrutementStatus; actorId: string; at: string; reason?: string; ticketMessageId?: string; }
 
 /** Independent of User: an applicant is not yet an official member. */
-@Entity({ tableName: 'recrutement_demande' })
+// Schéma géré par Site1CC, ne pas migrer ici.
+@Entity({ tableName: 'recruitment_application' })
 @Unique({ properties: ['guildId', 'applicantId'] })
 export class RecrutementDemande {
     @PrimaryKey() id!: number;
