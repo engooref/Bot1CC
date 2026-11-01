@@ -23,6 +23,7 @@ import path from 'path';
 import { BotManager } from '../BotManager.js';
 import { CreationOperationView, OperationState, OperationView } from '../view/OperationView.js';
 import { JSONConfigManager } from '../utils/JSONConfigManager.js';
+import { findOperationVisual } from '../utils/OperationVisual.js';
 import { getManagerLogger } from '../logger.js';
 import { StarSystem } from '../entities/operations/StarSystem.js';
 import { CelestialBody, CelestialBodyType } from '../entities/operations/CelestialBody.js';
@@ -404,25 +405,20 @@ export class OperationModule {
     const baseDir = path.join('Data', FOLDER_NAME);
 
     if (state.type === this.bot.operationManager.roleConfig.get('🎮') && state.games) {
-      const mgPng = path.join(baseDir, 'MG', `${state.games}.png`);
-      if (fs.existsSync(mgPng)) {
-        return mgPng;
+      const mgVisual = findOperationVisual(path.join(baseDir, 'MG'), state.games);
+      if (mgVisual) {
+        return mgVisual;
       }
     }
 
     if (state.typeSpe && state.typeSpe !== 'GE') {
-      const mpPng = path.join(baseDir, 'MP', `${state.typeSpe}.png`);
-      if (fs.existsSync(mpPng)) {
-        return mpPng;
+      const mpVisual = findOperationVisual(path.join(baseDir, 'MP'), state.typeSpe);
+      if (mpVisual) {
+        return mpVisual;
       }
     }
 
-    const rootPng = path.join(baseDir, `${roleName}.png`);
-    if (fs.existsSync(rootPng)) {
-      return rootPng;
-    }
-
-    return null;
+    return findOperationVisual(baseDir, roleName);
   }
 
   private async createOperationForAuthor(
