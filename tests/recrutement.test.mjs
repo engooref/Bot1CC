@@ -12,7 +12,7 @@ const { InteractionContext } = await import('../dist/src/entities/ui/ViewContext
 const { RecruitmentActions: A, default: View } = await import('../dist/src/view/RecrutementView.js');
 const { settingsService } = await import('../dist/src/services/SettingsService.js');
 const id = n => String(100000000000000000n + BigInt(n));
-const ids = { guild: id(1), applicant: id(2), rh: id(3), outsider: id(4), bot: id(5), trigger: id(6), postulant: id(7), candidate: id(8), staff: id(9), official: id(10), ticket: id(11), category: id(12), channelRh: id(13), engagement: id(14), unrelated: id(15) };
+const ids = { guild: id(1), applicant: id(2), rh: id(3), outsider: id(4), bot: id(5), trigger: id(6), postulant: id(7), candidate: id(8), staff: id(9), official: id(10), ticket: id(11), category: id(12), channelRh: id(13), engagement: id(14), unrelated: id(15), parrain: id(16), mentoraCategory: id(17), mentor: id(18) };
 let settings;
 settingsService.getBool = async (key, fallback) => settings[key] ?? fallback;
 settingsService.getString = async key => settings[key] ?? '';
@@ -24,13 +24,14 @@ function fixture({ status = 'waiting_rsi', legacy = false, noRequest = false } =
         'bot.roles.postulant': ids.postulant, 'bot.recrutement.role_candidat': ids.candidate,
         'site.roles.rh': ids.staff, 'bot.recrutement.category_admission': ids.category,
         'bot.channels.rh': ids.channelRh, 'bot.channels.enga': ids.engagement,
+        'bot.recrutement.category_mentora': ids.mentoraCategory, 'bot.recrutement.role_parrain': ids.parrain,
     };
     const operations = [], contexts = [], requests = [];
     const d = Object.assign(new Demande(), { id: 1, guildId: ids.guild, applicantId: ids.applicant, channelId: ids.ticket, status, arrivalTaggedAt: new Date(), needsSync: false });
     if (!noRequest) requests.push(d);
     let serial = 100;
     const roles = new Collection();
-    for (const roleId of [ids.guild, ids.trigger, ids.postulant, ids.candidate, ids.staff, ids.official, ids.unrelated]) roles.set(roleId, { id: roleId, editable: true, managed: false });
+    for (const roleId of [ids.guild, ids.trigger, ids.postulant, ids.candidate, ids.staff, ids.official, ids.unrelated, ids.parrain]) roles.set(roleId, { id: roleId, editable: true, managed: false });
     let failNickname = false, failChannelCreation = false, failMessage = false;
     const members = new Collection();
     const member = (memberId, memberRoles = []) => {
@@ -89,7 +90,7 @@ function fixture({ status = 'waiting_rsi', legacy = false, noRequest = false } =
         };
         channels.set(channelId, channel); return channel;
     };
-    makeChannel(ids.ticket); makeChannel(ids.category, ChannelType.GuildCategory); makeChannel(ids.channelRh); makeChannel(ids.engagement);
+    makeChannel(ids.ticket); makeChannel(ids.category, ChannelType.GuildCategory); makeChannel(ids.mentoraCategory, ChannelType.GuildCategory); makeChannel(ids.channelRh); makeChannel(ids.engagement);
     const match = (entity, query) => typeof query === 'number' ? entity.id === query : Object.entries(query).every(([k, v]) => entity[k] === v);
     let transaction = Promise.resolve();
     const em = {
@@ -165,11 +166,12 @@ test('declaration RSI puis deux validations RH : rôles, dates, profil et bouton
     await f.run(A.Validate, ids.rh);
     assert.equal(f.d.status, 'postulant'); assert.equal(f.applicant.displayName, '[P] Alice');
     await f.run(A.Interview, ids.rh);
-    assert.equal(f.d.status, 'candidate'); assert.ok(f.d.candidateAt);
-    assert.equal(f.applicant.displayName, '[C-1CC] Alice');
+    assert.equal(f.d.status, 'awaiting_mentor'); assert.equal(f.d.candidateAt, undefined);
+    assert.equal(f.applicant.displayName, '[P] Alice');
     assert.equal(f.applicant.roles.cache.has(ids.unrelated), true);
     assert.equal(f.applicant.roles.cache.has(ids.official), false);
-    assert.equal(f.applicant.roles.cache.has(ids.postulant), false);
+    assert.equal(f.applicant.roles.cache.has(ids.postulant), true);
+    assert.equal(f.applicant.roles.cache.has(ids.candidate), false);
     assert.ok(f.contexts.some(c => c.customId === A.Submit && c.data.demandeId === 1));
     assert.ok(f.contexts.some(c => c.customId === A.Interview));
 });
@@ -293,8 +295,11 @@ test('configuration rechargée : autorisation vérifiée à chaque action', asyn
 });
 
 test('rôle Candidat identique au rôle Postulant refusé sans droits nouveaux', async () => {
-    const f = fixture({ status: 'postulant' }); settings['bot.recrutement.role_candidat'] = ids.postulant;
-    await f.run(A.Interview, ids.rh); assert.equal(f.d.status, 'postulant');
+    const f = fixture({ status: 'awaiting_mentor' }); settings['bot.recrutement.role_candidat'] = ids.postulant;
+    f.d.pendingStatus = 'candidate';
+    f.d.decisions.push({ from: 'awaiting_mentor', to: 'candidate', actorId: ids.rh, at: new Date().toISOString() });
+    await assert.rejects(() => f.manager.resume(1), /distinct/);
+    assert.equal(f.d.status, 'awaiting_mentor');
     assert.equal(f.operations.some(x => x[0] === 'add-role'), false);
 });
 
@@ -406,6 +411,10 @@ test('transition fiable même si le cache Discord ne reflète pas encore le rôl
         else remoteRoles.delete(value);
     };
     await f.run(A.Interview, ids.rh);
+    assert.equal(f.d.status, 'awaiting_mentor');
+    f.d.pendingStatus = 'candidate';
+    f.d.decisions.push({ from: 'awaiting_mentor', to: 'candidate', actorId: ids.rh, at: new Date().toISOString(), reason: 'Mentor affecté' });
+    await f.manager.resume(1);
     assert.equal(f.d.status, 'candidate');
     assert.ok(remoteRoles.has(ids.candidate));
     assert.ok(remoteRoles.has(ids.unrelated));
@@ -559,10 +568,10 @@ test('parcours direct : ouverture, notification RH, validation RSI puis entretie
     assert.equal(d.notificationMessageId, notificationId);
     assert.ok(f.contexts.some(c => c.customId === A.Interview));
     await f.run(A.Interview, ids.rh);
-    assert.equal(d.status, 'candidate');
-    assert.equal(f.applicant.displayName, '[C-1CC] Alice');
-    assert.equal(f.applicant.roles.cache.has(ids.postulant), false);
-    assert.equal(f.applicant.roles.cache.has(ids.candidate), true);
+    assert.equal(d.status, 'awaiting_mentor');
+    assert.equal(f.applicant.displayName, '[P] Alice');
+    assert.equal(f.applicant.roles.cache.has(ids.postulant), true);
+    assert.equal(f.applicant.roles.cache.has(ids.candidate), false);
     assert.equal(d.notificationMessageId, notificationId);
 });
 
@@ -680,7 +689,7 @@ test('dépôt RSI et validations RH : annonces visibles dans le ticket sans doub
     for (const [action, actor, expected] of [
         [A.Submit, ids.applicant, /Merci de patienter/],
         [A.Validate, ids.rh, /entretien vocal/],
-        [A.Interview, ids.rh, /désormais Candidat/],
+        [A.Interview, ids.rh, /ticket Mentora est ouvert/],
     ]) {
         await f.run(action, actor);
         const decision = f.d.decisions.at(-1);
@@ -807,8 +816,8 @@ test('entretien accepté ouvre le panneau de parrainage sans attendre une attrib
         },
     };
     const response = await f.run(A.Interview, ids.rh);
-    assert.equal(f.d.status, 'candidate');
-    assert.equal(f.d.mentorship.waitingSince, f.d.candidateAt.toISOString());
+    assert.equal(f.d.status, 'awaiting_mentor');
+    assert.ok(f.d.mentorship.waitingSince);
     assert.deepEqual(panels, [{ demandeId: f.d.id, accepted: true }]);
     assert.match(response.response, /plus tard/);
     assert.equal(f.applicant.roles.cache.has(ids.official), false);
@@ -989,6 +998,123 @@ test("rappel d'entretien : un échec d'envoi n'enregistre rien et le rappel est 
     f.failMessage(false);
     await f.scheduler.checkRH();
     assert.ok(f.d.mentorship.interviewRemindedAt);
+});
+
+const mentoraCreations = f => f.operations.filter(x => x[0] === 'create-channel' && x[1].topic?.startsWith('mentora:'));
+
+test('Interview : postulant → awaiting_mentor sans rôle ni pseudo, ticket Mentora créé une seule fois avec les bonnes permissions', async () => {
+    const f = fixture({ status: 'postulant' });
+    f.applicant.displayName = '[P] Alice';
+    f.operations.length = 0;
+    await f.run(A.Interview, ids.rh);
+    assert.equal(f.d.status, 'awaiting_mentor');
+    assert.equal(f.operations.some(x => x[0] === 'add-role' || x[0] === 'remove-role' || x[0] === 'nickname'), false);
+    assert.ok(f.d.mentorship.waitingSince);
+    const created = mentoraCreations(f);
+    assert.equal(created.length, 1);
+    const options = created[0][1];
+    assert.equal(options.topic, `mentora:${ids.guild}:${f.d.id}`);
+    assert.equal(options.parent, ids.mentoraCategory);
+    const overwrite = target => options.permissionOverwrites.find(o => o.id === target);
+    assert.deepEqual(overwrite(ids.guild).deny, [P.ViewChannel]);
+    for (const target of [ids.applicant, ids.parrain, ids.staff]) {
+        assert.deepEqual(overwrite(target).allow, [P.ViewChannel, P.SendMessages, P.ReadMessageHistory], target);
+    }
+    assert.ok(overwrite(ids.bot).allow.includes(P.ManageChannels));
+    assert.equal(f.d.mentorship.mentoraChannelId, f.channels.get(f.d.mentorship.mentoraChannelId).id);
+    assert.ok(f.d.mentorship.mentoraMessageId);
+    const welcome = f.operations.find(x => x[0] === 'send' && x[1] === f.d.mentorship.mentoraChannelId)[2];
+    assert.deepEqual(welcome.allowedMentions, { users: [ids.applicant], parse: [] });
+    assert.doesNotMatch(JSON.stringify(welcome), /Je m.affecte/);
+    f.d.needsSync = true;
+    await f.manager.resume(1);
+    assert.equal(mentoraCreations(f).length, 1);
+});
+
+test('ticket Mentora : un salon portant déjà le marqueur est réutilisé, jamais dupliqué', async () => {
+    const f = fixture({ status: 'awaiting_mentor' });
+    const existing = f.makeChannel(id(500)); existing.topic = `mentora:${ids.guild}:${f.d.id}`;
+    await f.manager.resume(1);
+    assert.equal(mentoraCreations(f).length, 0);
+    assert.equal(f.d.mentorship.mentoraChannelId, existing.id);
+});
+
+test('ticket Mentora : catégorie absente, le statut est conservé, RH alertés puis reprise par le scheduler', async () => {
+    const f = fixture({ status: 'postulant' });
+    delete settings['bot.recrutement.category_mentora'];
+    f.d.notificationChannelId = ids.channelRh;
+    await f.run(A.Interview, ids.rh);
+    assert.equal(f.d.status, 'awaiting_mentor');
+    assert.equal(f.d.needsSync, true);
+    assert.match(f.d.lastError, /category_mentora/);
+    assert.ok(f.operations.some(x => x[0] === 'send' && x[1] === ids.channelRh && /category_mentora/.test(x[2].content)));
+    assert.equal(mentoraCreations(f).length, 0);
+    settings['bot.recrutement.category_mentora'] = ids.mentoraCategory;
+    f.manager.publishEngagement = async () => {};
+    await f.scheduler.checkRH();
+    assert.equal(mentoraCreations(f).length, 1);
+    assert.equal(f.d.lastError, undefined);
+    assert.ok(f.d.mentorship.mentoraChannelId);
+});
+
+test('ticket Mentora : rôle Parrain non configuré = erreur claire, sans salon créé', async () => {
+    const f = fixture({ status: 'awaiting_mentor' });
+    delete settings['bot.recrutement.role_parrain'];
+    await assert.rejects(() => f.manager.resume(1), /role_parrain/);
+    assert.equal(mentoraCreations(f).length, 0);
+});
+
+test('Refuser reste impossible depuis awaiting_mentor', async () => {
+    const f = fixture({ status: 'awaiting_mentor' });
+    const i = await f.run(A.ConfirmRefuse, ids.rh, true, { actorId: ids.rh, expectedStatus: 'awaiting_mentor' });
+    assert.match(i.response.content ?? i.response, /ne correspond plus/);
+    assert.equal(f.d.status, 'awaiting_mentor');
+});
+
+test('fiche RH awaiting_mentor : « Gérer le parrainage », lien Mentora et bouton « Valider l’entretien »', async () => {
+    const f = fixture({ status: 'awaiting_mentor' });
+    f.d.mentorship = { mentoraChannelId: id(600) };
+    const labels = View.staff(f.bot, f.d).rows.flatMap(r => r.components).map(c => c.data.custom_id);
+    assert.ok(labels.includes('parrain_staff'));
+    assert.ok(labels.includes('recrutement_mentora_link'));
+    assert.equal(labels.includes(A.Interview), false);
+    const postulantLabels = View.staff(f.bot, Object.assign(f.d, { status: 'postulant' })).rows.flatMap(r => r.components);
+    assert.equal(postulantLabels.find(c => c.data.custom_id === A.Interview).data.label, 'Valider l’entretien');
+});
+
+test('décision du site depuis awaiting_mentor : acceptée = intégrée, rejetée = refusée', async () => {
+    assert.equal(siteDecisionTarget('accepted', 'awaiting_mentor'), 'integrated');
+    assert.equal(siteDecisionTarget('rejected', 'awaiting_mentor'), 'refused');
+    const accepted = fixture({ status: 'awaiting_mentor' });
+    assert.deepEqual(await accepted.manager.applySiteDecision(ids.applicant, 'accepted', ids.rh), { found: true, changed: true, status: 'integrated' });
+    const rejected = fixture({ status: 'awaiting_mentor' });
+    assert.deepEqual(await rejected.manager.applySiteDecision(ids.applicant, 'rejected', ids.rh), { found: true, changed: true, status: 'refused' });
+});
+
+test('le scheduler clôt un dossier awaiting_mentor dont le demandeur est déjà Membre', async () => {
+    const f = fixture({ status: 'awaiting_mentor' });
+    f.d.mentorship = { mentoraChannelId: id(600), mentoraMessageId: id(601) };
+    f.applicant.roles.cache.set(ids.official, f.bot.roleMember);
+    f.manager.publishEngagement = async () => {};
+    await f.scheduler.checkRH();
+    assert.equal(f.d.status, 'integrated');
+});
+
+test('affectation : awaiting_mentor → candidate donne le rôle Candidat et [C-1CC], retire Postulant et conserve mentorship', async () => {
+    const f = fixture({ status: 'awaiting_mentor' });
+    f.d.mentorship = { cleInconnue: 'conservee', mentoraChannelId: id(600), mentoraMessageId: id(601), waitingSince: '2026-10-01T00:00:00.000Z' };
+    f.d.pendingStatus = 'candidate';
+    f.d.decisions.push({ from: 'awaiting_mentor', to: 'candidate', actorId: ids.rh, at: new Date().toISOString(), reason: 'Mentor affecté' });
+    await f.manager.resume(1);
+    assert.equal(f.d.status, 'candidate');
+    assert.ok(f.d.candidateAt);
+    assert.equal(f.applicant.displayName, '[C-1CC] Alice');
+    assert.equal(f.applicant.roles.cache.has(ids.candidate), true);
+    assert.equal(f.applicant.roles.cache.has(ids.postulant), false);
+    assert.equal(f.d.mentorship.cleInconnue, 'conservee');
+    assert.equal(f.d.mentorship.mentoraChannelId, id(600));
+    assert.equal(f.d.mentorship.waitingSince, f.d.candidateAt.toISOString());
+    assert.equal(mentoraCreations(f).length, 0);
 });
 
 test('resume() au passage Candidat conserve les clés existantes de mentorship', async () => {

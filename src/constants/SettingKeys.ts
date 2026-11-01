@@ -40,6 +40,7 @@ export const SettingKeys = {
         },
         recrutement: {
             categoryAdmission: 'bot.recrutement.category_admission',
+            categoryMentora: 'bot.recrutement.category_mentora',
             roleCandidat: 'bot.recrutement.role_candidat',
             roleParrain: 'bot.recrutement.role_parrain',
             parrainCapacityMax: 'bot.recrutement.parrain_capacity_max',

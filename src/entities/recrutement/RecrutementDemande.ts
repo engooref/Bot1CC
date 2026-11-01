@@ -6,7 +6,7 @@ export interface RecruitmentMentorship {
     /** Ticket Mentora (statut awaiting_mentor). */
     mentoraChannelId?: string; mentoraMessageId?: string;
 }
-export type RecrutementStatus = 'waiting_rsi' | 'review' | 'postulant' | 'candidate' | 'refused' | 'expired' | 'integrated';
+export type RecrutementStatus = 'waiting_rsi' | 'review' | 'postulant' | 'awaiting_mentor' | 'candidate' | 'refused' | 'expired' | 'integrated';
 export interface PostulantChannelAccess { viewChannel: boolean | null; hadOverwrite: boolean; }
 export interface RecruitmentDecision { from: RecrutementStatus; to: RecrutementStatus; actorId: string; at: string; reason?: string; ticketMessageId?: string; }
 

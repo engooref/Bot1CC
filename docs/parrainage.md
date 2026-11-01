@@ -20,7 +20,7 @@ Le bot doit pouvoir consulter les membres, modifier les permissions individuelle
 
 ## Parcours RH
 
-Après validation de l’entretien, un panneau permet de choisir un parrain ou de différer l’attribution. Fermer ce panneau ne remet pas en cause le passage Candidat. La fiche publique aux RH dispose de **Gérer le parrainage** et **Gérer les parrains**.
+Après validation de l’entretien, le dossier passe à `awaiting_mentor` et un panneau permet de choisir un parrain ou de différer l’attribution. Le passage Candidat (rôle, `[C-1CC]`, début des 14 jours) n’a lieu qu’à l’affectation du parrain par les RH ; « Retirer le parrain » et « Clôturer le suivi » sont désactivés tant que le dossier attend un mentor. Voir [Recrutement](recrutement.md) pour le ticket Mentora. La fiche publique aux RH dispose de **Gérer le parrainage** et **Gérer les parrains**.
 
 Le sélecteur affiche les volontaires disponibles et leur charge, avec pagination par 25. Les bots, le candidat lui-même, les parrains en pause ou complets sont exclus. La disponibilité est revérifiée à la confirmation. Un formulaire recueille un motif facultatif avant l’attribution ou le remplacement.
 

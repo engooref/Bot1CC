@@ -9,6 +9,7 @@ Toutes les clés utilisées par `settingsService` sont centralisées dans `src/c
 | `SettingKeys.bot.roles.postulant` | `bot.roles.postulant` | ID du rôle attribué par la réponse « Je postule » de l’onboarding |
 | `SettingKeys.site.roles.rh` | `site.roles.rh` | ID du rôle RH sous forme de chaîne |
 | `SettingKeys.bot.recrutement.categoryAdmission` | `bot.recrutement.category_admission` | ID de la catégorie des tickets privés |
+| `SettingKeys.bot.recrutement.categoryMentora` | `bot.recrutement.category_mentora` | ID de la catégorie des tickets Mentora (un salon par dossier en attente de mentor) |
 | `SettingKeys.bot.channels.rh` | `bot.channels.rh` | ID du salon privé RH contenant le fil Candidatures |
 | `SettingKeys.bot.recrutement.roleCandidat` | `bot.recrutement.role_candidat` | ID du rôle attribué après validation de l’entretien |
 | `SettingKeys.bot.channels.enga` | `bot.channels.enga` | ID du salon de l’affiche Engagez-vous |
@@ -29,10 +30,13 @@ Le salon RH doit être privé pour `@everyone`. Placer le rôle du bot au-dessus
 2. Le choix « Je postule » dans l’onboarding, ou le bouton « Je postule » de l’annonce du salon d’engagement (`button_enga`), attribue le rôle Postulant (le bouton l’ajoute lui-même et répond en éphémère avec le lien du ticket). L’ajout de ce rôle crée une demande, crée un ticket privé dans la catégorie configurée, accessible au demandeur, aux RH et au bot.
 3. Un message épinglé fournit le lien https://robertsspaceindustries.com/orgs/1CC et explique le délai de sept jours. Chaque message humain du demandeur ou d’un RH/administrateur dans le ticket relance ce délai. Les bots et les autres membres ne le relancent pas.
 4. Dès l’ouverture, une fiche avec mention RH est publiée dans le fil Candidatures du salon RH. Elle comporte « Candidature RSI vérifiée et validée », « Refuser » et un lien vers le ticket. Le bouton facultatif du demandeur pour déclarer son dépôt ne conditionne pas la validation RH et ne stoppe pas l’expiration.
-5. La validation RSI par un RH pose `[P]` (avant, le pseudo ne change pas : `[A]` reste s’il est présent) et supprime l’expiration. Le message du ticket invite à organiser un entretien vocal. Sur la même fiche RH, le bouton devient « Valider l’entretien → Candidat ».
-6. Après l’entretien, le RH valide : le préfixe devient `[C-1CC]`, le rôle Candidat configuré est attribué et le rôle Postulant retiré. La fiche RH est mise à jour sur place.
+5. La validation RSI par un RH pose `[P]` (avant, le pseudo ne change pas : `[A]` reste s’il est présent) et supprime l’expiration. Le message du ticket invite à organiser un entretien vocal. Sur la même fiche RH, le bouton devient « Valider l’entretien ».
+6. Après l’entretien, le RH valide : le dossier passe à `awaiting_mentor` (« Entretien validé — en attente de mentor »). Aucun rôle ni pseudo ne change : le candidat reste Postulant `[P]`. Le bot ouvre un **ticket Mentora** (`mentora-<pseudo>`, sujet `mentora:<guilde>:<id de la demande>`) dans la catégorie `bot.recrutement.category_mentora`, visible du demandeur, du rôle Parrain (`bot.recrutement.role_parrain`, tous les mentors le voient), du rôle RH et du bot. Son identifiant et celui du message d’accueil sont gardés dans le JSON `mentorship` (`mentoraChannelId`, `mentoraMessageId`), sans migration.
+7. Un RH affecte un parrain depuis « Gérer le parrainage » : le dossier passe à `candidate` — préfixe `[C-1CC]`, rôle Candidat configuré attribué, rôle Postulant retiré. Le rôle Parrain perd l’accès au ticket Mentora, seul le mentor affecté le garde (en cas de remplacement, l’ancien est retiré). La fiche RH est mise à jour sur place.
 
-Le refus est disponible dès l’ouverture et jusqu’à validation de l’entretien. Il demande une confirmation et propose un motif facultatif. Le comportement existant retire les rôles attribuables et le préfixe de recrutement ; le ticket est conservé.
+Le ticket Mentora est créé après l’enregistrement du statut : si la catégorie ou le rôle Parrain est absent ou invalide, la transition n’est pas bloquée ; les RH sont alertés (fil de la fiche) et le scheduler retente. Tant que `awaiting_mentor`, les RH reçoivent un rappel unique après `bot.recrutement.mentor_wait_days` jours. Le ticket Mentora n’est jamais supprimé par le bot.
+
+Le refus est disponible dès l’ouverture et jusqu’à validation de l’entretien ; il n’est plus possible depuis `awaiting_mentor` (le rejet depuis le site reste possible). Il demande une confirmation et propose un motif facultatif. Le comportement existant retire les rôles attribuables et le préfixe de recrutement ; le ticket est conservé.
 
 Chaque dépôt RSI déclaré, validation RH ou refus produit un message du bot visible par tous les participants du ticket, avec la prochaine étape. Le message épinglé et la fiche RH sont mis à jour. L’ID de l’annonce est conservé dans la décision JSON pour éviter de la renvoyer lors d’une reprise normale ; aucune migration SQL supplémentaire n’est nécessaire.
 
@@ -48,7 +52,7 @@ La colonne JSON nullable `postulant_channel_access` de `recruitment_application`
 
 `SchedulerRH`, enregistré dans `SchedulerManager`, vérifie les dossiers au démarrage puis toutes les cinq minutes. Un passage en cours empêche le chevauchement du suivant.
 
-Après le délai d’inactivité du ticket (`bot.recrutement.ticket_inactivity_days`, 7 jours par défaut) sans activité admissible et avant validation RSI par les RH, le rôle Postulant est retiré et l’accès individuel au ticket est refusé. Le salon et l’historique restent disponibles aux RH. L’expiration peut donc intervenir jusqu’à cinq minutes après l’échéance. Si le demandeur a déjà le rôle Membre (acceptation faite sur le site) alors que sa demande est en `waiting_rsi` ou `review`, le scheduler la passe au statut `integrated` au lieu de l’expirer : aucun message, aucun retrait de rôle, et la demande n’est pas rouverte. Avant d’expirer, le scheduler consulte l’historique pour tenir compte des messages du candidat ou du staff envoyés pendant un arrêt du bot.
+Après le délai d’inactivité du ticket (`bot.recrutement.ticket_inactivity_days`, 7 jours par défaut) sans activité admissible et avant validation RSI par les RH, le rôle Postulant est retiré et l’accès individuel au ticket est refusé. Le salon et l’historique restent disponibles aux RH. L’expiration peut donc intervenir jusqu’à cinq minutes après l’échéance. Si le demandeur a déjà le rôle Membre (acceptation faite sur le site) alors que sa demande est en `waiting_rsi`, `review` ou `awaiting_mentor`, le scheduler la passe au statut `integrated` au lieu de l’expirer : aucun message, aucun retrait de rôle, et la demande n’est pas rouverte. Avant d’expirer, le scheduler consulte l’historique pour tenir compte des messages du candidat ou du staff envoyés pendant un arrêt du bot.
 
 Le scheduler retire aussi `[A]` après la durée `bot.recrutement.arrival_days` (7 jours par défaut) suivant l’arrivée, indépendamment du ticket, sans retirer `[P]` ou `[C-1CC]`. La création de la demande remplace immédiatement `[A]` par `[P]` s’il est encore présent.
 
@@ -73,9 +77,9 @@ L'onglet RH > Candidatures du site accepte ou rejette un candidat. Le site prév
 
 | Décision | Étape de la demande | Effet |
 | --- | --- | --- |
-| `accepted` | `waiting_rsi`, `review`, `postulant` | `integrated` : aucun rôle retiré, aucun message « ticket fermé » |
+| `accepted` | `waiting_rsi`, `review`, `postulant`, `awaiting_mentor` | `integrated` : aucun rôle retiré, aucun message « ticket fermé » |
 | `accepted` | `candidate` | aucun changement : le suivi de parrainage clôt le dossier dès que le rôle Membre est présent |
-| `rejected` | `waiting_rsi`, `review`, `postulant` | `refused` : comportement du refus RH (rôles attribuables et préfixe retirés, ticket conservé) |
+| `rejected` | `waiting_rsi`, `review`, `postulant`, `awaiting_mentor` | `refused` : comportement du refus RH (rôles attribuables et préfixe retirés, ticket conservé) |
 | `rejected` | `candidate` | suivi de parrainage clôturé puis `refused` |
 | toute décision | `refused`, `expired`, `integrated` | aucun changement |
 

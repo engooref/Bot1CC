@@ -12,6 +12,9 @@ export interface ParrainageDetails {
     access?: { channelId: string; hadOverwrite: boolean; permissions: Record<string, boolean | null> };
     accessRestored?: boolean;
     announced?: boolean;
+    /** Ticket Mentora : accès individuel accordé au mentor, puis retiré en cas de remplacement. */
+    mentoraGranted?: boolean;
+    mentoraRevoked?: boolean;
 }
 /** Historique des accompagnements, indépendant du profil membre et de l’XP. */
 // Schéma géré par Site1CC, ne pas migrer ici.

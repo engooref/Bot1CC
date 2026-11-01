@@ -13,7 +13,7 @@ const { settingsService } = await import('../dist/src/services/SettingsService.j
 const { default: View, parrainButton, parrainSelect } = await import('../dist/src/view/ParrainageView.js');
 const { default: RecruitmentView } = await import('../dist/src/view/RecrutementView.js');
 const { JSONTypeComponent: T } = await import('../dist/src/utils/Type.js');
-const ids = { guild: '100000000000000001', staff: '100000000000000002', parrain: '100000000000000003', other: '100000000000000004', applicant: '100000000000000005', role: '100000000000000006', rh: '100000000000000007', official: '100000000000000008', bot: '100000000000000009', ticket: '100000000000000010', channelRh: '100000000000000011' };
+const ids = { guild: '100000000000000001', staff: '100000000000000002', parrain: '100000000000000003', other: '100000000000000004', applicant: '100000000000000005', role: '100000000000000006', rh: '100000000000000007', official: '100000000000000008', bot: '100000000000000009', ticket: '100000000000000010', channelRh: '100000000000000011', mentora: '100000000000000012' };
 let config;
 settingsService.getString = async key => config[key] ?? '';
 settingsService.get = async (key, fallback) => config[key] ?? fallback;
@@ -71,32 +71,36 @@ function fixture() {
         members.set(id, m); return m;
     }
     member(ids.parrain, [ids.role]); member(ids.other, [ids.role]); member(ids.staff, [ids.rh]); member(ids.applicant);
+    const overwriteApi = (overwrites, channelId) => ({
+        cache: overwrites,
+        async edit(id, values) {
+            const old = overwrites.get(id); let allow = old?.allow.bitfield ?? 0n, deny = old?.deny.bitfield ?? 0n;
+            for (const [name, value] of Object.entries(values)) { allow &= ~P[name]; deny &= ~P[name]; if (value === true) allow |= P[name]; if (value === false) deny |= P[name]; }
+            overwrites.set(id, { allow: new PermissionsBitField(allow), deny: new PermissionsBitField(deny) });
+            operations.push(['permissions', id, values, channelId]);
+        },
+        async delete(id) { overwrites.delete(id); operations.push(['delete-permissions', id, channelId]); },
+    });
     const overwrites = new Collection();
     const channel = {
         id: ids.ticket, type: ChannelType.GuildText,
         isThread: () => false,
-        permissionOverwrites: {
-            cache: overwrites,
-            async edit(id, values) {
-                const old = overwrites.get(id); let allow = old?.allow.bitfield ?? 0n, deny = old?.deny.bitfield ?? 0n;
-                for (const [name, value] of Object.entries(values)) { allow &= ~P[name]; deny &= ~P[name]; if (value === true) allow |= P[name]; if (value === false) deny |= P[name]; }
-                overwrites.set(id, { allow: new PermissionsBitField(allow), deny: new PermissionsBitField(deny) });
-                operations.push(['permissions', id, values]);
-            },
-            async delete(id) { overwrites.delete(id); operations.push(['delete-permissions', id]); },
-        },
+        permissionOverwrites: overwriteApi(overwrites, ids.ticket),
         async send(options) {
             if (failMessage) throw new Error('Discord unavailable');
             operations.push(['message', options]); return { id: String(++serial), channelId: ids.ticket };
         },
     };
+    const mentoraOverwrites = new Collection();
+    const mentora = { ...channel, id: ids.mentora, permissionOverwrites: overwriteApi(mentoraOverwrites, ids.mentora),
+        async send(options) { operations.push(['mentora-message', options]); return { id: String(++serial), channelId: ids.mentora }; } };
     const rh = { ...channel, id: ids.channelRh, async send(options) { if (failRH) throw new Error('RH indisponible'); operations.push(['rh', options]); } };
     const bot = {
         user: { id: ids.bot }, roleMember: { id: ids.official }, db: { getEm: () => em },
         guild: {
             id: ids.guild, roles: { fetch: async id => id === ids.role ? { id } : null },
             members: { list: async () => members, fetch: async query => { if (!query) return members; const m = members.get(typeof query === 'string' ? query : query.user); if (!m) throw Object.assign(new Error('Unknown member'), { code: 10007 }); return m; } },
-            channels: { fetch: async id => id === ids.ticket ? channel : id === ids.channelRh ? rh : null },
+            channels: { fetch: async id => id === ids.ticket ? channel : id === ids.channelRh ? rh : id === ids.mentora ? mentora : null },
         },
     };
     const manager = new ParrainageManager(bot);
@@ -115,7 +119,7 @@ function fixture() {
             async editReply(options) { replies.push(options); return { id: String(++serial), channelId: ids.ticket }; }, replies,
         };
     }
-    return { bot, manager, em, requests, assignments, prefs, contexts, members, channel, operations, pref, assignment, interaction, failMessage: value => { failMessage = value; }, failRH: value => { failRH = value; } };
+    return { bot, manager, em, requests, assignments, prefs, contexts, members, channel, mentora, mentoraOverwrites, operations, pref, assignment, interaction, failMessage: value => { failMessage = value; }, failRH: value => { failRH = value; } };
 }
 
 test('dates de retour : Paris hiver/été, dates impossibles et passées', () => {
@@ -520,6 +524,92 @@ test('/parrain ouvre directement le panneau complet en MP', async () => {
     assert.ok(sent[0].components.flatMap(row => row.components).some(c => c.data.custom_id === 'parrain_mine'));
     assert.match(i.replies[0].content, /envoyé en MP/);
     assert.ok(f.contexts.some(c => c.messageId === 'dm-panel' && c.data.privatePanel));
+});
+
+function awaitingFixture() {
+    const f = fixture();
+    Object.assign(f.requests[0], { status: 'awaiting_mentor', mentorship: { cleInconnue: 'conservee', mentoraChannelId: ids.mentora, mentoraMessageId: 'welcome', waitingSince: new Date().toISOString() } });
+    f.mentoraOverwrites.set(ids.role, { allow: new PermissionsBitField(P.ViewChannel), deny: new PermissionsBitField(0n) });
+    f.resumed = [];
+    f.bot.recrutementManager = { async resume(id) {
+        f.resumed.push(id);
+        const d = f.requests[0];
+        if (d.pendingStatus) { d.status = d.pendingStatus; d.pendingStatus = undefined; d.candidateAt = new Date(); }
+    } };
+    return f;
+}
+const mentoraMessages = f => f.operations.filter(([kind]) => kind === 'mentora-message');
+
+test('affectation RH depuis awaiting_mentor : candidate, décision, reprise des rôles et clés conservées', async () => {
+    const f = awaitingFixture();
+    await f.manager.assign(1, ids.parrain, ids.staff, 0);
+    const d = f.requests[0];
+    assert.equal(d.status, 'candidate');
+    assert.deepEqual(f.resumed, [1]);
+    assert.equal(f.assignments.length, 1);
+    const decision = d.decisions.at(-1);
+    assert.deepEqual({ from: decision.from, to: decision.to, actorId: decision.actorId, reason: decision.reason }, { from: 'awaiting_mentor', to: 'candidate', actorId: ids.staff, reason: 'Mentor affecté' });
+    assert.equal(d.mentorship.cleInconnue, 'conservee');
+    assert.equal(d.mentorship.mentoraChannelId, ids.mentora);
+    assert.equal(d.mentorship.needsSync, false);
+});
+
+test('ticket Mentora après engagement : rôle Parrain retiré, mentor seul autorisé, annonce unique', async () => {
+    const f = awaitingFixture();
+    await f.manager.assign(1, ids.parrain, ids.staff, 0);
+    assert.equal(f.mentoraOverwrites.has(ids.role), false);
+    assert.equal(f.mentoraOverwrites.get(ids.parrain).allow.has(P.ViewChannel), true);
+    assert.equal(f.mentoraOverwrites.get(ids.parrain).allow.has(P.SendMessages), true);
+    assert.equal(f.mentoraOverwrites.get(ids.parrain).allow.has(P.ReadMessageHistory), true);
+    assert.equal(mentoraMessages(f).length, 1);
+    assert.match(mentoraMessages(f)[0][1].content, new RegExp(`<@${ids.parrain}>`));
+    assert.deepEqual(mentoraMessages(f)[0][1].allowedMentions, { users: [ids.parrain], parse: [] });
+    await f.manager.sync(1);
+    assert.equal(mentoraMessages(f).length, 1);
+});
+
+test('ticket Mentora : le remplacement du mentor retire l’ancien et autorise le nouveau', async () => {
+    const f = awaitingFixture();
+    await f.manager.assign(1, ids.parrain, ids.staff, 0);
+    await f.manager.assign(1, ids.other, ids.staff, f.assignments[0].id, 'Indisponibilité');
+    assert.equal(f.mentoraOverwrites.has(ids.parrain), false);
+    assert.equal(f.mentoraOverwrites.get(ids.other).allow.has(P.ViewChannel), true);
+    assert.equal(mentoraMessages(f).length, 2);
+    assert.equal(f.requests[0].status, 'candidate');
+    assert.deepEqual(f.resumed, [1]);
+});
+
+test('affectation refusée hors candidate / awaiting_mentor', async () => {
+    const f = awaitingFixture();
+    f.requests[0].status = 'postulant';
+    await assert.rejects(f.manager.assign(1, ids.parrain, ids.staff, 0), /ne permet plus/);
+    assert.equal(f.assignments.length, 0);
+});
+
+test('panneau RH awaiting_mentor : texte exact, retrait et clôture désactivés', async () => {
+    const f = awaitingFixture();
+    const i = f.interaction(ids.staff);
+    await f.manager.staffPanel(i, 1, true);
+    assert.match(i.replies[0].content, /^Entretien validé : choisissez un parrain pour ouvrir la période de candidat\./);
+    const buttons = i.replies[0].components.flatMap(row => row.components).map(c => c.data);
+    assert.equal(buttons.find(b => b.custom_id === 'parrain_close').disabled, true);
+    assert.equal(buttons.find(b => b.custom_id === 'parrain_choose').disabled, false);
+    assert.ok(!buttons.some(b => b.custom_id === 'parrain_remove' && !b.disabled));
+    await assert.rejects(f.manager.finish(1, ids.staff, 'Test', true), /attend un mentor/);
+});
+
+test('rappel RH d’attente de mentor : après mentorWaitDays, une seule fois, sans période de 14 jours', async () => {
+    const f = awaitingFixture(); config['bot.recrutement.mentor_wait_days'] = 3;
+    const rh = () => f.operations.filter(([kind]) => kind === 'rh');
+    f.requests[0].mentorship.waitingSince = new Date(Date.now() - 49 * 3600000).toISOString();
+    await f.manager.check(); assert.equal(rh().length, 0);
+    f.requests[0].mentorship.waitingSince = new Date(Date.now() - 73 * 3600000).toISOString();
+    await f.manager.check(); await f.manager.check();
+    assert.equal(rh().length, 1);
+    assert.match(rh()[0][1].content, /attend un mentor depuis plus de 3 jours/);
+    assert.equal(periodNotices(f).length, 0);
+    assert.equal(f.requests[0].status, 'awaiting_mentor');
+    assert.equal(f.requests[0].mentorship.cleInconnue, 'conservee');
 });
 
 test('assign() conserve les clés inconnues de mentorship', async () => {
