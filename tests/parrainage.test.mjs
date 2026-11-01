@@ -521,3 +521,27 @@ test('/parrain ouvre directement le panneau complet en MP', async () => {
     assert.match(i.replies[0].content, /envoyé en MP/);
     assert.ok(f.contexts.some(c => c.messageId === 'dm-panel' && c.data.privatePanel));
 });
+
+test('assign() conserve les clés inconnues de mentorship', async () => {
+    const f = fixture();
+    f.requests[0].mentorship = { cleInconnue: 'conservee', interviewRemindedAt: '2026-10-02T00:00:00.000Z', periodRemindedAt: '2026-10-03T00:00:00.000Z' };
+    await f.manager.assign(1, ids.parrain, ids.staff, 0);
+    assert.equal(f.requests[0].mentorship.cleInconnue, 'conservee');
+    assert.equal(f.requests[0].mentorship.interviewRemindedAt, '2026-10-02T00:00:00.000Z');
+    assert.equal(f.requests[0].mentorship.periodRemindedAt, '2026-10-03T00:00:00.000Z');
+});
+
+test('finish() conserve les clés inconnues de mentorship (retrait du parrain puis clôture)', async () => {
+    const f = fixture();
+    f.requests[0].mentorship = { cleInconnue: 'conservee', interviewRemindedAt: '2026-10-02T00:00:00.000Z', periodRemindedAt: '2026-10-03T00:00:00.000Z' };
+    const a = f.assignment();
+    await f.manager.finish(1, ids.staff, 'Retrait', false, a.id);
+    assert.equal(f.requests[0].mentorship.cleInconnue, 'conservee');
+    assert.equal(f.requests[0].mentorship.interviewRemindedAt, '2026-10-02T00:00:00.000Z');
+    assert.equal(f.requests[0].mentorship.periodRemindedAt, '2026-10-03T00:00:00.000Z');
+    assert.ok(f.requests[0].mentorship.waitingSince);
+    await f.manager.closeForRequest(1, ids.staff, 'Fin');
+    assert.equal(f.requests[0].mentorship.cleInconnue, 'conservee');
+    assert.equal(f.requests[0].mentorship.interviewRemindedAt, '2026-10-02T00:00:00.000Z');
+    assert.ok(f.requests[0].mentorship.closedAt);
+});

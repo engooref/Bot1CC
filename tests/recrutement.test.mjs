@@ -990,3 +990,15 @@ test("rappel d'entretien : un échec d'envoi n'enregistre rien et le rappel est 
     await f.scheduler.checkRH();
     assert.ok(f.d.mentorship.interviewRemindedAt);
 });
+
+test('resume() au passage Candidat conserve les clés existantes de mentorship', async () => {
+    const f = fixture({ status: 'postulant' });
+    f.d.mentorship = { interviewRemindedAt: '2026-10-02T00:00:00.000Z', cleInconnue: 'conservee' };
+    f.d.pendingStatus = 'candidate';
+    f.d.decisions.push({ from: 'postulant', to: 'candidate', actorId: ids.rh, at: new Date().toISOString() });
+    await f.manager.resume(1);
+    assert.equal(f.d.status, 'candidate');
+    assert.equal(f.d.mentorship.cleInconnue, 'conservee');
+    assert.equal(f.d.mentorship.interviewRemindedAt, '2026-10-02T00:00:00.000Z');
+    assert.equal(f.d.mentorship.waitingSince, f.d.candidateAt.toISOString());
+});

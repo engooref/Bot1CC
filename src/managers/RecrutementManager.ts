@@ -412,7 +412,7 @@ export class RecrutementManager {
                     demande.pendingStatus = undefined;
                     if (demande.status === 'candidate') {
                         demande.candidateAt = new Date();
-                        demande.mentorship = { waitingSince: demande.candidateAt.toISOString() };
+                        demande.mentorship = { ...demande.mentorship, waitingSince: demande.candidateAt.toISOString() };
                     }
                     demande.needsSync = true;
                     await entityManager.flush();

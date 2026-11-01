@@ -201,7 +201,7 @@ export class ParrainageManager {
             if (current) { current.endedAt = new Date(); current.details = { ...current.details, endActorId: actorId, endReason: reason || 'Remplacement' }; }
             const a = Object.assign(new Attribution(), { demande: d, parrainId: userId, details: { actorId, reason } });
             em.persist(a);
-            d.mentorship = { periodRemindedAt: d.mentorship?.periodRemindedAt, needsSync: true };
+            d.mentorship = { ...d.mentorship, needsSync: true };
             await em.flush();
         });
         await this.sync(demandeId);
@@ -216,9 +216,10 @@ export class ParrainageManager {
             if (expectedId !== undefined && (a?.id ?? 0) !== expectedId) throw new Error('L’attribution a changé : actualisez la fiche');
             if (d.mentorship?.closedAt) return;
             if (a) { a.endedAt = new Date(); a.details = { ...a.details, endActorId: actorId, endReason: reason }; }
-            const periodRemindedAt = d.mentorship?.periodRemindedAt;
-            d.mentorship = close ? { closedAt: new Date().toISOString(), closedBy: actorId, closedReason: reason, needsSync: true } : { waitingSince: new Date().toISOString(), needsSync: true };
-            d.mentorship.periodRemindedAt = periodRemindedAt;
+            // Les clés existantes sont conservées ; seul le rappel d'attente repart de zéro lors d'une réattribution.
+            d.mentorship = close
+                ? { ...d.mentorship, closedAt: new Date().toISOString(), closedBy: actorId, closedReason: reason, needsSync: true }
+                : { ...d.mentorship, waitingSince: new Date().toISOString(), remindedAt: undefined, needsSync: true };
             d.mentorship.ticketNotice = close ? 'Le suivi de parrainage est clôturé. Les RH restent votre point de contact.' : 'Votre parrainage est en attente de réattribution par les RH.';
             if (!close) d.mentorship.rhNotice = `Le candidat <@${d.applicantId}> attend un nouveau parrain. Motif : ${reason}`;
             await em.flush();
