@@ -98,7 +98,7 @@ export class SchedulerRH {
                             current.decisions.push({ from: current.status, to: 'expired', actorId: this.bot.user!.id,
                                 at: new Date().toISOString(), reason: `${formatDays(inactivityDays)} sans activité avant validation RSI par les RH.` });
                         }
-                        await this.removeExpiredArrivalPrefix(current);
+                        await this.removeExpiredArrivalPrefix(current, arrivalMs);
                         await this.remindInterview(current, reminderDays);
                         await em.flush();
                         return current.needsSync || !!current.pendingStatus;
