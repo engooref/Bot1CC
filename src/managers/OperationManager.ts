@@ -9,6 +9,8 @@ import {
   ModalSubmitInteraction,
   TextBasedChannel,
   Message,
+  PartialMessage,
+  ThreadChannel,
   AttachmentBuilder,
   EmbedBuilder,
   Colors,
@@ -24,6 +26,18 @@ import { BotManager } from '../BotManager.js';
 import { CreationOperationView, OperationState, OperationView } from '../view/OperationView.js';
 import { JSONConfigManager } from '../utils/JSONConfigManager.js';
 import { findOperationVisual } from '../utils/OperationVisual.js';
+import {
+  OPERATION_FOOTER_TEXTS,
+  OPERATION_REMINDER_MARKER,
+  buildReminderMessage,
+  hasCalendarIcon,
+  isOperationMessage,
+  isReminderDue,
+  reminderDelayMs,
+  shouldPlanReminder,
+  withCalendarIcon,
+  withoutCalendarIcon,
+} from '../utils/OperationReminder.js';
 import { getManagerLogger } from '../logger.js';
 import { StarSystem } from '../entities/operations/StarSystem.js';
 import { CelestialBody, CelestialBodyType } from '../entities/operations/CelestialBody.js';
@@ -37,6 +51,8 @@ const BASE = path.resolve('config');
 const PENDING_LINKS_PATH = path.join(BASE, 'pendingLinks.json');
 const MAX_START_DELAY_MINUTES = 24 * 60;
 const PENDING_LINK_RETRY_INTERVAL_MS = 15 * 60 * 1000;
+const PRESENCE_EMOJI_ID = '1213915551210930306';
+const CREATION_CHANNEL_NAME = 'création-opération';
 
 interface OperationAuthor {
   id: string;
@@ -71,6 +87,9 @@ export class OperationModule {
   private creationView: CreationOperationView;
   private fcategory: CategoryChannel | undefined;
   private pendingLinkTimers = new Map<string, NodeJS.Timeout>();
+  private reminderTimers = new Map<string, NodeJS.Timeout>();
+  /** Opérations dont le rappel a déjà été traité depuis le démarrage (le marqueur dans le fil couvre les redémarrages). */
+  private remindedOperations = new Set<string>();
   private logger = getManagerLogger('OperationModule');
 
   constructor(private bot: BotManager) {
@@ -469,7 +488,7 @@ export class OperationModule {
         { name: '🕒 Depart', value: `<t:${startTimestamp}:F>\n<t:${startTimestamp}:R>`, inline: true },
         { name: '👤 Responsable', value: `<@${author.id}>`, inline: true },
       )
-      .setFooter({ text: 'Interstellar Companion | 1er Corps Colonial' })
+      .setFooter({ text: OPERATION_FOOTER_TEXTS[0] })
       .setTimestamp(futureDate);
 
     if (validatedState.typeSpe && validatedState.typeSpe !== 'GE') {
@@ -498,7 +517,7 @@ export class OperationModule {
     }
 
     if (validatedState.autoCreated) {
-      embed.setFooter({ text: 'Création automatique depuis le web' });
+      embed.setFooter({ text: OPERATION_FOOTER_TEXTS[1] });
     }
 
     let channel = this.bot.guild.channels.cache.find(
@@ -515,7 +534,7 @@ export class OperationModule {
       throw new Error('channel introuvable pour ce type d\'opération');
     }
 
-    const emoji = this.bot.guild.emojis.cache.get('1213915551210930306') ?? '👍';
+    const emoji = this.getPresenceEmoji();
 
     const message = await channel.send({
       content: `${role}\nPour valider votre présence interagissez avec l'emoji ${emoji}`,
@@ -545,6 +564,9 @@ export class OperationModule {
     await thread.send({
       content: threadMessages.join('\n')
     });
+
+    await this.ensureCalendarIcon(channel);
+    this.planReminder(channel.id, message.id, futureDate, message.createdAt);
 
     let tempUrl: string | null = null;
     let tempUrlExpiresAt: string | null = null;
@@ -899,6 +921,153 @@ export class OperationModule {
       this.savePendingLinks(links);
       this.schedulePendingLink(link);
       await this.logger.warn({ msg: 'Impossible d\'envoyer le lien temporaire en DM:', operationId: link.id, err });
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Icône calendrier des canaux d'opérations et rappel avant le départ
+  // ---------------------------------------------------------------------------
+
+  /** Emoji de présence d'une opération (emoji du serveur, 👍 à défaut). */
+  private getPresenceEmoji() {
+    return this.bot.guild.emojis.cache.get(PRESENCE_EMOJI_ID) ?? '👍';
+  }
+
+  /** Les canaux d'opérations sont les salons texte de la catégorie « Opérations », hors salon de création. */
+  public isOperationChannel(channel: unknown): channel is TextChannel {
+    const c = channel as TextChannel | null | undefined;
+    return (
+      !!c &&
+      c.type === ChannelType.GuildText &&
+      !!this.fcategory &&
+      c.parentId === this.fcategory.id &&
+      c.name.replace(/📅$/u, '') !== CREATION_CHANNEL_NAME
+    );
+  }
+
+  private isOperationMessageOf(message: Message): boolean {
+    const embed = message.embeds[0];
+    return isOperationMessage({
+      authorId: message.author.id,
+      botId: this.bot.user!.id,
+      footerText: embed?.footer?.text ?? null,
+      embedTimestamp: embed?.timestamp ?? null,
+    });
+  }
+
+  /** Vrai si le canal contient encore un message d'opération (100 derniers messages). */
+  public async channelHasOperation(channel: TextChannel): Promise<boolean> {
+    const messages = await channel.messages.fetch({ limit: 100 });
+    return messages.some((m) => this.isOperationMessageOf(m));
+  }
+
+  private async setChannelName(channel: TextChannel, name: string): Promise<void> {
+    try {
+      await channel.setName(name);
+    } catch (err) {
+      await this.logger.error({ op: 'OPERATION_CALENDAR_ICON', channelId: channel.id, err }, 'Renommage du canal impossible');
+    }
+  }
+
+  /** Ajoute l'icône calendrier au canal s'il ne l'a pas déjà. */
+  public async ensureCalendarIcon(channel: TextChannel): Promise<void> {
+    if (hasCalendarIcon(channel.name)) return;
+    await this.setChannelName(channel, withCalendarIcon(channel.name));
+  }
+
+  /** Retire l'icône calendrier si le canal ne contient plus aucune opération. */
+  public async releaseCalendarIcon(channel: TextChannel): Promise<void> {
+    if (!hasCalendarIcon(channel.name)) return;
+    if (await this.channelHasOperation(channel)) return;
+    await this.setChannelName(channel, withoutCalendarIcon(channel.name));
+  }
+
+  /** Suppression d'un message (manuelle ou par l'archivage) : l'icône part si c'était la dernière opération. */
+  public async onMessageDelete(message: Message | PartialMessage): Promise<void> {
+    const channel = message.channel;
+    if (!this.isOperationChannel(channel)) return;
+    if (!hasCalendarIcon(channel.name)) return;
+    await this.releaseCalendarIcon(channel);
+  }
+
+  /** Remet d'aplomb les icônes et envoie les rappels dus (appelé régulièrement par le planificateur). */
+  public async syncOperationChannels(): Promise<void> {
+    await this.ensureCategory();
+    const category = this.fcategory!;
+    for (const channel of this.bot.guild.channels.cache.values()) {
+      if (!this.isOperationChannel(channel)) continue;
+      const messages = await channel.messages.fetch({ limit: 50 }).catch(() => null);
+      if (!messages) continue;
+
+      const operations = messages.filter((m) => this.isOperationMessageOf(m));
+      if (operations.size > 0 && !hasCalendarIcon(channel.name)) {
+        await this.ensureCalendarIcon(channel);
+      } else if (operations.size === 0 && hasCalendarIcon(channel.name) && channel.parentId === category.id) {
+        await this.releaseCalendarIcon(channel);
+      }
+
+      const now = new Date();
+      for (const message of operations.values()) {
+        const startAt = new Date(message.embeds[0].timestamp!);
+        if (!isReminderDue(startAt, now)) continue;
+        if (!shouldPlanReminder(startAt, message.createdAt)) continue;
+        await this.sendReminder(message, startAt);
+      }
+    }
+  }
+
+  /** Programme le rappel à l'heure exacte (le planificateur rattrape les oublis après un redémarrage). */
+  private planReminder(channelId: string, messageId: string, startAt: Date, createdAt: Date): void {
+    if (!shouldPlanReminder(startAt, createdAt)) return;
+    const timer = setTimeout(() => {
+      this.reminderTimers.delete(messageId);
+      void this.fireReminder(channelId, messageId, startAt);
+    }, reminderDelayMs(startAt, new Date()));
+    this.reminderTimers.set(messageId, timer);
+  }
+
+  private async fireReminder(channelId: string, messageId: string, startAt: Date): Promise<void> {
+    try {
+      const channel = await this.bot.guild.channels.fetch(channelId).catch(() => null);
+      if (!channel || channel.type !== ChannelType.GuildText) return;
+      const message = await (channel as TextChannel).messages.fetch(messageId).catch(() => null);
+      if (!message) return;
+      await this.sendReminder(message, startAt);
+    } catch (err) {
+      await this.logger.error({ op: 'OPERATION_REMINDER', messageId, err }, 'Rappel impossible');
+    }
+  }
+
+  /** Poste le rappel dans le fil de l'opération, une seule fois, pour les membres qui ont confirmé leur présence. */
+  private async sendReminder(message: Message, startAt: Date): Promise<void> {
+    if (this.remindedOperations.has(message.id)) return;
+
+    try {
+      const thread = (message.thread ?? (await (message.channel as TextChannel).threads.fetch(message.id).catch(() => null))) as ThreadChannel | null;
+      if (!thread) return;
+
+      // Déjà envoyé avant un redémarrage ?
+      const recent = await thread.messages.fetch({ limit: 50 });
+      if (recent.some((m) => m.author.id === this.bot.user!.id && m.content.startsWith(OPERATION_REMINDER_MARKER))) {
+        this.remindedOperations.add(message.id);
+        return;
+      }
+
+      const emoji = this.getPresenceEmoji();
+      const reaction = message.reactions.resolve(typeof emoji === 'string' ? emoji : emoji.id);
+      const users = reaction ? await reaction.users.fetch() : null;
+      const userIds = users ? [...users.values()].filter((u) => !u.bot).map((u) => u.id) : [];
+
+      this.remindedOperations.add(message.id);
+      if (userIds.length === 0) return;
+
+      await thread.send({
+        content: buildReminderMessage(userIds, startAt),
+        allowedMentions: { parse: [], users: userIds.slice(0, 60) },
+      });
+      await this.logger.info({ op: 'OPERATION_REMINDER', messageId: message.id, count: userIds.length }, 'Rappel envoyé');
+    } catch (err) {
+      await this.logger.error({ op: 'OPERATION_REMINDER', messageId: message.id, err }, 'Rappel impossible');
     }
   }
 
