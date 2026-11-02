@@ -39,3 +39,4 @@ jobs:
           npm run test:recrutement
           npm run test:parrainage
           npm run test:github
+          npm run test:operations

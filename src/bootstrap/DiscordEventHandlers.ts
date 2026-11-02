@@ -53,6 +53,9 @@ export function registerDiscordEvents(bot: BotManager): void {
   bot.on(Events.GuildMemberRemove, (member) => _onGuildMemberRemove(bot, member));
   bot.on(Events.InteractionCreate, (interaction) => _onInteraction(bot, interaction));
   bot.on(Events.VoiceStateUpdate, (oldState, newState) => _onVoiceStateUpdate(bot, oldState, newState));
+  bot.on(Events.MessageDelete, (message) => {
+    void bot.operationManager?.onMessageDelete(message).catch(err => botLogger.error({ op: 'OPERATION_MESSAGE_DELETE', err }));
+  });
   bot.on(Events.MessageReactionAdd, (reaction, user) => _onMessageReactionAdd(bot, reaction, user));
   bot.on(Events.MessageReactionRemove, (reaction, user) => _onMessageReactionRemove(bot, reaction, user));
 }

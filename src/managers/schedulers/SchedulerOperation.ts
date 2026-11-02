@@ -34,6 +34,9 @@ export class SchedulerOperation {
         await this.archiveOperation(tempLink);
       }
     }
+
+    // Icône calendrier des canaux d'opérations et rappels avant le départ
+    await this.bot.operationManager.syncOperationChannels();
   }
 
   private async archiveOperation(tempLink: TempLink): Promise<void> {

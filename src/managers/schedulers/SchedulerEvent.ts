@@ -328,6 +328,8 @@ export class SchedulerEvent {
       for (const channel of channels.values()) {
         if (!channel?.isTextBased()) continue;
         if (!channel.name.endsWith('📅')) continue;
+        // L'icône des canaux d'opérations est gérée par OperationManager (retirée seulement quand il n'y a plus d'OP).
+        if (this.bot.operationManager.isOperationChannel(channel)) continue;
 
         if (!eventChannelIds.has(channel.id)) {
           await channel.setName(channel.name.slice(0, -1));
