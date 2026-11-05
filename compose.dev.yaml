@@ -1,0 +1,31 @@
+# Environnement de TEST LOCAL du bot : Node 22 dans Docker, branché sur le site de développement (Site1CC).
+# Utilisation : voir docs/test-local.md (scripts/dev.sh ou scripts/dev.ps1).
+# Le bot n'a pas de base à lui : il partage celle du site (MySQL du compose.dev.yaml de Site1CC, port 3308 de ta machine),
+# comme en production. Il faut donc lancer le site d'abord. Aucun secret de production ici.
+name: bot1cc-dev
+
+services:
+  bot:
+    build: ./docker/dev
+    working_dir: /app
+    env_file: .env
+    volumes:
+      - .:/app
+      # node_modules en volume Docker : sur un dossier Windows, des milliers de petits fichiers à travers le montage sont très lents.
+      - node_modules:/app/node_modules
+    ports:
+      - "127.0.0.1:3001:3001"
+    extra_hosts:
+      # Permet d'atteindre le site et sa base, publiés sur ta machine, depuis le conteneur (Windows, macOS et Linux).
+      - "host.docker.internal:host-gateway"
+    # npm ci seulement si package-lock.json a changé depuis la dernière installation, puis compilation et démarrage (npm start).
+    command: sh -c "[ node_modules/.package-lock.json -nt package-lock.json ] || npm ci; npm start"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3001/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 120s
+
+volumes:
+  node_modules:
