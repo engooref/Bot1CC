@@ -28,6 +28,8 @@ npm start
 
 `npm start` recompile puis lance `dist/src/index.js`. Il se connecte au vrai serveur Discord : ne le lance pas pour « essayer ».
 
+Pour essayer le bot en réel **sans toucher à la production** (bot Discord de test, serveur de test, base et site locaux dans Docker), suis [`docs/test-local.md`](test-local.md) : tâche VS Code `Bot: Lancer le bot de test (tout faire)`, ou `scripts/dev.sh start` / `.\scripts\dev.ps1 start`.
+
 | Commande | Rôle |
 | --- | --- |
 | `npm run build` | Supprime `dist/` puis compile avec `tsc` |

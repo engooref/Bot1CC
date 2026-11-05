@@ -1,0 +1,171 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Bot: Lancer le bot de test (tout faire)",
+      "type": "shell",
+      "command": "./scripts/dev.sh start",
+      "windows": {
+        "command": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\scripts\\dev.ps1 start"
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true,
+        "focus": true
+      },
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      }
+    },
+    {
+      "label": "Bot: Recompiler et relancer",
+      "type": "shell",
+      "command": "./scripts/dev.sh restart",
+      "windows": {
+        "command": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\scripts\\dev.ps1 restart"
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true
+      }
+    },
+    {
+      "label": "Bot: Arrêter",
+      "type": "shell",
+      "command": "./scripts/dev.sh down",
+      "windows": {
+        "command": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\scripts\\dev.ps1 down"
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true
+      }
+    },
+    {
+      "label": "Bot: Journaux",
+      "type": "shell",
+      "command": "./scripts/dev.sh logs",
+      "windows": {
+        "command": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\scripts\\dev.ps1 logs"
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": false
+      },
+      "isBackground": true
+    },
+    {
+      "label": "Bot: Tests (comme la CI)",
+      "type": "shell",
+      "command": "./scripts/dev.sh test",
+      "windows": {
+        "command": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\scripts\\dev.ps1 test"
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true
+      },
+      "group": {
+        "kind": "test",
+        "isDefault": true
+      }
+    },
+    {
+      "label": "Bot: Tous les tests (tests/*.test.mjs)",
+      "type": "shell",
+      "command": "./scripts/dev.sh test-all",
+      "windows": {
+        "command": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\scripts\\dev.ps1 test-all"
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true
+      }
+    },
+    {
+      "label": "Bot: Compiler (build)",
+      "type": "shell",
+      "command": "./scripts/dev.sh build",
+      "windows": {
+        "command": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\scripts\\dev.ps1 build"
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true
+      }
+    },
+    {
+      "label": "Bot: Voir les tables à créer (rien n'est modifié)",
+      "type": "shell",
+      "command": "./scripts/dev.sh init-tables",
+      "windows": {
+        "command": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\scripts\\dev.ps1 init-tables"
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true
+      }
+    },
+    {
+      "label": "Bot: Valeurs à mettre dans le .env du site",
+      "type": "shell",
+      "command": "./scripts/dev.sh site-config",
+      "windows": {
+        "command": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\scripts\\dev.ps1 site-config"
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true
+      }
+    },
+    {
+      "label": "Bot: Terminal dans le conteneur",
+      "type": "shell",
+      "command": "./scripts/dev.sh shell",
+      "windows": {
+        "command": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\scripts\\dev.ps1 shell"
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true,
+        "focus": true
+      }
+    },
+    {
+      "label": "Bot: Tout supprimer et repartir de zéro",
+      "type": "shell",
+      "command": "./scripts/dev.sh reset-all",
+      "windows": {
+        "command": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\scripts\\dev.ps1 reset-all"
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true,
+        "focus": true
+      }
+    }
+  ]
+}

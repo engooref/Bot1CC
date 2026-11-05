@@ -14,6 +14,7 @@ Pour comprendre le projet (rôle du bot, installation, configuration, structure 
 | Tests parrainage | `npm run test:parrainage` |
 | Tests labels GitHub | `npm run test:github` |
 | Démarrer le bot | `npm start` (ne le lance jamais : il se connecte au vrai serveur Discord) |
+| Test local par le propriétaire | `scripts/dev.sh start` (Docker, bot Discord et serveur de test, voir `docs/test-local.md`) : réservé au propriétaire, l'agent ne le lance jamais |
 | Migrations | `npm run migrate:create` / `migrate:up` / `migrate:down` |
 
 Les tests sont des fichiers `tests/*.test.mjs` exécutés avec `node --test` sur le code compilé dans `dist/`. Chaque script de test recompile d'abord. Il n'existe pas de lint.
