@@ -30,6 +30,7 @@ import {
   OPERATION_FOOTER_TEXTS,
   OPERATION_REMINDER_MARKER,
   buildReminderMessage,
+  channelNameMatches,
   hasCalendarIcon,
   isOperationMessage,
   isReminderDue,
@@ -157,11 +158,11 @@ export class OperationModule {
       c =>
         c.parentId === category.id &&
         c.type === ChannelType.GuildText &&
-        c.name === 'création-opération'
+        channelNameMatches(c.name, CREATION_CHANNEL_NAME)
     ) as TextChannel;
     if (!creationChannel) {
       creationChannel = await guild.channels.create({
-        name: 'création-opération',
+        name: CREATION_CHANNEL_NAME,
         type: ChannelType.GuildText,
         parent: category.id,
       });
@@ -181,7 +182,7 @@ export class OperationModule {
         c =>
           c.parentId === category.id &&
           c.type === ChannelType.GuildText &&
-          c.name === role.name.replace(' ', '-').toLowerCase()
+          channelNameMatches(c.name, role.name.replace(' ', '-').toLowerCase())
       ) as TextChannel;
       if (!channel) {
         await guild.channels.create({
@@ -521,13 +522,13 @@ export class OperationModule {
     }
 
     let channel = this.bot.guild.channels.cache.find(
-      (c) => c.type === ChannelType.GuildText && c.name === role.name.replace(' ', '-').toLowerCase()
+      (c) => c.type === ChannelType.GuildText && channelNameMatches(c.name, role.name.replace(' ', '-').toLowerCase())
     ) as TextChannel | undefined;
     if (!channel) {
       await this.ensureCreationOperationsChannels();
       const allChannels = await this.bot.guild.channels.fetch();
       channel = allChannels.find(
-        (c) => c!.type === ChannelType.GuildText && c!.name === role.name.replace(' ', '-').toLowerCase()
+        (c) => c!.type === ChannelType.GuildText && channelNameMatches(c!.name, role.name.replace(' ', '-').toLowerCase())
       ) as TextChannel | undefined;
     }
     if (!channel) {
@@ -941,7 +942,7 @@ export class OperationModule {
       c.type === ChannelType.GuildText &&
       !!this.fcategory &&
       c.parentId === this.fcategory.id &&
-      c.name.replace(/📅$/u, '') !== CREATION_CHANNEL_NAME
+      !channelNameMatches(c.name, CREATION_CHANNEL_NAME)
     );
   }
 

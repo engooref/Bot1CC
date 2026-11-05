@@ -5,6 +5,7 @@ const {
   OPERATION_REMINDER_DELAY_MS,
   OPERATION_REMINDER_MARKER,
   buildReminderMessage,
+  channelNameMatches,
   hasCalendarIcon,
   isOperationMessage,
   isReminderDue,
@@ -77,4 +78,12 @@ test('le rappel reste sous 2000 caractères même avec beaucoup de présents', (
   const msg = buildReminderMessage(ids, t0);
   assert.ok(msg.length < 2000);
   assert.ok(msg.includes('et 240 autres'));
+});
+
+test('un canal est retrouvé avec ou sans l\'icône calendrier, jamais confondu avec un autre', () => {
+  assert.equal(channelNameMatches('op-minage', 'op-minage'), true);
+  assert.equal(channelNameMatches('op-minage' + OPERATION_CALENDAR_ICON, 'op-minage'), true);
+  assert.equal(channelNameMatches('création-opération' + OPERATION_CALENDAR_ICON, 'création-opération'), true);
+  assert.equal(channelNameMatches('op-minage-2' + OPERATION_CALENDAR_ICON, 'op-minage'), false);
+  assert.equal(channelNameMatches('op-combat', 'op-minage'), false);
 });
