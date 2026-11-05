@@ -593,7 +593,7 @@ test('panneau RH awaiting_mentor : texte exact, retrait et clôture désactivés
     assert.match(i.replies[0].content, /^Entretien validé : choisissez un parrain pour ouvrir la période de candidat\./);
     const buttons = i.replies[0].components.flatMap(row => row.components).map(c => c.data);
     assert.equal(buttons.find(b => b.custom_id === 'parrain_close').disabled, true);
-    assert.equal(buttons.find(b => b.custom_id === 'parrain_choose').disabled, false);
+    assert.ok(!buttons.find(b => b.custom_id === 'parrain_choose').disabled);
     assert.ok(!buttons.some(b => b.custom_id === 'parrain_remove' && !b.disabled));
     await assert.rejects(f.manager.finish(1, ids.staff, 'Test', true), /attend un mentor/);
 });

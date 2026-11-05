@@ -1074,9 +1074,11 @@ test('Refuser reste impossible depuis awaiting_mentor', async () => {
 test('fiche RH awaiting_mentor : « Gérer le parrainage », lien Mentora et bouton « Valider l’entretien »', async () => {
     const f = fixture({ status: 'awaiting_mentor' });
     f.d.mentorship = { mentoraChannelId: id(600) };
-    const labels = View.staff(f.bot, f.d).rows.flatMap(r => r.components).map(c => c.data.custom_id);
+    const components = View.staff(f.bot, f.d).rows.flatMap(r => r.components);
+    const labels = components.map(c => c.data.custom_id);
     assert.ok(labels.includes('parrain_staff'));
-    assert.ok(labels.includes('recrutement_mentora_link'));
+    // Un bouton Link n'a pas de custom_id : on le repère par son URL.
+    assert.ok(components.some(c => c.data.url === `https://discord.com/channels/${ids.guild}/${id(600)}`));
     assert.equal(labels.includes(A.Interview), false);
     const postulantLabels = View.staff(f.bot, Object.assign(f.d, { status: 'postulant' })).rows.flatMap(r => r.components);
     assert.equal(postulantLabels.find(c => c.data.custom_id === A.Interview).data.label, 'Valider l’entretien');
