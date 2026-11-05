@@ -31,6 +31,11 @@ export function withoutCalendarIcon(name: string): string {
   return hasCalendarIcon(name) ? name.slice(0, -OPERATION_CALENDAR_ICON.length) : name;
 }
 
+/** Vrai si le nom du canal est `expected`, avec ou sans l'icône calendrier (un canal d'opération peut porter 📅). */
+export function channelNameMatches(channelName: string, expected: string): boolean {
+  return withoutCalendarIcon(channelName) === expected;
+}
+
 /**
  * Un rappel n'est prévu que si l'opération a été créée au moins 30 minutes avant son départ.
  * `createdAt` est l'heure de création du message de l'opération.
