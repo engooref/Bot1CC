@@ -131,7 +131,8 @@ export class SchedulerRH {
 
     private async alreadyMember(demande: RecrutementDemande): Promise<boolean> {
         const roleId = this.bot.roleMember?.id;
-        if (!roleId || !(demande.status === 'waiting_rsi' || demande.status === 'review') || (demande.pendingStatus && demande.pendingStatus !== 'review')) {
+        const openStatus = demande.status === 'waiting_rsi' || demande.status === 'review' || demande.status === 'awaiting_mentor';
+        if (!roleId || !openStatus || (demande.pendingStatus && demande.pendingStatus !== 'review')) {
             return false;
         }
         const member = await this.bot.guild.members.fetch({ user: demande.applicantId, force: true }).catch((err: { code?: number }) => {

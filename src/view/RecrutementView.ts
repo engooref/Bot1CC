@@ -10,7 +10,7 @@ export const RecruitmentActions = {
 } as const;
 export const recruitmentLabels = {
     waiting_rsi: 'En attente du dépôt RSI', review: 'Dépôt déclaré — vérification RH en attente',
-    postulant: 'Postulant — entretien à réaliser', candidate: 'Candidat', refused: 'Candidature refusée', expired: 'Demande expirée',
+    postulant: 'Postulant — entretien à réaliser', awaiting_mentor: 'Entretien validé — en attente de mentor', candidate: 'Candidat', refused: 'Candidature refusée', expired: 'Demande expirée',
     integrated: 'Déjà intégré comme membre',
 };
 export default class RecrutementView extends BaseComponentView {
@@ -34,12 +34,13 @@ export default class RecrutementView extends BaseComponentView {
         const definitions: JSONComponent[] = [];
         if (d.status === 'waiting_rsi' || d.status === 'review' || d.status === 'postulant') {
             definitions.push({ type: T.Button, customId: d.status === 'postulant' ? RecruitmentActions.Interview : RecruitmentActions.Validate,
-                label: d.status === 'postulant' ? 'Valider l’entretien → Candidat' : 'Candidature RSI vérifiée et validée', style: 'Success', disabled: !!d.pendingStatus },
+                label: d.status === 'postulant' ? 'Valider l’entretien' : 'Candidature RSI vérifiée et validée', style: 'Success', disabled: !!d.pendingStatus },
                 { type: T.Button, customId: RecruitmentActions.Refuse, label: 'Refuser', style: 'Danger', disabled: !!d.pendingStatus });
         }
-        if (d.status === 'candidate') definitions.push({ type: T.Button, customId: 'parrain_staff', label: 'Gérer le parrainage', style: 'Primary' });
+        if (d.status === 'candidate' || d.status === 'awaiting_mentor') definitions.push({ type: T.Button, customId: 'parrain_staff', label: 'Gérer le parrainage', style: 'Primary' });
         definitions.push({ type: T.Button, customId: 'parrain_directory', label: 'Gérer les parrains', style: 'Secondary' });
         if (d.channelId) definitions.push({ type: T.Button, customId: 'recrutement_ticket_link', label: 'Ouvrir le ticket', style: 'Link', url: `https://discord.com/channels/${d.guildId}/${d.channelId}` });
+        if (d.status === 'awaiting_mentor' && d.mentorship?.mentoraChannelId) definitions.push({ type: T.Button, customId: 'recrutement_mentora_link', label: 'Ouvrir le ticket Mentora', style: 'Link', url: `https://discord.com/channels/${d.guildId}/${d.mentorship.mentoraChannelId}` });
         return new RecrutementView(bot, { demandeId: d.id, guildId: d.guildId }, definitions);
     }
     static refusal(bot: BotManager, d: RecrutementDemande, actorId: string) {

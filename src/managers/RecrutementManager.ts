@@ -14,6 +14,7 @@ import { settingsService } from '../services/SettingsService.js';
 import { getManagerLogger } from '../logger.js';
 import { RHMember } from '../entities/rh/RHMember.js';
 import { RecrutementDemande, type RecrutementStatus } from '../entities/recrutement/RecrutementDemande.js';
+import { staffLink } from '../utils/NotifyRH.js';
 import RecrutementView, { RecruitmentActions, recruitmentLabels } from '../view/RecrutementView.js';
 
 const TICKET_PERMISSIONS = [P.ViewChannel, P.SendMessages, P.ReadMessageHistory];
@@ -26,7 +27,7 @@ export function recruitmentTarget(action: string, status: RecrutementStatus): Re
         return 'postulant';
     }
     if (action === RecruitmentActions.Interview && status === 'postulant') {
-        return 'candidate';
+        return 'awaiting_mentor';
     }
     if (action === RecruitmentActions.ConfirmRefuse && (status === 'waiting_rsi' || status === 'review' || status === 'postulant')) {
         return 'refused';
@@ -41,7 +42,7 @@ export type SiteDecision = 'accepted' | 'rejected';
  * clôturé par le suivi de parrainage dès qu'il porte le rôle Membre. Rejetée : refus à tout stade avant l'intégration.
  */
 export function siteDecisionTarget(decision: SiteDecision, status: RecrutementStatus): RecrutementStatus | null {
-    const inProgress = status === 'waiting_rsi' || status === 'review' || status === 'postulant';
+    const inProgress = status === 'waiting_rsi' || status === 'review' || status === 'postulant' || status === 'awaiting_mentor';
     if (decision === 'accepted') return inProgress ? 'integrated' : null;
     return inProgress || status === 'candidate' ? 'refused' : null;
 }
@@ -165,7 +166,7 @@ export class RecrutementManager {
                 } else {
                     // Le rôle Postulant n'est (re)donné que sans demande ou pour une demande encore en phase Postulant.
                     // Refusé, expiré, intégré ou Candidat : aucun changement de rôle (retour aux RH).
-                    const canApply = !existing || ['waiting_rsi', 'review', 'postulant'].includes(existing.status);
+                    const canApply = !existing || ['waiting_rsi', 'review', 'postulant', 'awaiting_mentor'].includes(existing.status);
                     if (canApply) {
                         const roleId = await settingsService.getString(SettingKeys.bot.roles.postulant);
                         if (!roleId) {
@@ -255,6 +256,60 @@ export class RecrutementManager {
             demande.channelId = ticket.id;
             await entityManager.flush();
         }
+    }
+
+    /** Ticket Mentora d'un dossier en attente de mentor : idempotent grâce au marqueur placé dans le sujet du salon. */
+    private async ensureMentoraTicket(demande: RecrutementDemande, entityManager: EntityManager) {
+        if (demande.mentorship?.mentoraChannelId && demande.mentorship.mentoraMessageId) return;
+        const staffRoleId = await this.getStaffRoleId();
+        const parrainRoleId = await settingsService.getString(SettingKeys.bot.recrutement.roleParrain);
+        if (!/^\d{17,20}$/.test(parrainRoleId ?? '') || parrainRoleId === this.bot.guild.id || !await this.bot.guild.roles.fetch(parrainRoleId)) {
+            throw new Error(`Le paramètre ${SettingKeys.bot.recrutement.roleParrain} doit désigner le rôle Parrain.`);
+        }
+        const me = await this.bot.guild.members.fetchMe();
+        if (!me.permissions.has([P.ManageRoles, P.ManageNicknames, P.ManageChannels])) {
+            throw new Error('Le bot doit pouvoir gérer les rôles, pseudos et salons.');
+        }
+        let ticket = demande.mentorship?.mentoraChannelId ? await this.bot.guild.channels.fetch(demande.mentorship.mentoraChannelId).catch(() => null) : null;
+        if (ticket && ticket.type !== ChannelType.GuildText) ticket = null;
+        if (!ticket) {
+            const categoryId = await settingsService.getString(SettingKeys.bot.recrutement.categoryMentora);
+            const category = categoryId ? await this.bot.guild.channels.fetch(categoryId) : null;
+            if (!category || category.type !== ChannelType.GuildCategory || !category.permissionsFor(me)?.has(P.ManageChannels)) {
+                throw new Error(`${SettingKeys.bot.recrutement.categoryMentora} doit désigner une catégorie gérable.`);
+            }
+            const marker = `mentora:${demande.guildId}:${demande.id}`;
+            const channels = await this.bot.guild.channels.fetch();
+            ticket = (channels.find(c => c?.type === ChannelType.GuildText && c.topic === marker) as TextChannel | undefined) ?? null;
+            if (!ticket) {
+                const member = await this.bot.guild.members.fetch(demande.applicantId);
+                ticket = await this.bot.guild.channels.create({
+                    name: `mentora-${member.user.username}`.slice(0, 100), type: ChannelType.GuildText,
+                    parent: category.id, topic: marker,
+                    permissionOverwrites: [
+                        { id: this.bot.guild.id, deny: [P.ViewChannel] },
+                        { id: demande.applicantId, allow: TICKET_PERMISSIONS },
+                        { id: parrainRoleId, allow: TICKET_PERMISSIONS },
+                        { id: staffRoleId, allow: TICKET_PERMISSIONS },
+                        { id: me.id, allow: [...TICKET_PERMISSIONS, P.ManageChannels, P.ManageMessages, P.EmbedLinks] },
+                    ],
+                });
+            }
+        }
+        demande.mentorship = { ...demande.mentorship, mentoraChannelId: ticket.id };
+        await entityManager.flush();
+        const channel = await this.getTextChannel(ticket.id);
+        const welcome = await channel.send({
+            content: `<@${demande.applicantId}>`,
+            embeds: [new EmbedBuilder().setTitle('Ticket Mentora').setDescription([
+                `<@${demande.applicantId}> a validé son entretien et attend un mentor.`,
+                'Les RH peuvent affecter un parrain depuis la fiche RH. Tant qu’aucun mentor n’est engagé, le candidat reste Postulant [P].',
+                staffLink(demande),
+            ].filter(Boolean).join('\n\n'))],
+            allowedMentions: { users: [demande.applicantId], parse: [] },
+        });
+        demande.mentorship = { ...demande.mentorship, mentoraMessageId: welcome.id };
+        await entityManager.flush();
     }
 
     private async syncPostulantAccess(demande: RecrutementDemande, entityManager: EntityManager) {
@@ -353,6 +408,8 @@ export class RecrutementManager {
             } catch (error) {
                 await this.logger.error({ err: error, memberId: member.id }, 'Impossible de modifier le pseudonyme du membre');
             }
+        } else if (target === 'awaiting_mentor') {
+            return; // Entretien validé : ni rôle ni pseudo ne changent, le candidat reste Postulant [P].
         } else if (target === 'postulant') {
             const profile = await this.bot.userManager.initMemberRh(demande.applicantId);
             profile.status = 'Candidatures';
@@ -412,10 +469,16 @@ export class RecrutementManager {
                     demande.pendingStatus = undefined;
                     if (demande.status === 'candidate') {
                         demande.candidateAt = new Date();
-                        demande.mentorship = { waitingSince: demande.candidateAt.toISOString() };
+                        demande.mentorship = { ...demande.mentorship, waitingSince: demande.candidateAt.toISOString(), remindedAt: undefined };
+                    } else if (demande.status === 'awaiting_mentor') {
+                        demande.mentorship = { ...demande.mentorship, waitingSince: new Date().toISOString(), remindedAt: undefined };
                     }
                     demande.needsSync = true;
                     await entityManager.flush();
+                }
+                // Après l'enregistrement du statut : une erreur de configuration ne bloque pas la transition (reprise par le scheduler).
+                if (demande.status === 'awaiting_mentor') {
+                    await this.ensureMentoraTicket(demande, entityManager);
                 }
                 if (!['waiting_rsi', 'review'].includes(demande.status) && Object.keys(demande.postulantChannelAccess ?? {}).length) {
                     await this.syncPostulantAccess(demande, entityManager);
@@ -464,7 +527,8 @@ export class RecrutementManager {
         const updates: Partial<Record<RecrutementStatus, string>> = {
             review: 'Votre dépôt de candidature RSI a bien été déclaré. Merci de patienter : les RH vont vérifier votre candidature et poursuivre le processus avec vous.',
             postulant: `Les RH ont validé votre candidature RSI. La prochaine étape est un entretien vocal avec les RH : convenez d’un rendez-vous dans ce ticket. Les salons autorisés au rôle Postulant sont désormais accessibles. Le délai d’expiration de ${delai} ne s’applique plus.`,
-            candidate: 'Les RH ont validé votre entretien. Vous êtes désormais Candidat : votre préfixe est [C-1CC] et votre rôle Candidat vous a été attribué.',
+            awaiting_mentor: `Les RH ont validé votre entretien. Un ticket Mentora est ouvert${demande.mentorship?.mentoraChannelId ? ` : <#${demande.mentorship.mentoraChannelId}>` : ''}. Vous restez Postulant [P] jusqu’à l’engagement d’un mentor.`,
+            candidate: 'Votre mentor est engagé : vous êtes désormais Candidat. Votre préfixe est [C-1CC] et votre rôle Candidat vous a été attribué.',
             refused: 'Les RH ont refusé votre candidature. Votre parcours de recrutement est terminé.',
             expired: `Votre ticket a été fermé après ${delai} sans activité. Votre rôle Postulant a été retiré.`,
         };
@@ -502,6 +566,9 @@ export class RecrutementManager {
         }
         if (decision) {
             details.push(`Dernière décision : ${recruitmentLabels[decision.to]} — <@${decision.actorId}>.`, decision.reason || '');
+        }
+        if (demande.status === 'awaiting_mentor') {
+            details.push(`Votre entretien est validé. Un ticket Mentora est ouvert${demande.mentorship?.mentoraChannelId ? ` : <#${demande.mentorship.mentoraChannelId}>` : ''}. Vous restez Postulant [P] jusqu’à l’engagement d’un mentor.`);
         }
         if (demande.status === 'candidate') {
             details.push('Votre passage Candidat est validé. Les RH organisent votre parrainage pour découvrir l’ensemble du 1CC.');
@@ -574,6 +641,9 @@ export class RecrutementManager {
         }
         if (demande.status === 'candidate' && this.bot.parrainageManager) {
             embed.addFields({ name: 'Parrainage', value: await this.bot.parrainageManager.summary(demande) });
+        }
+        if (demande.status === 'awaiting_mentor' && demande.mentorship?.mentoraChannelId) {
+            embed.addFields({ name: 'Ticket Mentora', value: `<#${demande.mentorship.mentoraChannelId}>`, inline: true });
         }
         if (decision) {
             embed.addFields({ name: 'Dernière décision', value: `<@${decision.actorId}> — ${decision.at}${decision.reason ? `\n${decision.reason}` : ''}`.slice(0, 1024) });

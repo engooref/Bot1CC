@@ -1,6 +1,12 @@
 import { Entity, PrimaryKey, Property, Unique } from '@mikro-orm/core';
 
-export type RecrutementStatus = 'waiting_rsi' | 'review' | 'postulant' | 'candidate' | 'refused' | 'expired' | 'integrated';
+export interface RecruitmentMentorship {
+    closedAt?: string; closedReason?: string; closedBy?: string; waitingSince?: string; remindedAt?: string; needsSync?: boolean;
+    ticketNotice?: string; rhNotice?: string; periodRemindedAt?: string; interviewRemindedAt?: string;
+    /** Ticket Mentora (statut awaiting_mentor). */
+    mentoraChannelId?: string; mentoraMessageId?: string;
+}
+export type RecrutementStatus = 'waiting_rsi' | 'review' | 'postulant' | 'awaiting_mentor' | 'candidate' | 'refused' | 'expired' | 'integrated';
 export interface PostulantChannelAccess { viewChannel: boolean | null; hadOverwrite: boolean; }
 export interface RecruitmentDecision { from: RecrutementStatus; to: RecrutementStatus; actorId: string; at: string; reason?: string; ticketMessageId?: string; }
 
@@ -28,7 +34,8 @@ export class RecrutementDemande {
     @Property({ type: Date, nullable: true }) candidateAt?: Date;
     @Property({ type: Date, nullable: true }) arrivalTaggedAt?: Date;
     @Property({ type: Date, nullable: true }) arrivalRemovedAt?: Date;
-    @Property({ type: 'json', nullable: true }) mentorship?: { closedAt?: string; closedReason?: string; closedBy?: string; waitingSince?: string; remindedAt?: string; needsSync?: boolean; ticketNotice?: string; rhNotice?: string; periodRemindedAt?: string; interviewRemindedAt?: string };
+    /** Champ JSON : toute écriture doit conserver les clés existantes ({ ...mentorship, … }). */
+    @Property({ type: 'json', nullable: true }) mentorship?: RecruitmentMentorship;
     @Property({ type: 'boolean' }) needsSync = true;
     @Property({ type: 'text', nullable: true }) lastError?: string;
 }
