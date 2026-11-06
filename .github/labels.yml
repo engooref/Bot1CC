@@ -45,6 +45,9 @@
 - name: agent:go
   color: 0e8a16
   description: Feu vert du propriétaire, l'agent peut commencer
+- name: agent:dev
+  color: 0052cc
+  description: Dev en plusieurs PR (une par lot), réservé au propriétaire, issue écrite par lui ou Claude
 - name: agent:en-cours
   color: 1d76db
   description: Un agent travaille dessus
