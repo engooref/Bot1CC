@@ -49,6 +49,11 @@ export class SchedulerEvent {
         await this.sendReminder(ev);
       }
 
+      // rattrapage : rappel déjà envoyé mais salons vocaux absents (échec de création précédent)
+      if (ev.appelMsgDiscord && diffMin <= 15 && ev.end.getTime() > today.getTime()) {
+        await this.ensureEventVoiceChannels(ev);
+      }
+
       if (diffMin > ONE_DAY_MIN - 15 && diffMin <= ONE_DAY_MIN) {
         await this.sendReminderDayBefore(ev);
       }
@@ -168,97 +173,110 @@ export class SchedulerEvent {
     await this.ensureEventVoiceChannels(ev);
   }
 
-  @SafeMethod
-  public async ensureEventVoiceChannels(ev: Event): Promise<void> {
+  /**
+   * Crée (ou complète) la catégorie et les salons vocaux de l'event.
+   * Ne lève jamais d'exception : renvoie `true` si les salons sont en place, `false` sinon.
+   */
+  public async ensureEventVoiceChannels(ev: Event): Promise<boolean> {
+    try {
+      await this.createEventVoiceChannels(ev);
+      return true;
+    } catch (err) {
+      this.logger.error({ msg: "Échec de la création des salons vocaux de l'event", eventId: ev.id, eventName: ev.name, err });
+      return false;
+    }
+  }
+
+  private async createEventVoiceChannels(ev: Event): Promise<void> {
+    const roleMember = this.bot.roleMember;
+    if (!roleMember) {
+      throw new Error('Rôle membre introuvable (bot.roleMember non défini)');
+    }
+
+    let eventCategory = null;
     if (ev.discord.vocalParentId) {
       const existing = await this.bot.guild.channels.fetch(ev.discord.vocalParentId).catch(() => null);
       if (existing && existing.type === ChannelType.GuildCategory) {
-        this.logger.info({
-          msg: 'Création des channels ignorée: catégorie déjà existante',
-          eventId: ev.id,
-          categoryId: ev.discord.vocalParentId,
-        });
-        return;
+        eventCategory = existing;
       }
     }
 
-    // --- Création du channel vocal parent ---
-    // On crée le channel vocal parent dans la même catégorie que le channel textuel de l'event
+    if (!eventCategory) {
+      this.logger.info({ msg: 'Création de la catégorie event', eventId: ev.id, eventName: ev.name });
+      eventCategory = await this.bot.guild.channels.create({
+        name: `Event - ${ev.name}`,
+        type: ChannelType.GuildCategory,
+        reason: `Catégorie pour l'event ${ev.name}`,
+        permissionOverwrites: [
+          {
+            id: this.bot.guild.roles.everyone, // Tout le monde
+            allow: ['ViewChannel'],
+            deny: ['Connect'],
+          },
+          {
+            id: roleMember.id,
+            allow: ['ViewChannel', 'Connect', 'Speak'],
+          },
+        ],
+      });
+      this.logger.info({ msg: 'Catégorie créée', eventId: ev.id, categoryId: eventCategory.id });
 
-    this.logger.info({ msg: 'Création de la catégorie event', eventId: ev.id, eventName: ev.name });
-    const eventCategory = await this.bot.guild.channels.create({
-      name: `Event - ${ev.name}`,
-      type: ChannelType.GuildCategory,
-      reason: `Catégorie pour l'event ${ev.name}`,
-      permissionOverwrites: [
-        {
-          id: this.bot.guild.roles.everyone, // Tout le monde
-          allow: ['ViewChannel'],
-          deny: ['Connect'],
-        },
-        {
-          id: this.bot.roleMember!.id, // Remplace par l'ID du rôle "membre"
-          allow: ['ViewChannel', 'Connect', 'Speak'],
-        },
-      ],
-    }).catch(err => {
-      this.logger.error({ msg: 'Erreur création catégorie', eventId: ev.id, err });
-      throw err;
-    });
-    this.logger.info({ msg: 'Catégorie créée', eventId: ev.id, categoryId: eventCategory.id });
+      // Enregistre tout de suite l'ID : évite une catégorie orpheline et des doublons au nouvel essai
+      ev.discord.vocalParentId = eventCategory.id;
+      await this.bot.eventManager.em.persist(ev).flush();
 
-    // Déplace la catégorie juste après une autre catégorie (par exemple "Catégorie de référence")
-    const referenceCategoryId = '523426571978276864'; // Remplace par l'ID voulu
-    const referenceCategory = this.bot.guild.channels.cache.get(referenceCategoryId);
-    if (referenceCategory && referenceCategory.type === ChannelType.GuildCategory) {
-      // Place la nouvelle catégorie juste après la catégorie de référence
-      await eventCategory.setPosition(referenceCategory.position + 1);
-      this.logger.info({ msg: 'Position de la catégorie mise à jour', eventId: ev.id });
+      // Déplace la catégorie juste après la catégorie de référence (non bloquant)
+      const referenceCategoryId = '523426571978276864';
+      const referenceCategory = this.bot.guild.channels.cache.get(referenceCategoryId);
+      if (referenceCategory && referenceCategory.type === ChannelType.GuildCategory) {
+        try {
+          await eventCategory.setPosition(referenceCategory.position + 1);
+          this.logger.info({ msg: 'Position de la catégorie mise à jour', eventId: ev.id });
+        } catch (err) {
+          this.logger.warn({ msg: 'Repositionnement de la catégorie impossible', eventId: ev.id, err });
+        }
+      }
     }
 
-    // Crée le channel vocal parent dans cette catégorie
-    this.logger.info({ msg: 'Création du vocal créateur', eventId: ev.id });
-    await this.bot.guild.channels.create({
-      name: `Créer un vocal d'équipe`,
-      type: ChannelType.GuildVoice,
-      parent: eventCategory.id,
-      reason: `Préparation event ${ev.name}`,
-      // Pas de permissionOverwrites ici, il hérite de la catégorie
-    }).catch(err => {
-      this.logger.error({ msg: 'Erreur création vocal créateur', eventId: ev.id, err });
-      throw err;
-    });
-    this.logger.info({ msg: 'Vocal créateur créé', eventId: ev.id });
+    const categoryId = eventCategory.id;
+    const children = this.bot.guild.channels.cache.filter(c => c.parentId === categoryId);
+    const hasChild = (type: ChannelType) => children.some(c => c.type === type);
 
-    // Crée la salle de conférence privée
-    this.logger.info({ msg: 'Création du vocal briefing', eventId: ev.id });
-    await this.bot.guild.channels.create({
-      name: `Briefing`,
-      type: ChannelType.GuildStageVoice,
-      parent: eventCategory.id,
-      reason: `Salle de briefing privée pour l'event ${ev.name}`,
-      permissionOverwrites: [
-        {
-          id: this.bot.guild.roles.everyone,
-          allow: ['ViewChannel'],
-          deny: ['Connect', 'Speak'],
-        },
-        {
-          id: this.bot.roleMember!.id,
-          allow: ['ViewChannel', 'Connect', 'Speak'],
-        },
-      ],
-    }).catch(err => {
-      this.logger.error({ msg: 'Erreur création vocal briefing', eventId: ev.id, err });
-      throw err;
-    });
-    this.logger.info({ msg: 'Vocal briefing créé', eventId: ev.id });
+    if (!hasChild(ChannelType.GuildVoice)) {
+      this.logger.info({ msg: 'Création du vocal créateur', eventId: ev.id });
+      await this.bot.guild.channels.create({
+        name: `Créer un vocal d'équipe`,
+        type: ChannelType.GuildVoice,
+        parent: categoryId,
+        reason: `Préparation event ${ev.name}`,
+        // Pas de permissionOverwrites ici, il hérite de la catégorie
+      });
+      this.logger.info({ msg: 'Vocal créateur créé', eventId: ev.id });
+    }
 
-    // Stocke l'ID de la catégorie dans l'event
-    this.logger.info({ msg: 'Sauvegarde vocalParentId en BDD', eventId: ev.id, categoryId: eventCategory.id });
-    ev.discord.vocalParentId = eventCategory.id;
-    await this.bot.eventManager.em.persist(ev).flush();
-    this.logger.info({ msg: 'Canaux vocaux créés avec succès', eventId: ev.id, categoryId: eventCategory.id });
+    if (!hasChild(ChannelType.GuildStageVoice)) {
+      this.logger.info({ msg: 'Création du vocal briefing', eventId: ev.id });
+      await this.bot.guild.channels.create({
+        name: `Briefing`,
+        type: ChannelType.GuildStageVoice,
+        parent: categoryId,
+        reason: `Salle de briefing privée pour l'event ${ev.name}`,
+        permissionOverwrites: [
+          {
+            id: this.bot.guild.roles.everyone,
+            allow: ['ViewChannel'],
+            deny: ['Connect', 'Speak'],
+          },
+          {
+            id: roleMember.id,
+            allow: ['ViewChannel', 'Connect', 'Speak'],
+          },
+        ],
+      });
+      this.logger.info({ msg: 'Vocal briefing créé', eventId: ev.id });
+    }
+
+    this.logger.info({ msg: 'Canaux vocaux en place', eventId: ev.id, categoryId });
   }
 
   // Méthode utilitaire pour récupérer l'ID du channel vocal parent d'un event
