@@ -46,6 +46,7 @@ jobs:
         run: npm ci
 
       - uses: anthropics/claude-code-action@v1
+        id: claude
         env:
           GH_TOKEN: ${{ github.token }}
         with:
@@ -93,3 +94,49 @@ jobs:
           claude_args: >-
             --max-turns 80
             --allowedTools "Read,Grep,Glob,Edit,Write,Bash(git status:*),Bash(git diff:*),Bash(git log:*),Bash(git switch:*),Bash(git checkout:*),Bash(git add:*),Bash(git commit:*),Bash(git push origin agent/*),Bash(npm run build:*),Bash(npm run test:*),Bash(gh issue view:*),Bash(gh issue comment:*),Bash(gh issue edit:*),Bash(gh pr create:*),Bash(gh pr list:*),Bash(gh pr view:*)"
+
+      # Diagnostic : le journal détaillé (outils appelés, refus de permission) n'existe sinon que sur le
+      # runner. Conservé 3 jours. Le dépôt est public : ne rien y faire passer de confidentiel.
+      - name: Conserver le journal détaillé de l'agent
+        if: always() && steps.claude.outputs.execution_file != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-dev-${{ github.event.issue.number }}-${{ github.run_id }}
+          path: ${{ steps.claude.outputs.execution_file }}
+          retention-days: 3
+
+      # Filet : si l'agent s'arrête sans PR et sans avoir changé de label, le propriétaire le saura.
+      - name: Signaler une fin sans PR
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE: ${{ github.event.issue.number }}
+          EXEC_FILE: ${{ steps.claude.outputs.execution_file }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          set -uo pipefail
+          labels=$(gh api "repos/$GITHUB_REPOSITORY/issues/$ISSUE" --jq '[.labels[].name] | join(",")') || exit 0
+          case ",$labels," in *,agent:en-cours,*) ;; *) exit 0 ;; esac
+          open_prs=$(gh api "repos/$GITHUB_REPOSITORY/pulls?state=open&per_page=100" \
+            --jq "[.[] | select(.head.ref | startswith(\"agent/bot1cc-${ISSUE}-lot\"))] | length") || exit 0
+          [ "$open_prs" = "0" ] || exit 0
+          denied=""
+          if [ -n "${EXEC_FILE:-}" ] && [ -f "$EXEC_FILE" ]; then
+            denied=$(jq -r '[.[] | select(.type=="result")] | last | (.permission_denials // [])
+              | map("- `" + (.tool_name // "?") + "` : " + ((.tool_input.command // .tool_input.file_path // "") | tostring | gsub("`";"\u0027") | .[0:160])) | .[]' \
+              "$EXEC_FILE" 2>/dev/null | head -10) || denied=""
+          fi
+          {
+            echo "L'agent s'est arrêté sans ouvrir de PR (job : $JOB_STATUS). Je pose \`agent:bloque\` à la place de \`agent:en-cours\`."
+            echo
+            if [ -n "$denied" ]; then
+              echo "Commandes refusées faute d'autorisation dans le workflow :"
+              echo "$denied"
+            else
+              echo "Aucun refus de permission relevé (ou journal illisible)."
+            fi
+            echo
+            echo "Journal détaillé (artefact, 3 jours) : $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          } > "$RUNNER_TEMP/fin-sans-pr.md"
+          gh issue comment "$ISSUE" --body-file "$RUNNER_TEMP/fin-sans-pr.md"
+          gh issue edit "$ISSUE" --remove-label "agent:en-cours" --add-label "agent:bloque"
