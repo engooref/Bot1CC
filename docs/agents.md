@@ -71,6 +71,8 @@ Le chef (conversation Claude) reste utilisable en plus : « lance l'agent sur Bo
 
 L'issue **reste ouverte** entre les lots : seule la PR du dernier lot porte `Closes #<n>`, et seulement si la « Consigne : » le dit. Si la consigne manque, si le lot est ambigu, si une décision n'est pas tranchée ou si le lot précédent n'est pas fusionné, l'agent n'écrit aucun code, explique ce qui manque et pose `agent:bloque`.
 
+**Si l'agent s'arrête sans PR** : le workflow conserve le journal détaillé de l'exécution (artefact du run, 3 jours ; dépôt public, donc rien de confidentiel). Si l'issue est restée en `agent:en-cours` sans PR, le workflow commente la liste des commandes refusées faute d'autorisation et pose `agent:bloque`.
+
 Les limites de `CLAUDE.md` restent entières : zones interdites, pas de migration ni de nouvelle variable d'environnement sans accord explicite dans la « Consigne : » du lot, aucune fusion, aucun push sur `main`. Un lot autorisé avec migration livre le fichier sans l'appliquer : le propriétaire le relit et l'applique à la main.
 
 ## Sécurité
