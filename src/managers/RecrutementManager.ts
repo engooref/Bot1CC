@@ -15,6 +15,7 @@ import { getManagerLogger } from '../logger.js';
 import { RHMember } from '../entities/rh/RHMember.js';
 import { RecrutementDemande, type RecrutementStatus } from '../entities/recrutement/RecrutementDemande.js';
 import { staffLink } from '../utils/NotifyRH.js';
+import { editMemberOverwrite } from '../utils/PermissionOverwrites.js';
 import RecrutementView, { RecruitmentActions, recruitmentLabels } from '../view/RecrutementView.js';
 
 const TICKET_PERMISSIONS = [P.ViewChannel, P.SendMessages, P.ReadMessageHistory];
@@ -342,7 +343,7 @@ export class RecrutementManager {
             for (const channel of ordered) {
                 if (!channel || !saved[channel.id] || !('permissionOverwrites' in channel)) continue;
                 if (!channel.permissionOverwrites.cache.get(demande.applicantId)?.deny.has(P.ViewChannel)) {
-                    await channel.permissionOverwrites.edit(demande.applicantId, { ViewChannel: false }, { reason: 'Recrutement : accès réservé à l’étape entretien vocal' });
+                    await editMemberOverwrite(channel, demande.applicantId, { ViewChannel: false }, 'Recrutement : accès réservé à l’étape entretien vocal');
                 }
             }
         } else {
@@ -354,8 +355,8 @@ export class RecrutementManager {
                 if (channel && 'permissionOverwrites' in channel) {
                     const overwrite = channel.permissionOverwrites.cache.get(demande.applicantId);
                     if (overwrite?.deny.has(P.ViewChannel)) {
-                        const restored = await channel.permissionOverwrites.edit(demande.applicantId, { ViewChannel: previous.viewChannel }, { reason: 'Recrutement : fin du blocage des accès Postulant' });
-                        if (!previous.hadOverwrite && restored.permissionOverwrites.cache.get(demande.applicantId)?.allow.bitfield === 0n
+                        const restored = await editMemberOverwrite(channel, demande.applicantId, { ViewChannel: previous.viewChannel }, 'Recrutement : fin du blocage des accès Postulant');
+                        if (restored && 'permissionOverwrites' in restored && !previous.hadOverwrite && restored.permissionOverwrites.cache.get(demande.applicantId)?.allow.bitfield === 0n
                             && restored.permissionOverwrites.cache.get(demande.applicantId)?.deny.bitfield === 0n) {
                             await channel.permissionOverwrites.delete(demande.applicantId);
                         }
@@ -384,7 +385,7 @@ export class RecrutementManager {
             });
             const roleId = await settingsService.getString(SettingKeys.bot.roles.postulant);
             if (member && roleId) await member.roles.remove(roleId, 'Ticket de recrutement expiré');
-            await ticket.permissionOverwrites.edit(demande.applicantId, { ViewChannel: false, SendMessages: false, ReadMessageHistory: false });
+            await editMemberOverwrite(ticket, demande.applicantId, { ViewChannel: false, SendMessages: false, ReadMessageHistory: false });
             return;
         }
         const member = await this.bot.guild.members.fetch({ user: demande.applicantId, force: true });
@@ -457,6 +458,7 @@ export class RecrutementManager {
     }
 
     async resume(id: number) {
+        let cause: unknown;
         const error = await this.withLockedRequest(id, async (demande, entityManager) => {
             try {
                 if (['waiting_rsi', 'review'].includes(demande.status)) {
@@ -502,6 +504,7 @@ export class RecrutementManager {
                 await entityManager.flush();
                 return null;
             } catch (error) {
+                cause = error;
                 await this.notifySyncFailure(demande, error);
                 demande.needsSync = true;
                 await entityManager.flush();
@@ -509,7 +512,9 @@ export class RecrutementManager {
             }
         });
         if (error) {
-            throw new Error(error);
+            const failure = new Error(error);
+            if (cause instanceof Error) failure.stack = `${failure.stack}\nCause : ${cause.stack}`; // garde la trace de l'erreur d'origine
+            throw failure;
         }
     }
 

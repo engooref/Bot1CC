@@ -1130,3 +1130,19 @@ test('resume() au passage Candidat conserve les clés existantes de mentorship',
     assert.equal(f.d.mentorship.interviewRemindedAt, '2026-10-02T00:00:00.000Z');
     assert.equal(f.d.mentorship.waitingSince, f.d.candidateAt.toISOString());
 });
+
+test('un membre parti du serveur ne bloque plus la reprise : le droit individuel est ignoré', async () => {
+    const { editMemberOverwrite, isUnresolvableOverwriteTarget } = await import('../dist/src/utils/PermissionOverwrites.js');
+    const gone = new TypeError('Supplied parameter is not a User nor a Role.');
+    const channel = { permissionOverwrites: { edit: async () => { throw gone; } } };
+    assert.equal(isUnresolvableOverwriteTarget(gone), true);
+    assert.equal(await editMemberOverwrite(channel, ids.applicant, { ViewChannel: false }), null);
+
+    const edited = { id: ids.ticket };
+    const ok = { permissionOverwrites: { edit: async () => edited } };
+    assert.equal(await editMemberOverwrite(ok, ids.applicant, { ViewChannel: false }), edited);
+
+    const other = new Error('Missing Permissions');
+    const failing = { permissionOverwrites: { edit: async () => { throw other; } } };
+    await assert.rejects(() => editMemberOverwrite(failing, ids.applicant, { ViewChannel: false }), other);
+});
