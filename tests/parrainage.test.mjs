@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import { Collection, ChannelType, PermissionFlagsBits as P, PermissionsBitField } from 'discord.js';
 process.env.URL_SITE = 'https://example.invalid';
 process.env.BOT_TOKEN = 'test-only';
-const { ParrainageManager, candidatePeriodEnded, parseParrainReturn, parrainAvailability, parrainCapacity } = await import('../dist/src/managers/ParrainageManager.js');
+const { ParrainageManager, candidatePeriodEnded, candidatePeriodEnd, reminderDue, parseParrainReturn, parrainAvailability, parrainCapacity } = await import('../dist/src/managers/ParrainageManager.js');
 const { RecrutementDemande: D } = await import('../dist/src/entities/recrutement/RecrutementDemande.js');
 const { RecrutementParrainage: A } = await import('../dist/src/entities/recrutement/RecrutementParrainage.js');
 const { ParrainPreference: Pref } = await import('../dist/src/entities/recrutement/ParrainPreference.js');
@@ -65,9 +65,13 @@ function fixture() {
             } finally { release(); }
         },
     };
-    const members = new Collection();
+    const members = new Collection(), closedDMs = new Set();
     function member(id, roles = []) {
-        const m = { id, displayName: `Membre ${id}`, user: { id, bot: false }, roles: { cache: new Collection(roles.map(r => [r, { id: r }])) }, permissions: new PermissionsBitField(0n), async send(content) { operations.push(['dm', id, content]); } };
+        const m = { id, displayName: `Membre ${id}`, user: { id, bot: false }, roles: { cache: new Collection(roles.map(r => [r, { id: r }])) }, permissions: new PermissionsBitField(0n), async send(content) { operations.push(['dm', id, content]); },
+            async createDM() {
+                if (closedDMs.has(id)) throw Object.assign(new Error('Cannot send messages to this user'), { code: 50007 });
+                return { id: `dm-${id}`, async send(options) { operations.push(['mentor-dm', id, options]); return { id: String(++serial), channelId: `dm-${id}` }; } };
+            } };
         members.set(id, m); return m;
     }
     member(ids.parrain, [ids.role]); member(ids.other, [ids.role]); member(ids.staff, [ids.rh]); member(ids.applicant);
@@ -123,7 +127,7 @@ function fixture() {
             async editReply(options) { replies.push(options); return { id: String(++serial), channelId: ids.ticket }; }, replies,
         };
     }
-    return { bot, manager, em, requests, assignments, prefs, contexts, members, channel, mentora, mentoraOverwrites, operations, pref, assignment, interaction, failMessage: value => { failMessage = value; }, failRH: value => { failRH = value; } };
+    return { bot, manager, em, requests, assignments, prefs, contexts, members, closedDMs, channel, mentora, mentoraOverwrites, operations, pref, assignment, interaction, failMessage: value => { failMessage = value; }, failRH: value => { failRH = value; } };
 }
 
 test('dates de retour : Paris hiver/été, dates impossibles et passées', () => {
@@ -400,46 +404,155 @@ test('avis favorable : formulaire puis sauvegarde sans récupération Gateway gl
     await f.manager.listing(f.interaction(ids.staff), 'choose', { demandeId: 1, expectedId: a.id });
 });
 
-const periodNotices = f => f.operations.filter(([kind, payload]) => kind === 'rh' && payload.content.includes('Période Candidat de 14 jours terminée'));
+const DAY = 86400_000;
+const periodNotices = f => f.operations.filter(([kind, payload]) => kind === 'rh' && /Période Candidat de \d+ jours? terminée/.test(payload.content));
+const mentorDMs = f => f.operations.filter(([kind]) => kind === 'mentor-dm');
 const reviewNotices = f => f.operations.filter(([kind, payload]) => kind === 'rh' && /Bilan (déposé|mis à jour)/.test(payload.content));
 
-test('14 jours : frontière exacte depuis candidateAt et aucune date inventée', () => {
-    const now = Date.now(), delay = 14 * 86400_000;
+test('période : 30 jours par défaut, frontière exacte depuis candidateAt et aucune date inventée', () => {
+    const now = Date.now(), delay = 30 * DAY;
     assert.equal(candidatePeriodEnded({ status: 'candidate', candidateAt: new Date(now - delay + 1) }, now), false);
     assert.equal(candidatePeriodEnded({ status: 'candidate', candidateAt: new Date(now - delay) }, now), true);
+    assert.equal(candidatePeriodEnded({ status: 'candidate', candidateAt: new Date(now - 14 * DAY) }, now), false);
     assert.equal(candidatePeriodEnded({ status: 'candidate' }, now), false);
     assert.equal(candidatePeriodEnded({ status: 'postulant', candidateAt: new Date(0) }, now), false);
     assert.equal(candidatePeriodEnded({ status: 'candidate', candidateAt: new Date(0), mentorship: { closedAt: 'closed' } }, now), false);
 });
 
-test('rappel 14 jours unique malgré redémarrage, remplacement et retrait du parrain', async () => {
-    const f = fixture(); f.requests[0].candidateAt = new Date(Date.now() - 15 * 86400_000);
-    await f.manager.assign(1, ids.parrain, ids.staff, 0);
-    await f.manager.check();
-    const remembered = f.requests[0].mentorship.periodRemindedAt;
-    assert.ok(remembered);
-    await new ParrainageManager(f.bot).check();
-    await f.manager.assign(1, ids.other, ids.staff, f.assignments[0].id);
-    await f.manager.check();
-    await f.manager.finish(1, ids.staff, 'Attente de remplacement', false, f.assignments[1].id);
-    await f.manager.check();
-    assert.equal(periodNotices(f).length, 1);
-    assert.equal(f.requests[0].mentorship.periodRemindedAt, remembered);
-    assert.equal(f.requests[0].status, 'candidate');
-    assert.equal(f.members.get(ids.applicant).roles.cache.has(ids.official), false);
+test('période : durée paramétrable, prolongations cumulées et « le mois repart »', () => {
+    const now = Date.now(), candidateAt = new Date(now - 20 * DAY), base = { status: 'candidate', candidateAt };
+    assert.equal(candidatePeriodEnded(base, now, 20), true);
+    assert.equal(candidatePeriodEnded(base, now, 21), false);
+    assert.equal(candidatePeriodEnd(base, 30).getTime(), candidateAt.getTime() + 30 * DAY);
+    const extended = { ...base, mentorship: { periodExtraDays: 14 + 7 } };
+    assert.equal(candidatePeriodEnd(extended, 30).getTime(), candidateAt.getTime() + 51 * DAY);
+    const restarted = { ...base, mentorship: { periodStartAt: new Date(now - 5 * DAY).toISOString(), periodExtraDays: 14 } };
+    assert.equal(candidatePeriodEnd(restarted, 30).getTime(), now - 5 * DAY + 44 * DAY);
+    assert.equal(candidatePeriodEnded(restarted, now, 1), false);
+    assert.equal(candidatePeriodEnd({ mentorship: { periodStartAt: 'illisible' } }, 30), null);
+    assert.equal(candidatePeriodEnd({}, 30), null);
 });
 
-test('rappel 14 jours sans parrain, reprise si notification RH échoue', async () => {
-    const f = fixture(); f.requests[0].candidateAt = new Date(Date.now() - 15 * 86400_000);
+test('relance due : première fois, après l’intervalle, jamais avant, et pas sur une relance antérieure à la période', () => {
+    const now = Date.now(), end = new Date(now - 10 * DAY);
+    assert.equal(reminderDue(undefined, end, now, 3), true);
+    assert.equal(reminderDue(new Date(now - 3 * DAY + 1).toISOString(), end, now, 3), false);
+    assert.equal(reminderDue(new Date(now - 3 * DAY).toISOString(), end, now, 3), true);
+    assert.equal(reminderDue(new Date(now - 11 * DAY).toISOString(), end, now, 30), true);
+});
+
+test('paramètres de période : lus depuis les réglages, défaut si invalides', async () => {
+    const f = fixture(); f.requests[0].candidateAt = new Date(Date.now() - 15 * DAY);
+    config['bot.recrutement.candidate_period_days'] = 10; await f.manager.check();
+    assert.equal(periodNotices(f).length, 1);
+    assert.match(periodNotices(f)[0][1].content, /10 jours/);
+    for (const bad of [0, -3, 'abc']) {
+        const g = fixture(); g.requests[0].candidateAt = new Date(Date.now() - 15 * DAY);
+        config['bot.recrutement.candidate_period_days'] = bad; await g.manager.check();
+        assert.equal(periodNotices(g).length, 0, `valeur ${bad} : défaut de 30 jours`);
+    }
+});
+
+test('échéance : le mentor reçoit un MP avec bouton et les RH sont prévenus avec son absence d’avis', async () => {
+    const f = fixture(); f.requests[0].candidateAt = new Date(Date.now() - 31 * DAY);
+    await f.manager.assign(1, ids.parrain, ids.staff, 0);
+    await f.manager.check();
+    assert.equal(periodNotices(f).length, 1);
+    assert.match(periodNotices(f)[0][1].content, new RegExp(`<@${ids.parrain}> n’a pas encore donné sa décision`));
+    assert.equal(mentorDMs(f).length, 1);
+    const [, mentorId, options] = mentorDMs(f)[0];
+    assert.equal(mentorId, ids.parrain);
+    assert.equal(options.components[0].components[0].data.custom_id, 'parrain_candidate');
+    assert.ok(f.requests[0].mentorship.mentorRemindedAt);
+});
+
+test('relances répétées tous les 3 jours (paramètre), pas avant', async () => {
+    const f = fixture(); f.requests[0].candidateAt = new Date(Date.now() - 45 * DAY);
+    await f.manager.assign(1, ids.parrain, ids.staff, 0);
+    await f.manager.check(); await f.manager.check();
+    assert.equal(periodNotices(f).length, 1); assert.equal(mentorDMs(f).length, 1);
+    const back = days => { const m = f.requests[0].mentorship; for (const key of ['periodRemindedAt', 'mentorRemindedAt']) m[key] = new Date(Date.parse(m[key]) - days * DAY).toISOString(); };
+    back(2); await f.manager.check();
+    assert.equal(periodNotices(f).length, 1); assert.equal(mentorDMs(f).length, 1);
+    back(1); await f.manager.check();
+    assert.equal(periodNotices(f).length, 2); assert.equal(mentorDMs(f).length, 2);
+    config['bot.recrutement.mentor_reminder_days'] = 5; back(3); await f.manager.check();
+    assert.equal(periodNotices(f).length, 2, 'intervalle de 5 jours');
+    back(2); await f.manager.check();
+    assert.equal(periodNotices(f).length, 3); assert.equal(mentorDMs(f).length, 3);
+});
+
+test('après le bilan du mentor : plus de MP, les RH reçoivent son avis', async () => {
+    const f = fixture(); f.requests[0].candidateAt = new Date(Date.now() - 31 * DAY);
+    await f.manager.assign(1, ids.parrain, ids.staff, 0);
+    await f.manager.reviewOrRelay(f.assignments[0].id, ids.parrain, 'Très bien intégré', 'favorable');
+    await f.manager.check();
+    assert.equal(mentorDMs(f).length, 0);
+    assert.match(periodNotices(f)[0][1].content, /Avis du mentor : \*\*Favorable\*\* — Très bien intégré/);
+});
+
+test('un avis déposé avant l’échéance ne compte pas comme décision', async () => {
+    const f = fixture(); f.requests[0].candidateAt = new Date(Date.now() - 31 * DAY);
+    await f.manager.assign(1, ids.parrain, ids.staff, 0);
+    f.assignments[0].details.reviews = [{ avis: 'favorable', comment: 'Tôt', actorId: ids.parrain, at: new Date(Date.now() - 40 * DAY).toISOString(), notified: true }];
+    await f.manager.check();
+    assert.equal(mentorDMs(f).length, 1);
+});
+
+test('prolongation : plus de relance tant que la nouvelle échéance n’est pas atteinte', async () => {
+    const f = fixture(); f.requests[0].candidateAt = new Date(Date.now() - 31 * DAY);
+    await f.manager.assign(1, ids.parrain, ids.staff, 0);
+    await f.manager.check();
+    f.requests[0].mentorship = { ...f.requests[0].mentorship, periodExtraDays: 14 };
+    for (const key of ['periodRemindedAt', 'mentorRemindedAt']) f.requests[0].mentorship[key] = new Date(Date.now() - 10 * DAY).toISOString();
+    await f.manager.check();
+    assert.equal(periodNotices(f).length, 1); assert.equal(mentorDMs(f).length, 1);
+});
+
+test('échéance sans parrain, reprise si la notification RH échoue', async () => {
+    const f = fixture(); f.requests[0].candidateAt = new Date(Date.now() - 31 * DAY);
     f.failRH(true); await f.manager.check();
     assert.equal(f.requests[0].mentorship?.periodRemindedAt, undefined);
     f.failRH(false); await f.manager.check(); await f.manager.check();
     assert.equal(periodNotices(f).length, 1);
+    assert.match(periodNotices(f)[0][1].content, /Aucun mentor n’est affecté/);
+    assert.equal(mentorDMs(f).length, 0);
+});
+
+test('MP du mentor fermés : repli dans le canal RH, puis nouvel essai de MP à l’intervalle', async () => {
+    const f = fixture(); f.requests[0].candidateAt = new Date(Date.now() - 31 * DAY);
+    await f.manager.assign(1, ids.parrain, ids.staff, 0);
+    f.closedDMs.add(ids.parrain);
+    await f.manager.check();
+    assert.equal(mentorDMs(f).length, 0);
+    const fallbacks = f.operations.filter(([kind, payload]) => kind === 'rh' && payload.content.includes('messages privés fermés'));
+    assert.equal(fallbacks.length, 1);
+    assert.equal(periodNotices(f).length, 1);
+});
+
+test('mentorship conserve ses clés de période après assign() et finish()', async () => {
+    const f = fixture(); f.requests[0].candidateAt = new Date();
+    const extra = { periodStartAt: new Date().toISOString(), periodExtraDays: 14, mentorRemindedAt: 'x', periodRemindedAt: 'y' };
+    f.requests[0].mentorship = { ...extra };
+    await f.manager.assign(1, ids.parrain, ids.staff, 0);
+    await f.manager.reviewOrRelay(f.assignments[0].id, ids.parrain, 'Bilan', 'favorable');
+    await f.manager.assign(1, ids.other, ids.staff, f.assignments[0].id);
+    await f.manager.finish(1, ids.staff, 'Retrait', false, f.assignments[1].id);
+    await f.manager.finish(1, ids.staff, 'Clôture', true);
+    for (const [key, value] of Object.entries(extra)) assert.equal(f.requests[0].mentorship[key], value, key);
+});
+
+test('le mentor ne se voit proposer que favorable et défavorable', async () => {
+    const f = fixture(); await f.manager.assign(1, ids.parrain, ids.staff, 0);
+    const i = f.interaction(ids.parrain, 'candidate');
+    await f.manager.handler(i, { guildId: ids.guild, actorId: ids.parrain, attributionId: f.assignments[0].id, userId: ids.parrain });
+    const select = i.replies.at(-1).components.flatMap(row => row.components).find(c => c.data.custom_id === 'parrain_review');
+    assert.deepEqual(select.options.map(o => o.data.value), ['favorable', 'defavorable']);
 });
 
 test('aucun rappel de période pour un citoyen ou un dossier clôturé', async () => {
     for (const closed of [true, false]) {
-        const f = fixture(); f.requests[0].candidateAt = new Date(Date.now() - 20 * 86400_000);
+        const f = fixture(); f.requests[0].candidateAt = new Date(Date.now() - 40 * DAY);
         if (closed) f.requests[0].mentorship = { closedAt: new Date().toISOString() };
         else f.members.get(ids.applicant).roles.cache.set(ids.official, { id: ids.official });
         await f.manager.check(); assert.equal(periodNotices(f).length, 0);

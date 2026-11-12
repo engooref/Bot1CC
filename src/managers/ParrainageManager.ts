@@ -8,7 +8,7 @@ import { ParrainPreference as Preference } from '../entities/recrutement/Parrain
 import { SettingKeys } from '../constants/SettingKeys.js';
 import { settingsService } from '../services/SettingsService.js';
 import { getManagerLogger } from '../logger.js';
-import { daysToMs, formatDays, mentorWaitDays } from '../utils/RecruitmentDelays.js';
+import { DEFAULT_CANDIDATE_PERIOD_DAYS, candidatePeriodDays, daysToMs, formatDays, mentorReminderDays, mentorWaitDays } from '../utils/RecruitmentDelays.js';
 import View, { mentoraEmbed, parrainButton as button, parrainSelect as select } from '../view/ParrainageView.js';
 import type { ComponentInteraction } from '../view/BaseView.js';
 import { JSONTypeComponent as T, type JSONComponent, type ModalField } from '../utils/Type.js';
@@ -16,12 +16,32 @@ import { notifyRH, staffLink } from '../utils/NotifyRH.js';
 import type { CommandHandler } from '../utils/SlashCommandManager.js';
 
 type Context = Record<string, unknown>;
-const CANDIDATE_PERIOD = 14 * 24 * 60 * 60 * 1000;
-export function candidatePeriodEnded(d: Pick<Demande, 'status' | 'candidateAt' | 'mentorship'>, now = Date.now()): boolean {
-    return d.status === 'candidate' && !d.mentorship?.closedAt && !!d.candidateAt && now >= d.candidateAt.getTime() + CANDIDATE_PERIOD;
+type PeriodSource = Pick<Demande, 'status' | 'candidateAt' | 'mentorship'>;
+/**
+ * Fin de la période de candidat : début (`periodStartAt` si « le mois repart », sinon `candidateAt`)
+ * + durée du paramètre + jours de prolongation cumulés. `null` tant que la date de départ est inconnue.
+ */
+export function candidatePeriodEnd(d: Pick<Demande, 'candidateAt' | 'mentorship'>, periodDays = DEFAULT_CANDIDATE_PERIOD_DAYS): Date | null {
+    const raw = d.mentorship?.periodStartAt;
+    const parsed = raw ? Date.parse(raw) : NaN;
+    const start = Number.isNaN(parsed) ? d.candidateAt?.getTime() : parsed;
+    if (start === undefined) return null;
+    const extra = d.mentorship?.periodExtraDays;
+    return new Date(start + daysToMs(periodDays + (typeof extra === 'number' && extra > 0 ? extra : 0)));
+}
+export function candidatePeriodEnded(d: PeriodSource, now = Date.now(), periodDays = DEFAULT_CANDIDATE_PERIOD_DAYS): boolean {
+    const end = candidatePeriodEnd(d, periodDays);
+    return d.status === 'candidate' && !d.mentorship?.closedAt && !!end && now >= end.getTime();
+}
+/** Une relance est due si aucune n'a eu lieu depuis la fin de la période, ou si la dernière date de `intervalDays` jours ou plus. */
+export function reminderDue(lastAt: string | undefined, periodEnd: Date, now: number, intervalDays: number): boolean {
+    const last = lastAt ? Date.parse(lastAt) : NaN;
+    return Number.isNaN(last) || last < periodEnd.getTime() || now - last >= daysToMs(intervalDays);
 }
 const PERMISSIONS = ['ViewChannel', 'SendMessages', 'ReadMessageHistory'] as const;
 const AVIS: Record<ParrainAvis, string> = { favorable: 'Favorable', prolonger: 'À prolonger', defavorable: 'Défavorable' };
+/** Avis proposés au mentor : « prolonger » est désormais une décision des RH (il reste lisible dans les anciens bilans). */
+const AVIS_PROPOSES: ParrainAvis[] = ['favorable', 'defavorable'];
 export function parrainCapacity(value: unknown): number {
     const n = Number(value);
     return Number.isInteger(n) && n > 0 && n <= 100 ? n : 2;
@@ -112,10 +132,10 @@ export class ParrainageManager {
     async summary(d: Demande) {
         if (d.mentorship?.closedAt) return `Suivi clôturé — ${d.mentorship.closedReason || 'Terminé'}`.slice(0, 1024);
         const a = await this.active(d.id);
-        if (!a) return `Parrain à attribuer\n${this.periodLabel(d)}`;
+        if (!a) return `Parrain à attribuer\n${await this.periodLabel(d)}`;
         const reviews = a.details?.reviews ?? [];
         const review = reviews[reviews.length - 1];
-        return [this.periodLabel(d), `<@${a.parrainId}> — depuis le ${a.startedAt.toLocaleDateString('fr-FR')}`, a.details?.relay ? '⚠️ Relais demandé' : '', review ? `Avis : ${AVIS[review.avis]}\n${review.comment}` : 'Bilan non déposé'].filter(Boolean).join('\n').slice(0, 1024);
+        return [await this.periodLabel(d), `<@${a.parrainId}> — depuis le ${a.startedAt.toLocaleDateString('fr-FR')}`, a.details?.relay ? '⚠️ Relais demandé' : '', review ? `Avis : ${AVIS[review.avis]}\n${review.comment}` : 'Bilan non déposé'].filter(Boolean).join('\n').slice(0, 1024);
     }
     async staffPanel(i: ComponentInteraction, demandeId: number, accepted = false) {
         await this.requireStaff(i.user.id);
@@ -257,8 +277,8 @@ export class ParrainageManager {
     private async candidatePanel(i: ComponentInteraction, attributionId: number) {
         const a = await this.owned(attributionId, i.user.id);
         const latest = a.details?.reviews?.at(-1);
-        await this.display(i, `**Candidat <@${a.demande.applicantId}>**\nAccompagné depuis le ${a.startedAt.toLocaleDateString('fr-FR')}\n${this.periodLabel(a.demande)}\n${a.details?.relay ? 'Relais demandé aux RH.\n' : ''}${latest ? `Avis : ${AVIS[latest.avis]}\n${latest.comment}` : 'Aucun bilan déposé.'}`, [
-            select('review', Object.entries(AVIS).map(([value, label]) => ({ label, value }))),
+        await this.display(i, `**Candidat <@${a.demande.applicantId}>**\nAccompagné depuis le ${a.startedAt.toLocaleDateString('fr-FR')}\n${await this.periodLabel(a.demande)}\n${a.details?.relay ? 'Relais demandé aux RH.\n' : ''}${latest ? `Avis : ${AVIS[latest.avis]}\n${latest.comment}` : 'Aucun bilan déposé.'}`, [
+            select('review', AVIS_PROPOSES.map(value => ({ label: AVIS[value], value }))),
             button('relay', 'Demander un relais'), button('mine', 'Retour aux candidats'), button('home', 'Mon espace'),
             ...(a.demande.channelId ? [{ type: T.Button as const, customId: 'parrain_ticket', label: 'Ouvrir le ticket', style: 'Link' as const, url: `https://discord.com/channels/${this.bot.guild.id}/${a.demande.channelId}` }] : []),
         ], { attributionId: a.id, userId: a.parrainId });
@@ -369,6 +389,7 @@ export class ParrainageManager {
             }
             switch (action) {
                 case 'home': await this.profile(i, userId); break;
+                case 'candidate': await this.candidatePanel(i, Number(data.attributionId)); break;
                 case 'staff': await this.staffPanel(i, Number(data.demandeId)); break;
                 case 'later':
                     await this.requireStaff(i.user.id);
@@ -435,13 +456,30 @@ export class ParrainageManager {
         await this.display(i, pages[page] || 'Aucun accompagnement enregistré.', [button('history_prev', 'Précédent', page === 0), button('history_next', 'Suivant', page + 1 >= pages.length)], { ...data, historyPage: page });
     }
     private staffLink(d: Demande): string { return staffLink(d); }
-    private periodLabel(d: Demande): string {
-        if (d.status === 'awaiting_mentor') return 'En attente d’un mentor : la période de 14 jours démarre à son engagement.';
-        if (!d.candidateAt) return 'Date de passage Candidat non renseignée.';
-        const end = Math.floor((d.candidateAt.getTime() + CANDIDATE_PERIOD) / 1000);
-        return candidatePeriodEnded(d)
-            ? `Période de 14 jours terminée depuis <t:${end}:D>. Décision RH en attente.`
-            : `Fin des 14 jours : <t:${end}:D> (<t:${end}:R>).`;
+    private async periodLabel(d: Demande): Promise<string> {
+        const days = await candidatePeriodDays();
+        if (d.status === 'awaiting_mentor') return `En attente d’un mentor : la période de ${formatDays(days)} démarre à son engagement.`;
+        const endDate = candidatePeriodEnd(d, days);
+        if (!endDate) return 'Date de passage Candidat non renseignée.';
+        const end = Math.floor(endDate.getTime() / 1000), total = formatDays(days + (d.mentorship?.periodExtraDays && d.mentorship.periodExtraDays > 0 ? d.mentorship.periodExtraDays : 0));
+        return candidatePeriodEnded(d, Date.now(), days)
+            ? `Période de ${total} terminée depuis <t:${end}:D>. Décision RH en attente.`
+            : `Fin des ${total} : <t:${end}:D> (<t:${end}:R>).`;
+    }
+    /** MP au mentor actif avec un bouton vers le bilan ; MP fermés : repli dans le canal RH. */
+    private async remindMentor(d: Demande, a: Attribution) {
+        const text = `La période de candidat de <@${d.applicantId}> est terminée. Donne ta décision : favorable ou défavorable, avec un commentaire.`;
+        const member = await this.member(a.parrainId);
+        if (!member) return false;
+        try {
+            const dm = await member.createDM();
+            const view = new View(this.bot, { guildId: d.guildId, actorId: a.parrainId, privatePanel: true, attributionId: a.id, userId: a.parrainId }, [button('candidate', 'Donner ma décision')]);
+            await view.send(dm, { content: text, allowedMentions: { parse: [] } });
+        } catch (err: any) {
+            if (err.code !== 50007) throw err;
+            await this.notifyRH(d, `${text}\n<@${a.parrainId}> n’a pas pu être prévenu en MP (messages privés fermés) : il peut déposer son bilan avec /parrain.\n${this.staffLink(d)}`);
+        }
+        return true;
     }
     private notifyRH(d: Demande, content: string) { return notifyRH(this.bot.guild, d, content); }
     async sync(demandeId: number) {
@@ -599,11 +637,25 @@ export class ParrainageManager {
                         const d = await this.request(request.id, em, true);
                         if (d.mentorship?.closedAt) return;
                         d.mentorship ??= {};
-                        if (candidatePeriodEnded(d) && !d.mentorship.periodRemindedAt) {
-                            await this.notifyRH(d, `**Période Candidat de 14 jours terminée** pour <@${d.applicantId}>.\nLe dossier est à examiner par les RH ; aucun passage Citoyen automatique.\n${this.staffLink(d)}`);
-                            d.mentorship.periodRemindedAt = new Date().toISOString();
-                            d.needsSync = true;
-                            await em.flush();
+                        const periodDays = await candidatePeriodDays(), now = Date.now();
+                        const end = candidatePeriodEnd(d, periodDays);
+                        if (end && candidatePeriodEnded(d, now, periodDays)) {
+                            const interval = await mentorReminderDays();
+                            const current = await this.active(d.id, em);
+                            const review = current?.details?.reviews?.filter(r => Date.parse(r.at) >= end.getTime()).at(-1);
+                            if (reminderDue(d.mentorship.periodRemindedAt, end, now, interval)) {
+                                const avis = review ? `Avis du mentor : **${AVIS[review.avis]}** — ${review.comment}` : current ? `Le mentor <@${current.parrainId}> n’a pas encore donné sa décision.` : 'Aucun mentor n’est affecté.';
+                                await this.notifyRH(d, `**Période Candidat de ${formatDays(periodDays + (d.mentorship.periodExtraDays ?? 0))} terminée** pour <@${d.applicantId}>.\n${avis}\nLe dossier est à examiner par les RH ; aucun passage Citoyen automatique.\n${this.staffLink(d)}`);
+                                d.mentorship.periodRemindedAt = new Date(now).toISOString();
+                                d.needsSync = true;
+                                await em.flush();
+                            }
+                            if (current && !review && reminderDue(d.mentorship.mentorRemindedAt, end, now, interval)) {
+                                try {
+                                    // Un échec d'envoi n'annule pas la relance RH déjà faite : nouvel essai à la passe suivante.
+                                    if (await this.remindMentor(d, current)) { d.mentorship.mentorRemindedAt = new Date(now).toISOString(); await em.flush(); }
+                                } catch (err) { await this.logger.error({ err, demandeId: d.id }, 'Relance du mentor impossible'); }
+                            }
                         }
                         if (await this.active(d.id, em)) return;
                         await this.remindMentorWait(d);

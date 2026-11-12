@@ -6,6 +6,9 @@ export const DAY_MS = 24 * 60 * 60 * 1000;
 export const DEFAULT_ARRIVAL_DAYS = 7;
 export const DEFAULT_TICKET_INACTIVITY_DAYS = 7;
 export const DEFAULT_MENTOR_WAIT_DAYS = 2;
+export const DEFAULT_CANDIDATE_PERIOD_DAYS = 30;
+export const DEFAULT_EXTENSION_DAYS = 14;
+export const DEFAULT_MENTOR_REMINDER_DAYS = 3;
 
 const logger = getManagerLogger('RecrutementDelais');
 
@@ -25,7 +28,10 @@ export function formatDays(days: number): string {
 
 type DelayKey = typeof SettingKeys.bot.recrutement.arrivalDays
     | typeof SettingKeys.bot.recrutement.ticketInactivityDays
-    | typeof SettingKeys.bot.recrutement.mentorWaitDays;
+    | typeof SettingKeys.bot.recrutement.mentorWaitDays
+    | typeof SettingKeys.bot.recrutement.candidatePeriodDays
+    | typeof SettingKeys.bot.recrutement.extensionDays
+    | typeof SettingKeys.bot.recrutement.mentorReminderDays;
 
 /** Lit un délai en jours ; valeur absente, nulle, négative ou illisible : défaut, journalisé, sans erreur. */
 export async function readDelayDays(key: DelayKey, fallback: number): Promise<number> {
@@ -44,3 +50,6 @@ export async function readDelayDays(key: DelayKey, fallback: number): Promise<nu
 export const arrivalDelayMs = async () => daysToMs(await readDelayDays(SettingKeys.bot.recrutement.arrivalDays, DEFAULT_ARRIVAL_DAYS));
 export const ticketInactivityDays = () => readDelayDays(SettingKeys.bot.recrutement.ticketInactivityDays, DEFAULT_TICKET_INACTIVITY_DAYS);
 export const mentorWaitDays = () => readDelayDays(SettingKeys.bot.recrutement.mentorWaitDays, DEFAULT_MENTOR_WAIT_DAYS);
+export const candidatePeriodDays = () => readDelayDays(SettingKeys.bot.recrutement.candidatePeriodDays, DEFAULT_CANDIDATE_PERIOD_DAYS);
+export const extensionDays = () => readDelayDays(SettingKeys.bot.recrutement.extensionDays, DEFAULT_EXTENSION_DAYS);
+export const mentorReminderDays = () => readDelayDays(SettingKeys.bot.recrutement.mentorReminderDays, DEFAULT_MENTOR_REMINDER_DAYS);

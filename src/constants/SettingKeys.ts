@@ -50,6 +50,9 @@ export const SettingKeys = {
             ticketInactivityDays: 'bot.recrutement.ticket_inactivity_days',
             mentorWaitDays: 'bot.recrutement.mentor_wait_days',
             interviewReminderDays: 'bot.recrutement.interview_reminder_days',
+            candidatePeriodDays: 'bot.recrutement.candidate_period_days',
+            extensionDays: 'bot.recrutement.extension_days',
+            mentorReminderDays: 'bot.recrutement.mentor_reminder_days',
         },
         roles: {
             postulant: 'bot.roles.postulant',
