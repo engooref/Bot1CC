@@ -407,6 +407,8 @@ export class ParrainageManager {
     /** Bouton « Je m'affecte » du ticket Mentora : même chemin que l'affectation RH (verrou, expectedId = 0), acteur = mentor. */
     private async selfAssign(i: ComponentInteraction, data: Context) {
         const demandeId = Number(data.demandeId);
+        // Engagement déjà présent avant ce clic (ex. second clic) : une erreur n'est alors pas une reprise de synchronisation.
+        const alreadyEngaged = await this.bot.db.getEm().findOne(Attribution, { demande: demandeId, parrainId: i.user.id, endedAt: null });
         try {
             const d = await this.request(demandeId);
             if (d.mentorship?.mentoraChannelId && i.channelId !== d.mentorship.mentoraChannelId) throw new Error('Ce bouton ne correspond pas à ce dossier');
@@ -414,7 +416,7 @@ export class ParrainageManager {
         } catch (err) {
             // Refus avant enregistrement : message clair. Si l'engagement est déjà enregistré, la reprise de synchronisation s'applique.
             const engaged = await this.bot.db.getEm().findOne(Attribution, { demande: demandeId, parrainId: i.user.id, endedAt: null });
-            if (engaged) throw err;
+            if (engaged && !alreadyEngaged) throw err;
             await this.logger.warn({ err, demandeId, userId: i.user.id }, 'Auto-affectation refusée');
             await i.editReply({ content: `Affectation impossible : ${err instanceof Error ? err.message : 'erreur interne'}.`, components: [] });
             return;

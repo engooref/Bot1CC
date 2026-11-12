@@ -1025,7 +1025,7 @@ test('Interview : postulant → awaiting_mentor sans rôle ni pseudo, ticket Men
     assert.ok(f.d.mentorship.mentoraMessageId);
     const welcome = f.operations.find(x => x[0] === 'send' && x[1] === f.d.mentorship.mentoraChannelId)[2];
     assert.deepEqual(welcome.allowedMentions, { users: [ids.applicant], parse: [] });
-    assert.doesNotMatch(JSON.stringify(welcome), /Je m.affecte/);
+    assert.match(JSON.stringify(welcome), /parrain_self_assign/);
     f.d.needsSync = true;
     await f.manager.resume(1);
     assert.equal(mentoraCreations(f).length, 1);
