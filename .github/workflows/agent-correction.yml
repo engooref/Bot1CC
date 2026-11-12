@@ -65,4 +65,4 @@ jobs:
             - Remplace agent:en-cours par agent:pr-prete.
           claude_args: >-
             --max-turns 60
-            --allowedTools "Read,Grep,Glob,Edit,Write,Bash(git status:*),Bash(git diff:*),Bash(git log:*),Bash(git switch:*),Bash(git checkout:*),Bash(git add:*),Bash(git commit:*),Bash(git push origin agent/*),Bash(npm run build:*),Bash(npm run test:*),Bash(gh issue view:*),Bash(gh issue comment:*),Bash(gh issue edit:*),Bash(gh pr create:*)"
+            --allowedTools "Read,Grep,Glob,Edit,Write,Bash(git status:*),Bash(git diff:*),Bash(git log:*),Bash(git switch:*),Bash(git checkout:*),Bash(git add:*),Bash(git commit:*),Bash(git push origin agent/*),Bash(npm run build:*),Bash(npm run test:diplomatie),Bash(npm run test:recrutement),Bash(npm run test:parrainage),Bash(npm run test:operations),Bash(npm run test:github),Bash(npm run test:events),Bash(npm run test:all),Bash(gh issue view:*),Bash(gh issue comment:*),Bash(gh issue edit:*),Bash(gh pr create:*)"

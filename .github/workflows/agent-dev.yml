@@ -83,6 +83,16 @@ jobs:
             9. Remplace `agent:en-cours` par `agent:pr-prete` et commente l'issue avec le lien de la PR, ce qui reste à faire
                (lots suivants) et ce que le propriétaire doit faire avant de relancer (fusionner, appliquer une migration à la main, etc.).
 
+            Façon d'appeler les outils (les autres formes sont refusées par le workflow, sans personne pour les approuver) :
+            - UNE commande par appel Bash : pas de `&&`, `;`, `|`, `$(...)`, sous-shell, redirection ni heredoc. Pas de `cd` ni de `git -C` :
+              le répertoire courant est déjà celui du dépôt.
+            - Ne lance pas `npm ci` : les dépendances sont déjà installées. Lance `npm run build`, puis `npm run test:parrainage`,
+              `npm run test:recrutement`, etc. (une commande par appel, sans `| tail`).
+            - Modifie les fichiers avec les outils Edit et Write, jamais avec `sed -i`, `python` ou `node -e`.
+            - `git switch -c <branche>`, `git add <chemins précis>` (jamais `-A`), `git commit -m "titre sur une seule ligne"`,
+              `git push origin <branche>`. Pour la PR : écris le corps avec Write dans `pr-body.md` à la racine (ne l'ajoute pas au
+              commit), puis `gh pr create --base main --title "…" --body-file pr-body.md`.
+
             Limites strictes :
             - Pas de migration, pas de changement de schéma, pas de nouvelle variable d'environnement, sauf si la « Consigne : » du lot
               les autorise explicitement. Dans ce cas, ne l'applique JAMAIS et dis dans la PR qu'elle doit être relue puis appliquée à la main
@@ -93,7 +103,7 @@ jobs:
             - En cas de doute, commente l'issue, pose `agent:bloque` et arrête-toi plutôt que de deviner.
           claude_args: >-
             --max-turns 80
-            --allowedTools "Read,Grep,Glob,Edit,Write,Bash(git status:*),Bash(git diff:*),Bash(git log:*),Bash(git switch:*),Bash(git checkout:*),Bash(git add:*),Bash(git commit:*),Bash(git push origin agent/*),Bash(npm run build:*),Bash(npm run test:*),Bash(gh issue view:*),Bash(gh issue comment:*),Bash(gh issue edit:*),Bash(gh pr create:*),Bash(gh pr list:*),Bash(gh pr view:*)"
+            --allowedTools "Read,Grep,Glob,Edit,Write,Bash(git status:*),Bash(git diff:*),Bash(git log:*),Bash(git switch:*),Bash(git checkout:*),Bash(git add:*),Bash(git commit:*),Bash(git push origin agent/*),Bash(npm run build:*),Bash(npm run test:diplomatie),Bash(npm run test:recrutement),Bash(npm run test:parrainage),Bash(npm run test:operations),Bash(npm run test:github),Bash(npm run test:events),Bash(npm run test:all),Bash(gh issue view:*),Bash(gh issue comment:*),Bash(gh issue edit:*),Bash(gh pr create:*),Bash(gh pr list:*),Bash(gh pr view:*)"
 
       # Diagnostic : le journal détaillé (outils appelés, refus de permission) n'existe sinon que sur le
       # runner. Conservé 3 jours. Le dépôt est public : ne rien y faire passer de confidentiel.
@@ -105,7 +115,8 @@ jobs:
           path: ${{ steps.claude.outputs.execution_file }}
           retention-days: 3
 
-      # Filet : si l'agent s'arrête sans PR et sans avoir changé de label, le propriétaire le saura.
+      # Filet : si l'agent s'arrête sans PR et que des commandes ont été refusées (ou que l'issue est restée en
+      # `agent:en-cours`), le propriétaire le saura, avec la liste des refus.
       - name: Signaler une fin sans PR
         if: always()
         env:
@@ -116,18 +127,22 @@ jobs:
         run: |
           set -uo pipefail
           labels=$(gh api "repos/$GITHUB_REPOSITORY/issues/$ISSUE" --jq '[.labels[].name] | join(",")') || exit 0
-          case ",$labels," in *,agent:en-cours,*) ;; *) exit 0 ;; esac
+          case ",$labels," in *,agent:pr-prete,*) exit 0 ;; esac
           open_prs=$(gh api "repos/$GITHUB_REPOSITORY/pulls?state=open&per_page=100" \
             --jq "[.[] | select(.head.ref | startswith(\"agent/bot1cc-${ISSUE}-lot\"))] | length") || exit 0
           [ "$open_prs" = "0" ] || exit 0
           denied=""
           if [ -n "${EXEC_FILE:-}" ] && [ -f "$EXEC_FILE" ]; then
             denied=$(jq -r '[.[] | select(.type=="result")] | last | (.permission_denials // [])
-              | map("- `" + (.tool_name // "?") + "` : " + ((.tool_input.command // .tool_input.file_path // "") | tostring | gsub("`";"\u0027") | .[0:160])) | .[]' \
-              "$EXEC_FILE" 2>/dev/null | head -10) || denied=""
+              | map("- `" + (.tool_name // "?") + "` : " + ((.tool_input.command // .tool_input.file_path // "") | tostring | gsub("`";"\u0027") | gsub("\n";" ") | .[0:160])) | .[]' \
+              "$EXEC_FILE" 2>/dev/null | head -15) || denied=""
           fi
+          stuck=0
+          case ",$labels," in *,agent:en-cours,*) stuck=1 ;; esac
+          # Fin propre (label déjà changé par l'agent, aucun refus) : rien à signaler.
+          if [ "$stuck" = "0" ] && [ -z "$denied" ]; then exit 0; fi
           {
-            echo "L'agent s'est arrêté sans ouvrir de PR (job : $JOB_STATUS). Je pose \`agent:bloque\` à la place de \`agent:en-cours\`."
+            echo "L'agent s'est arrêté sans ouvrir de PR (job : $JOB_STATUS)."
             echo
             if [ -n "$denied" ]; then
               echo "Commandes refusées faute d'autorisation dans le workflow :"
@@ -139,4 +154,5 @@ jobs:
             echo "Journal détaillé (artefact, 3 jours) : $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
           } > "$RUNNER_TEMP/fin-sans-pr.md"
           gh issue comment "$ISSUE" --body-file "$RUNNER_TEMP/fin-sans-pr.md"
-          gh issue edit "$ISSUE" --remove-label "agent:en-cours" --add-label "agent:bloque"
+          gh issue edit "$ISSUE" --add-label "agent:bloque"
+          if [ "$stuck" = "1" ]; then gh issue edit "$ISSUE" --remove-label "agent:en-cours" || true; fi
