@@ -31,6 +31,7 @@ import { SafeMethod } from '../exception/Safe.js';
 import { getManagerLogger } from '../logger.js';
 import { nanoid } from 'nanoid';
 import { SVGManager } from '../utils/SVGManager.js';
+import { channelsWithActiveEvents, startOfWeek, type EventIconCandidate } from '../utils/EventCalendarIcon.js';
 import { CommandHandler } from '../utils/SlashCommandManager.js';
 
 
@@ -107,6 +108,7 @@ export class EventManager {
 
       const view = new InviteView(this.bot, event.id, event.availableRoles.length > 0);
       let msg: Message | null = null;
+      let removedFromChannel: TextChannel | null = null;
       if (event.discord.messageId) {
         try {
           msg = await channel.messages.fetch(event.discord.messageId);
@@ -128,8 +130,7 @@ export class EventManager {
                 if (thread) await thread.delete().catch(() => null);
               }
               await candidateMsg.delete().catch(() => null);
-              if (channel?.name.endsWith('📅'))
-                await channel?.setName(channel?.name.slice(0, -1))
+              removedFromChannel = ch;
               found = true;
               break;
             } catch {
@@ -159,13 +160,10 @@ export class EventManager {
       }
 
      
-      if (!channel.name.endsWith('📅')) {
-        this.logger.info({ msg: 'Marquage du channel avec un emoji calendrier', channelId: channel.id, channelName: channel.name });
-        try {
-          await channel.setName(channel.name + '📅');
-        } catch (err) {
-          await this.logger.error({ msg: 'Erreur lors du renommage du channel', channelId: channel.id, err });
-        }
+      // Icône calendrier : recalculée d'après les événements réellement présents
+      await this.syncChannelIcon(channel, { include: event });
+      if (removedFromChannel && removedFromChannel.id !== channel.id) {
+        await this.syncChannelIcon(removedFromChannel, { exclude: event });
       }
       // 5) Briefing (fichier + forum)
       if (event.briefingTemplateName) {
@@ -241,9 +239,9 @@ export class EventManager {
       }
       await message.delete();
       
-      if (channel?.name.endsWith('📅'))
-        await channel?.setName(channel?.name.slice(0, -1))
-      
+      // N'enlève l'icône que s'il ne reste aucun autre événement actif dans le canal
+      await this.syncChannelIcon(channel, { exclude: event });
+
       if (event.discord.briefingMessageId) {
         // Supprimer le briefing s’il existe
         const forum = /** @type {ForumChannel} */ (
@@ -564,6 +562,56 @@ export class EventManager {
   }
 
   
+  /** Vrai si l'événement va dans un canal persistant (training, gros event). */
+  private isPersistentEvent(event: Event): boolean {
+    const type = event.type?.name?.toUpperCase() ?? '';
+    return type.includes('ENTRAINEMENT COMPÉTITION') || type.includes('GROS EVENT');
+  }
+
+  /**
+   * Ids des canaux d'événements qui doivent porter 📅 (événements publiés de la semaine en cours,
+   * ou non terminés pour training / gros event).
+   * `include` : événement pas encore sauvegardé à compter ; `exclude` : événement à ignorer (en cours de suppression).
+   */
+  async getIconChannelIds(opts: { include?: Event; exclude?: Event } = {}): Promise<Set<string>> {
+    const now = new Date();
+    const weekStart = startOfWeek(now);
+    const weekEnd = new Date(weekStart);
+    weekEnd.setDate(weekEnd.getDate() + 7);
+
+    const events = await this.em.getRepository(Event).find(
+      { $or: [{ start: { $gte: weekStart, $lt: weekEnd } }, { end: { $gt: now } }] },
+      { populate: ['type'] },
+    );
+    const all = new Map<number, Event>(events.map(e => [e.id, e]));
+    if (opts.include) all.set(opts.include.id, opts.include);
+    if (opts.exclude) all.delete(opts.exclude.id);
+
+    const candidates: EventIconCandidate[] = [];
+    for (const ev of all.values()) {
+      if (!ev.discord?.messageId) continue; // pas publié
+      try {
+        const ch = await this.getChannel(ev);
+        candidates.push({ channelId: ch.id, persistent: this.isPersistentEvent(ev), start: ev.start, end: ev.end });
+      } catch (err) {
+        this.logger.warn({ msg: 'Canal introuvable pour le calcul des icônes', eventId: ev.id, err });
+      }
+    }
+    return channelsWithActiveEvents(candidates, now);
+  }
+
+  /** Met l'icône 📅 du canal en accord avec les événements présents (ne renomme que si nécessaire). */
+  async syncChannelIcon(channel: TextChannel, opts: { include?: Event; exclude?: Event } = {}): Promise<void> {
+    try {
+      const wanted = (await this.getIconChannelIds(opts)).has(channel.id);
+      const has = channel.name.endsWith('📅');
+      if (wanted && !has) await channel.setName(channel.name + '📅');
+      else if (!wanted && has) await channel.setName(channel.name.slice(0, -'📅'.length));
+    } catch (err) {
+      await this.logger.error({ msg: "Erreur lors de la mise à jour de l'icône calendrier", channelId: channel.id, err });
+    }
+  }
+
   /** Sélectionne le bon canal TextChannel en fonction du type d’event */
   async getChannel(event: Event): Promise<TextChannel> {
     let param: SettingKey | undefined;

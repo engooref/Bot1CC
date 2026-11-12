@@ -16,7 +16,7 @@
         "test:parrainage": "npm run build && node --test tests/parrainage.test.mjs tests/guild-members.test.mjs",
         "test:operations": "npm run build && node --test tests/operation-reminder.test.mjs tests/operation-visual.test.mjs",
         "test:github": "npm run build && node --test tests/github-labels.test.mjs tests/github-ticket.test.mjs",
-        "test:events": "npm run build && node --test tests/event-voice-channels.test.mjs",
+        "test:events": "npm run build && node --test tests/event-voice-channels.test.mjs tests/event-calendar-icon.test.mjs",
         "test:all": "npm run build && node --test \"tests/*.test.mjs\""
     },
     "dependencies": {

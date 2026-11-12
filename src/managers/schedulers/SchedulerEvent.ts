@@ -303,6 +303,7 @@ export class SchedulerEvent {
         this.logger.debug({
           msg: 'Aucun event à nettoyer',
         });
+        await this.syncEventIcons();
         return;
       }
 
@@ -313,52 +314,32 @@ export class SchedulerEvent {
 
       await this.cleanupEmptyEventVoiceChannels(eventsToClean);
       
-      const weekEvents = await this.bot.eventManager.em
-      .getRepository(Event)
-      .find(
-        {
-          start: {
-            $gte: raw(
-              "DATE_SUB(CURDATE(), INTERVAL WEEKDAY(CURDATE()) DAY)",
-            ),
-            $lt: raw(
-              "DATE_ADD(DATE_SUB(CURDATE(), INTERVAL WEEKDAY(CURDATE()) DAY), INTERVAL 7 DAY)",
-            ),
-          },
-        },
-        {
-          populate: ['type'],
-        },
-      );
-
-      const eventChannelIds = new Set<string>();
-
-      for (const event of weekEvents) {
-        const channel = await this.bot.eventManager.getChannel(event);
-
-        if (channel) {
-          eventChannelIds.add(channel.id);
-        }
-      }
-
-      const channels = await this.bot.guild.channels.fetch();
-
-      for (const channel of channels.values()) {
-        if (!channel?.isTextBased()) continue;
-        if (!channel.name.endsWith('📅')) continue;
-        // L'icône des canaux d'opérations est gérée par OperationManager (retirée seulement quand il n'y a plus d'OP).
-        if (this.bot.operationManager.isOperationChannel(channel)) continue;
-
-        if (!eventChannelIds.has(channel.id)) {
-          await channel.setName(channel.name.slice(0, -1));
-        }
-      }
-
+      await this.syncEventIcons();
     } catch (err) {
       this.logger.error({
         msg: 'Erreur lors du nettoyage général des events',
         err,
       });
+    }
+  }
+
+  /** Resynchronise l'icône 📅 des canaux d'événements d'après les événements actifs. */
+  private async syncEventIcons(): Promise<void> {
+    const wanted = await this.bot.eventManager.getIconChannelIds();
+    const channels = await this.bot.guild.channels.fetch();
+
+    for (const channel of channels.values()) {
+      if (!channel?.isTextBased()) continue;
+      // L'icône des canaux d'opérations est gérée par OperationManager (retirée seulement quand il n'y a plus d'OP).
+      if (this.bot.operationManager.isOperationChannel(channel)) continue;
+
+      const has = channel.name.endsWith('📅');
+      try {
+        if (wanted.has(channel.id) && !has) await channel.setName(channel.name + '📅');
+        else if (!wanted.has(channel.id) && has) await channel.setName(channel.name.slice(0, -'📅'.length));
+      } catch (err) {
+        this.logger.error({ msg: 'Erreur renommage icône calendrier', channelId: channel.id, err });
+      }
     }
   }
 
