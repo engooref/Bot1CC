@@ -16,6 +16,7 @@ import { RHMember } from '../entities/rh/RHMember.js';
 import { RecrutementDemande, type RecrutementStatus } from '../entities/recrutement/RecrutementDemande.js';
 import { staffLink } from '../utils/NotifyRH.js';
 import { editMemberOverwrite } from '../utils/PermissionOverwrites.js';
+import ParrainageView, { mentoraEmbed } from '../view/ParrainageView.js';
 import RecrutementView, { RecruitmentActions, recruitmentLabels } from '../view/RecrutementView.js';
 
 const TICKET_PERMISSIONS = [P.ViewChannel, P.SendMessages, P.ReadMessageHistory];
@@ -300,13 +301,9 @@ export class RecrutementManager {
         demande.mentorship = { ...demande.mentorship, mentoraChannelId: ticket.id };
         await entityManager.flush();
         const channel = await this.getTextChannel(ticket.id);
-        const welcome = await channel.send({
+        const welcome = await ParrainageView.mentora(this.bot, demande).send(channel, {
             content: `<@${demande.applicantId}>`,
-            embeds: [new EmbedBuilder().setTitle('Ticket Mentora').setDescription([
-                `<@${demande.applicantId}> a validé son entretien et attend un mentor.`,
-                'Les RH peuvent affecter un parrain depuis la fiche RH. Tant qu’aucun mentor n’est engagé, le candidat reste Postulant [P].',
-                staffLink(demande),
-            ].filter(Boolean).join('\n\n'))],
+            embeds: [mentoraEmbed(demande)],
             allowedMentions: { users: [demande.applicantId], parse: [] },
         });
         demande.mentorship = { ...demande.mentorship, mentoraMessageId: welcome.id };

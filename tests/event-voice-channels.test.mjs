@@ -43,7 +43,7 @@ test('crée catégorie, vocal créateur et briefing, et enregistre vocalParentId
 });
 
 test('rôle membre absent : échec signalé, rien de créé, pas d\'exception', async () => {
-  const { sched, created } = makeScheduler({ roleMember: undefined });
+  const { sched, created } = makeScheduler({ roleMember: null });
   assert.equal(await sched.ensureEventVoiceChannels(newEvent()), false);
   assert.equal(created.length, 0);
 });

@@ -1,6 +1,6 @@
 import { listGuildMembers } from '../utils/GuildMembers.js';
 import { LockMode, type EntityManager } from '@mikro-orm/core';
-import { ChannelType, MessageFlags, PermissionFlagsBits as P, type GuildMember, type DMChannel } from 'discord.js';
+import { ChannelType, MessageFlags, PermissionFlagsBits as P, type GuildMember, type DMChannel, type TextChannel } from 'discord.js';
 import type { BotManager } from '../BotManager.js';
 import { RecrutementDemande as Demande } from '../entities/recrutement/RecrutementDemande.js';
 import { RecrutementParrainage as Attribution, type ParrainAvis } from '../entities/recrutement/RecrutementParrainage.js';
@@ -9,7 +9,7 @@ import { SettingKeys } from '../constants/SettingKeys.js';
 import { settingsService } from '../services/SettingsService.js';
 import { getManagerLogger } from '../logger.js';
 import { daysToMs, formatDays, mentorWaitDays } from '../utils/RecruitmentDelays.js';
-import View, { parrainButton as button, parrainSelect as select } from '../view/ParrainageView.js';
+import View, { mentoraEmbed, parrainButton as button, parrainSelect as select } from '../view/ParrainageView.js';
 import type { ComponentInteraction } from '../view/BaseView.js';
 import { JSONTypeComponent as T, type JSONComponent, type ModalField } from '../utils/Type.js';
 import { notifyRH, staffLink } from '../utils/NotifyRH.js';
@@ -186,13 +186,16 @@ export class ParrainageManager {
             await em.flush();
         });
     }
-    async assign(demandeId: number, userId: string, actorId: string, expectedId: number, reason = '') {
-        await this.requireStaff(actorId);
+    /** `self` : le mentor s'engage lui-même (bouton du ticket Mentora) ; sinon l'acteur doit être RH ou administrateur. */
+    async assign(demandeId: number, userId: string, actorId: string, expectedId: number, reason = '', self = false) {
+        if (self) { if (actorId !== userId) throw new Error('Un mentor ne peut s’affecter que lui-même'); }
+        else await this.requireStaff(actorId);
         await this.requireParrain(userId);
         await this.preference(userId);
         let fromAwaitingMentor = false;
         await this.bot.db.getEm().transactional(async em => {
             const d = await this.request(demandeId, em, true);
+            if (self && (d.status !== 'awaiting_mentor' || d.pendingStatus)) throw new Error('Ce dossier n’attend plus de mentor : un mentor est déjà engagé');
             if ((d.status !== 'candidate' && d.status !== 'awaiting_mentor') || d.pendingStatus || d.mentorship?.closedAt || d.mentorship?.needsSync) throw new Error('Le dossier ne permet plus une attribution');
             if (d.applicantId === userId) throw new Error('Auto-parrainage impossible');
             const candidate = await this.member(d.applicantId);
@@ -203,17 +206,20 @@ export class ParrainageManager {
             const p = await em.findOneOrFail(Preference, { guildId: d.guildId, userId }, { lockMode: LockMode.PESSIMISTIC_WRITE });
             await this.requireParrain(userId);
             const activeRows = await em.find(Attribution, { parrainId: userId, endedAt: null, demande: { guildId: d.guildId } }, { lockMode: LockMode.PESSIMISTIC_WRITE });
-            if (p.paused || activeRows.length >= Math.min(p.capacity, await this.maxCapacity())) throw new Error('Ce parrain n’est plus disponible');
+            if (p.paused || activeRows.length >= Math.min(p.capacity, await this.maxCapacity())) {
+                throw new Error(self ? 'Vous êtes en pause ou à pleine capacité : reprenez vos attributions ou libérez une place depuis /parrain' : 'Ce parrain n’est plus disponible');
+            }
             if (current) { current.endedAt = new Date(); current.details = { ...current.details, endActorId: actorId, endReason: reason || 'Remplacement' }; }
             const a = Object.assign(new Attribution(), { demande: d, parrainId: userId, details: { actorId, reason } });
             em.persist(a);
             d.mentorship = { ...d.mentorship, needsSync: true };
+            if (self) d.mentorship.rhNotice = `<@${userId}> s’est affecté comme mentor de <@${d.applicantId}>.\n${this.staffLink(d)}`;
             if (d.status === 'awaiting_mentor') {
                 // Même transaction : l'accompagnement et l'intention de passage Candidat sont enregistrés ensemble.
                 fromAwaitingMentor = true;
                 d.pendingStatus = 'candidate';
                 d.needsSync = true;
-                d.decisions.push({ from: 'awaiting_mentor', to: 'candidate', actorId, at: new Date().toISOString(), reason: 'Mentor affecté' });
+                d.decisions.push({ from: 'awaiting_mentor', to: 'candidate', actorId, at: new Date().toISOString(), reason: self ? 'Mentor volontaire' : 'Mentor affecté' });
             }
             await em.flush();
         });
@@ -327,6 +333,7 @@ export class ParrainageManager {
                     await i.deferUpdate();
                 } else await i.deferReply(i.inGuild() ? { flags: MessageFlags.Ephemeral } : {});
             }
+            if (action === 'self_assign') { await this.selfAssign(i, data); return; }
             if (action.startsWith('save_')) {
                 if (!i.isModalSubmit()) throw new Error('Formulaire invalide');
                 if (action === 'save_pause') {
@@ -396,6 +403,26 @@ export class ParrainageManager {
             if (i.deferred || i.replied) await i.editReply({ content, components: [] });
             else await i.reply({ content, ...(i.inGuild() ? { flags: MessageFlags.Ephemeral } : {}) });
         }
+    }
+    /** Bouton « Je m'affecte » du ticket Mentora : même chemin que l'affectation RH (verrou, expectedId = 0), acteur = mentor. */
+    private async selfAssign(i: ComponentInteraction, data: Context) {
+        const demandeId = Number(data.demandeId);
+        // Engagement déjà présent avant ce clic (ex. second clic) : une erreur n'est alors pas une reprise de synchronisation.
+        const alreadyEngaged = await this.bot.db.getEm().findOne(Attribution, { demande: demandeId, parrainId: i.user.id, endedAt: null });
+        try {
+            const d = await this.request(demandeId);
+            if (d.mentorship?.mentoraChannelId && i.channelId !== d.mentorship.mentoraChannelId) throw new Error('Ce bouton ne correspond pas à ce dossier');
+            await this.assign(demandeId, i.user.id, i.user.id, 0, '', true);
+        } catch (err) {
+            // Refus avant enregistrement : message clair. Si l'engagement est déjà enregistré, la reprise de synchronisation s'applique.
+            const engaged = await this.bot.db.getEm().findOne(Attribution, { demande: demandeId, parrainId: i.user.id, endedAt: null });
+            if (engaged && !alreadyEngaged) throw err;
+            await this.logger.warn({ err, demandeId, userId: i.user.id }, 'Auto-affectation refusée');
+            await i.editReply({ content: `Affectation impossible : ${err instanceof Error ? err.message : 'erreur interne'}.`, components: [] });
+            return;
+        }
+        const d = await this.request(demandeId);
+        await i.editReply({ content: `Vous êtes engagé comme mentor de <@${d.applicantId}>. Le ticket Mentora vous est réservé.`, components: [], allowedMentions: { parse: [] } });
     }
     private async historyPage(i: ComponentInteraction, data: Context, delta: number) {
         await this.requireStaff(i.user.id);
@@ -513,12 +540,26 @@ export class ParrainageManager {
                 continue;
             }
             if (!a.details.mentoraGranted) {
+                await this.updateMentoraWelcome(d, channel, a.parrainId);
                 await channel.permissionOverwrites.edit(a.parrainId, Object.fromEntries(PERMISSIONS.map(name => [name, true])));
                 await channel.send({ content: `**Mentor affecté : <@${a.parrainId}>**\nLes autres parrains n’ont plus accès à ce ticket.`, allowedMentions: { users: [a.parrainId], parse: [] } });
                 a.details.mentoraGranted = true;
                 await em.flush();
             }
         }
+    }
+    /** Désactive « Je m'affecte » et indique le mentor dans le message d'accueil ; message supprimé = rien à faire. */
+    private async updateMentoraWelcome(d: Demande, channel: TextChannel, mentorId: string) {
+        const messageId = d.mentorship?.mentoraMessageId;
+        if (!messageId) return;
+        const message = await channel.messages.fetch(messageId).catch((err: { code?: number }) => {
+            if (err.code === 10008) return null;
+            throw err;
+        });
+        if (!message) return;
+        const view = View.mentora(this.bot, d, mentorId);
+        await message.edit({ embeds: [mentoraEmbed(d, mentorId)], components: view.rows as unknown as any[], allowedMentions: { parse: [] } });
+        await view.remember(message.id, channel.id);
     }
     private async remindMentorWait(d: Demande) {
         d.mentorship ??= {};

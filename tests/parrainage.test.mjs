@@ -93,7 +93,11 @@ function fixture() {
     };
     const mentoraOverwrites = new Collection();
     const mentora = { ...channel, id: ids.mentora, permissionOverwrites: overwriteApi(mentoraOverwrites, ids.mentora),
-        async send(options) { operations.push(['mentora-message', options]); return { id: String(++serial), channelId: ids.mentora }; } };
+        async send(options) { operations.push(['mentora-message', options]); return { id: String(++serial), channelId: ids.mentora }; },
+        messages: { fetch: async id => {
+            if (id !== 'welcome') throw Object.assign(new Error('Unknown Message'), { code: 10008 });
+            return { id, async edit(options) { operations.push(['mentora-edit', options]); } };
+        } } };
     const rh = { ...channel, id: ids.channelRh, async send(options) { if (failRH) throw new Error('RH indisponible'); operations.push(['rh', options]); } };
     const bot = {
         user: { id: ids.bot }, roleMember: { id: ids.official }, db: { getEm: () => em },
@@ -634,4 +638,115 @@ test('finish() conserve les clés inconnues de mentorship (retrait du parrain pu
     assert.equal(f.requests[0].mentorship.cleInconnue, 'conservee');
     assert.equal(f.requests[0].mentorship.interviewRemindedAt, '2026-10-02T00:00:00.000Z');
     assert.ok(f.requests[0].mentorship.closedAt);
+});
+
+// --- Bouton « Je m'affecte » du ticket Mentora ---
+async function selfClick(f, userId = ids.parrain) {
+    const i = f.interaction(userId, 'self_assign');
+    i.channelId = ids.mentora;
+    await f.manager.handler(i, { guildId: ids.guild, demandeId: 1 });
+    return i;
+}
+const mentoraEdits = f => f.operations.filter(([kind]) => kind === 'mentora-edit');
+
+test('Je m’affecte : mentor valide → candidate, RH prévenus, bouton désactivé, mentor indiqué, accès réservé', async () => {
+    const f = awaitingFixture();
+    const i = await selfClick(f);
+    const d = f.requests[0];
+    assert.equal(d.status, 'candidate');
+    assert.equal(f.assignments.length, 1);
+    assert.equal(f.assignments[0].parrainId, ids.parrain);
+    assert.equal(d.decisions.at(-1).actorId, ids.parrain);
+    assert.deepEqual(f.resumed, [1]);
+    assert.match(i.replies.at(-1).content, /engagé comme mentor/);
+    assert.equal(f.mentoraOverwrites.has(ids.role), false);
+    assert.equal(f.mentoraOverwrites.get(ids.parrain).allow.has(P.ViewChannel), true);
+    assert.equal(mentoraEdits(f).length, 1);
+    const edit = mentoraEdits(f)[0][1];
+    assert.equal(edit.components[0].components[0].data.disabled, true);
+    assert.match(edit.embeds[0].data.description, new RegExp(`Mentor engagé : <@${ids.parrain}>`));
+    const rh = f.operations.filter(([kind]) => kind === 'rh');
+    assert.equal(rh.length, 1);
+    assert.match(rh[0][1].content, new RegExp(`<@${ids.parrain}> s’est affecté comme mentor de <@${ids.applicant}>`));
+});
+
+test('Je m’affecte : membre sans le rôle Parrain refusé', async () => {
+    const f = awaitingFixture();
+    const i = await selfClick(f, ids.staff);
+    assert.equal(f.requests[0].status, 'awaiting_mentor');
+    assert.equal(f.assignments.length, 0);
+    assert.match(i.replies.at(-1).content, /Parrain/);
+});
+
+test('Je m’affecte : mentor en pause refusé', async () => {
+    const f = awaitingFixture();
+    f.pref(ids.parrain, { paused: true, capacity: 2 });
+    const i = await selfClick(f);
+    assert.equal(f.assignments.length, 0);
+    assert.equal(f.requests[0].status, 'awaiting_mentor');
+    assert.match(i.replies.at(-1).content, /pause/);
+});
+
+test('Je m’affecte : mentor à pleine capacité refusé', async () => {
+    const f = awaitingFixture();
+    f.pref(ids.parrain, { capacity: 1 });
+    f.requests.push(Object.assign(new D(), { id: 2, guildId: ids.guild, applicantId: '100000000000000099', status: 'candidate' }));
+    f.assignment(ids.parrain, f.requests[1]);
+    const i = await selfClick(f);
+    assert.equal(f.assignments.length, 1);
+    assert.equal(f.requests[0].status, 'awaiting_mentor');
+    assert.match(i.replies.at(-1).content, /capacité/);
+});
+
+test('Je m’affecte : dossier plus en awaiting_mentor refusé', async () => {
+    const f = awaitingFixture();
+    f.requests[0].status = 'candidate';
+    const i = await selfClick(f);
+    assert.equal(f.assignments.length, 0);
+    assert.match(i.replies.at(-1).content, /n’attend plus de mentor/);
+});
+
+test('Je m’affecte : deux mentors simultanés, un seul gagne et l’autre est refusé proprement', async () => {
+    const f = awaitingFixture();
+    const [a, b] = await Promise.all([selfClick(f, ids.parrain), selfClick(f, ids.other)]);
+    assert.equal(f.assignments.filter(x => !x.endedAt).length, 1);
+    const contents = [a, b].map(i => i.replies.at(-1).content);
+    assert.equal(contents.filter(c => /engagé comme mentor/.test(c)).length, 1);
+    assert.equal(contents.filter(c => /n’attend plus de mentor/.test(c)).length, 1);
+    assert.equal(mentoraEdits(f).length, 1);
+});
+
+test('Je m’affecte : un second clic du mentor déjà engagé est refusé', async () => {
+    const f = awaitingFixture();
+    await selfClick(f);
+    const i = await selfClick(f);
+    assert.equal(f.assignments.length, 1);
+    assert.match(i.replies.at(-1).content, /Affectation impossible/);
+});
+
+test('Je m’affecte : ticket Mentora supprimé, l’engagement aboutit sans erreur', async () => {
+    const f = awaitingFixture();
+    const fetch = f.bot.guild.channels.fetch;
+    f.bot.guild.channels.fetch = async id => id === ids.mentora ? null : fetch(id);
+    const i = await selfClick(f);
+    assert.equal(f.requests[0].status, 'candidate');
+    assert.equal(f.assignments.length, 1);
+    assert.match(i.replies.at(-1).content, /engagé comme mentor/);
+    assert.equal(mentoraEdits(f).length, 0);
+});
+
+test('Je m’affecte : message d’accueil supprimé, l’engagement aboutit', async () => {
+    const f = awaitingFixture();
+    f.requests[0].mentorship.mentoraMessageId = 'supprime';
+    await selfClick(f);
+    assert.equal(f.requests[0].status, 'candidate');
+    assert.equal(mentoraEdits(f).length, 0);
+    assert.equal(f.mentoraOverwrites.get(ids.parrain).allow.has(P.ViewChannel), true);
+});
+
+test('assign : l’auto-affectation ne vaut que pour soi-même et « Gérer le parrainage » reste réservé aux RH', async () => {
+    const f = awaitingFixture();
+    await assert.rejects(f.manager.assign(1, ids.parrain, ids.other, 0, '', true), /lui-même/);
+    await assert.rejects(f.manager.assign(1, ids.parrain, ids.other, 0), /RH/);
+    assert.equal(f.assignments.length, 0);
 });
