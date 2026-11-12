@@ -804,7 +804,11 @@ export class EventManager {
       return;
     }
 
-    await this.bot.schedulerManager.event.ensureEventVoiceChannels(event);
+    const created = await this.bot.schedulerManager.event.ensureEventVoiceChannels(event);
+    if (!created) {
+      await interaction.followUp({ content: `❌ Échec de la création des channels vocaux pour l'event #${event.id}, voir les logs.`, ephemeral: true });
+      return;
+    }
     await interaction.followUp({
       content: `✅ Channels vocaux créés pour l'event #${event.id} (${event.name}).`,
       ephemeral: true,
