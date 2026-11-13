@@ -658,7 +658,7 @@ test('fiche RH Candidat : accès au parrainage et lien sans contexte invalide', 
     const message = await View.staff(f.bot, f.d).send(f.channels.get(ids.channelRh), { content: 'Candidature validée' });
     const components = message.components.flatMap(row => row.components);
     assert.ok(components.some(c => c.data.url));
-    assert.deepEqual(f.contexts.map(c => c.customId).sort(), ['parrain_directory', 'parrain_staff']);
+    assert.deepEqual(f.contexts.map(c => c.customId).sort(), ['parrain_directory', 'parrain_staff', 'parrain_validate']);
     assert.ok(f.contexts.every(c => typeof c.customId === 'string'));
 });
 

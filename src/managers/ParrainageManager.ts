@@ -54,6 +54,34 @@ export function extendedMentorship(m: RecruitmentMentorship | undefined, days: n
 export function reassignedMentorship(m: RecruitmentMentorship | undefined, restart: boolean, now = new Date()): RecruitmentMentorship {
     return { ...m, ...(restart ? { periodStartAt: now.toISOString(), periodExtraDays: undefined } : {}), periodRemindedAt: undefined, mentorRemindedAt: undefined };
 }
+export type SiteAcceptance = { ok: true } | { ok: false; message: string };
+/** Message clair pour le RH selon la réponse du site à l'acceptation (rien n'est enregistré côté bot en cas d'échec). */
+export function siteAcceptanceFailure(status: number): string {
+    const fallback = 'Vous pouvez accepter le candidat depuis le site.';
+    if (status === 403) return `Le site refuse l’acceptation (autorisation). ${fallback}`;
+    if (status === 404) return `Le site ne connaît pas cette route ou ce candidat (HTTP 404). ${fallback}`;
+    if (status === 409) return `Le candidat n’a pas de compte sur le site : l’acceptation est impossible tant qu’il n’en a pas. ${fallback}`;
+    return `Le site a répondu une erreur (HTTP ${status}). ${fallback}`;
+}
+/**
+ * Demande l'acceptation d'un candidat au site (POST /api/internal/bot/candidatures/accept), qui porte toute la logique.
+ * Adresse et jeton : `URL_SITE` et `BOT_TOKEN`, comme `SettingsService`. Délai de 10 s, aucune relance.
+ */
+export async function requestSiteAcceptance(discordId: string, actorId: string, fetcher: typeof fetch = fetch): Promise<SiteAcceptance> {
+    const base = process.env.URL_SITE, token = process.env.BOT_TOKEN;
+    if (!base || !token) return { ok: false, message: 'Le bot n’est pas configuré pour joindre le site. Vous pouvez accepter le candidat depuis le site.' };
+    try {
+        const response = await fetcher(`${base.replace(/\/+$/, '')}/api/internal/bot/candidatures/accept`, {
+            method: 'POST',
+            headers: { Accept: 'application/json', 'Content-Type': 'application/json', 'X-BOT-TOKEN': token },
+            body: JSON.stringify({ discordId, actorId }),
+            signal: AbortSignal.timeout(10_000),
+        });
+        return response.ok ? { ok: true } : { ok: false, message: siteAcceptanceFailure(response.status) };
+    } catch {
+        return { ok: false, message: 'Le site est injoignable (ou n’a pas répondu en 10 secondes). Vous pouvez accepter le candidat depuis le site.' };
+    }
+}
 const PERMISSIONS = ['ViewChannel', 'SendMessages', 'ReadMessageHistory'] as const;
 const AVIS: Record<ParrainAvis, string> = { favorable: 'Favorable', prolonger: 'À prolonger', defavorable: 'Défavorable' };
 /** Avis proposés au mentor : « prolonger » est désormais une décision des RH (il reste lisible dans les anciens bilans). */
@@ -310,6 +338,29 @@ export class ParrainageManager {
         });
         return total;
     }
+    /**
+     * Bouton « Valider » (RH) : le site fait l'acceptation. Le bot ne change PAS le statut du dossier : il attend le retour du site
+     * (`applySiteDecision`). Rien n'est enregistré si le site échoue ; sinon la décision est ajoutée à `decisions` avec l'avis du mentor.
+     */
+    async validateCandidate(demandeId: number, actorId: string): Promise<SiteAcceptance> {
+        await this.requireStaff(actorId);
+        const d = await this.request(demandeId);
+        this.assertPeriodAction(d);
+        const result = await requestSiteAcceptance(d.applicantId, actorId);
+        if (!result.ok) return result;
+        const review = (await this.active(d.id))?.details?.reviews?.at(-1);
+        const opinion = review ? `Avis du mentor : ${AVIS[review.avis]} — ${review.comment}` : 'Avis du mentor : aucun bilan déposé';
+        try {
+            await this.bot.db.getEm().transactional(async em => {
+                const locked = await this.request(demandeId, em, true);
+                locked.decisions.push({ from: 'candidate', to: 'candidate', actorId, at: new Date().toISOString(), reason: `Acceptation envoyée au site. ${opinion}`.slice(0, 1000) });
+                await em.flush();
+            });
+        } catch (err) {
+            await this.logger.error({ err, demandeId }, 'Acceptation envoyée au site mais décision non enregistrée');
+        }
+        return result;
+    }
     /** Après une réaffectation : « le mois continue » ou « le mois repart ». Le choix n'est enregistré qu'une fois par attribution. */
     async choosePeriod(demandeId: number, attributionId: number, restart: boolean, actorId: string) {
         await this.requireStaff(actorId);
@@ -468,6 +519,10 @@ export class ParrainageManager {
                     const d = await this.request(Number(data.demandeId));
                     if (d.status !== 'candidate' || d.pendingStatus || d.mentorship?.closedAt) throw new Error('Le dossier ne permet plus cette action');
                     await this.listing(i, 'choose', { ...data, reassign: true, expectedId: (await this.active(d.id))?.id ?? 0 }); break;
+                }
+                case 'validate': {
+                    const result = await this.validateCandidate(Number(data.demandeId), i.user.id);
+                    await this.display(i, result.ok ? 'Acceptation envoyée. Le site traite la demande puis rappelle le bot : le statut du dossier changera à son retour.' : `Acceptation non envoyée : ${result.message}`, []); break;
                 }
                 case 'period_continue': case 'period_restart': {
                     const restart = action === 'period_restart';

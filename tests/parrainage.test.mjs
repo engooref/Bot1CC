@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import { Collection, ChannelType, PermissionFlagsBits as P, PermissionsBitField } from 'discord.js';
 process.env.URL_SITE = 'https://example.invalid';
 process.env.BOT_TOKEN = 'test-only';
-const { ParrainageManager, candidatePeriodEnded, candidatePeriodEnd, reminderDue, parseParrainReturn, parrainAvailability, parrainCapacity, parseExtensionDays } = await import('../dist/src/managers/ParrainageManager.js');
+const { ParrainageManager, candidatePeriodEnded, candidatePeriodEnd, reminderDue, parseParrainReturn, parrainAvailability, parrainCapacity, parseExtensionDays, requestSiteAcceptance } = await import('../dist/src/managers/ParrainageManager.js');
 const { RecrutementDemande: D } = await import('../dist/src/entities/recrutement/RecrutementDemande.js');
 const { RecrutementParrainage: A } = await import('../dist/src/entities/recrutement/RecrutementParrainage.js');
 const { ParrainPreference: Pref } = await import('../dist/src/entities/recrutement/ParrainPreference.js');
@@ -1016,4 +1016,108 @@ test('réaffecter sans reassign : le remplacement classique retourne à la fiche
     await f.manager.handler(submit, { demandeId: 1, guildId: ids.guild, actorId: ids.staff, selectedId: ids.other, expectedId: f.assignments[0].id });
     const all = submit.replies.flatMap(r => r.components ?? []).flatMap(row => row.components).map(c => c.data.custom_id);
     assert.equal(all.includes('parrain_period_continue'), false);
+});
+
+// Lot 3 du ticket #43 : bouton « Valider », acceptation déléguée au site.
+async function withSite(respond, run) {
+    const saved = { fetch: globalThis.fetch, url: process.env.URL_SITE, token: process.env.BOT_TOKEN };
+    process.env.URL_SITE = 'https://site.test/'; process.env.BOT_TOKEN = 'jeton-de-test';
+    const calls = [];
+    globalThis.fetch = async (url, init) => { calls.push({ url, init }); return respond(); };
+    try { await run(calls); }
+    finally {
+        globalThis.fetch = saved.fetch;
+        for (const [key, value] of [['URL_SITE', saved.url], ['BOT_TOKEN', saved.token]]) { if (value === undefined) delete process.env[key]; else process.env[key] = value; }
+    }
+}
+const siteReply = status => () => ({ ok: status >= 200 && status < 300, status });
+
+test('fiche RH : bouton Valider seulement pour un dossier candidate', () => {
+    const d = Object.assign(new D(), { id: 1, guildId: ids.guild, status: 'candidate' });
+    assert.ok(buttonIds(RecruitmentView.staff({}, d)).includes('parrain_validate'));
+    for (const status of ['review', 'awaiting_mentor', 'refused', 'integrated']) {
+        assert.equal(buttonIds(RecruitmentView.staff({}, { ...d, status })).includes('parrain_validate'), false, status);
+    }
+});
+
+test('valider : appel du site avec le jeton, décision enregistrée avec l’avis du mentor, statut inchangé', async () => {
+    const f = await endedFixture();
+    await f.manager.reviewOrRelay(f.assignments[0].id, ids.parrain, 'Très bonne intégration', 'favorable');
+    await withSite(siteReply(200), async calls => {
+        assert.deepEqual(await f.manager.validateCandidate(1, ids.staff), { ok: true });
+        assert.equal(calls.length, 1);
+        assert.equal(calls[0].url, 'https://site.test/api/internal/bot/candidatures/accept');
+        assert.equal(calls[0].init.method, 'POST');
+        assert.equal(calls[0].init.headers['X-BOT-TOKEN'], 'jeton-de-test');
+        assert.deepEqual(JSON.parse(calls[0].init.body), { discordId: ids.applicant, actorId: ids.staff });
+        assert.ok(calls[0].init.signal);
+    });
+    const d = f.requests[0];
+    assert.equal(d.status, 'candidate'); assert.equal(d.pendingStatus, undefined);
+    assert.equal(d.decisions.length, 1);
+    assert.equal(d.decisions[0].actorId, ids.staff);
+    assert.match(d.decisions[0].reason, /Acceptation envoyée.*Favorable.*Très bonne intégration/);
+});
+
+test('valider sans bilan du mentor : le motif le dit', async () => {
+    const f = await endedFixture();
+    await withSite(siteReply(200), async () => { await f.manager.validateCandidate(1, ids.staff); });
+    assert.match(f.requests[0].decisions[0].reason, /aucun bilan déposé/);
+});
+
+test('valider : échecs du site (403, 404, 409, 500, injoignable) = message clair et rien d’enregistré', async () => {
+    const expected = { 403: /autorisation/, 404: /404/, 409: /pas de compte sur le site/, 500: /HTTP 500/ };
+    for (const [status, pattern] of Object.entries(expected)) {
+        const f = await endedFixture();
+        await withSite(siteReply(Number(status)), async calls => {
+            const result = await f.manager.validateCandidate(1, ids.staff);
+            assert.equal(result.ok, false); assert.match(result.message, pattern); assert.match(result.message, /depuis le site/);
+            assert.equal(calls.length, 1, 'aucune relance automatique');
+        });
+        assert.equal(f.requests[0].decisions.length, 0, status);
+    }
+    const f = await endedFixture();
+    await withSite(() => { throw new Error('ECONNREFUSED'); }, async calls => {
+        const result = await f.manager.validateCandidate(1, ids.staff);
+        assert.equal(result.ok, false); assert.match(result.message, /injoignable/);
+        assert.equal(calls.length, 1);
+    });
+    assert.equal(f.requests[0].decisions.length, 0);
+});
+
+test('valider : réservé aux RH, dossier candidate sans opération en cours, aucun appel sinon', async () => {
+    const f = await endedFixture();
+    await withSite(siteReply(200), async calls => {
+        await assert.rejects(f.manager.validateCandidate(1, ids.parrain), /RH/);
+        f.requests[0].pendingStatus = 'integrated';
+        await assert.rejects(f.manager.validateCandidate(1, ids.staff), /plus cette action/);
+        f.requests[0].pendingStatus = undefined; f.requests[0].status = 'refused';
+        await assert.rejects(f.manager.validateCandidate(1, ids.staff), /plus cette action/);
+        assert.equal(calls.length, 0);
+    });
+    assert.equal(f.requests[0].decisions.length, 0);
+});
+
+test('valider : bouton de la fiche RH, message de succès puis d’échec, statut jamais modifié par le bot', async () => {
+    for (const [status, pattern] of [[200, /Acceptation envoyée/], [409, /Acceptation non envoyée.*compte/]]) {
+        const f = await endedFixture();
+        const i = f.interaction(ids.staff, 'validate'); i.deferred = false; i.message = { id: 'fiche', flags: { has: () => false } };
+        i.deferReply = async () => { i.deferred = true; };
+        await withSite(siteReply(status), async () => { await f.manager.handler(i, { demandeId: 1, guildId: ids.guild }); });
+        assert.match(i.replies.at(-1).content, pattern);
+        assert.equal(f.requests[0].status, 'candidate');
+    }
+});
+
+test('valider : variables du site absentes = message clair, aucun appel', async () => {
+    const saved = { url: process.env.URL_SITE, token: process.env.BOT_TOKEN };
+    delete process.env.URL_SITE; delete process.env.BOT_TOKEN;
+    try {
+        let called = false;
+        const result = await requestSiteAcceptance(ids.applicant, ids.staff, async () => { called = true; return { ok: true, status: 200 }; });
+        assert.equal(result.ok, false); assert.equal(called, false);
+    } finally {
+        if (saved.url !== undefined) process.env.URL_SITE = saved.url;
+        if (saved.token !== undefined) process.env.BOT_TOKEN = saved.token;
+    }
 });
