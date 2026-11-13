@@ -2,13 +2,13 @@ import { listGuildMembers } from '../utils/GuildMembers.js';
 import { LockMode, type EntityManager } from '@mikro-orm/core';
 import { ChannelType, MessageFlags, PermissionFlagsBits as P, type GuildMember, type DMChannel, type TextChannel } from 'discord.js';
 import type { BotManager } from '../BotManager.js';
-import { RecrutementDemande as Demande } from '../entities/recrutement/RecrutementDemande.js';
+import { RecrutementDemande as Demande, type RecruitmentMentorship } from '../entities/recrutement/RecrutementDemande.js';
 import { RecrutementParrainage as Attribution, type ParrainAvis } from '../entities/recrutement/RecrutementParrainage.js';
 import { ParrainPreference as Preference } from '../entities/recrutement/ParrainPreference.js';
 import { SettingKeys } from '../constants/SettingKeys.js';
 import { settingsService } from '../services/SettingsService.js';
 import { getManagerLogger } from '../logger.js';
-import { DEFAULT_CANDIDATE_PERIOD_DAYS, candidatePeriodDays, daysToMs, formatDays, mentorReminderDays, mentorWaitDays } from '../utils/RecruitmentDelays.js';
+import { DEFAULT_CANDIDATE_PERIOD_DAYS, candidatePeriodDays, daysToMs, extensionDays, formatDays, mentorReminderDays, mentorWaitDays } from '../utils/RecruitmentDelays.js';
 import View, { mentoraEmbed, parrainButton as button, parrainSelect as select } from '../view/ParrainageView.js';
 import type { ComponentInteraction } from '../view/BaseView.js';
 import { JSONTypeComponent as T, type JSONComponent, type ModalField } from '../utils/Type.js';
@@ -37,6 +37,22 @@ export function candidatePeriodEnded(d: PeriodSource, now = Date.now(), periodDa
 export function reminderDue(lastAt: string | undefined, periodEnd: Date, now: number, intervalDays: number): boolean {
     const last = lastAt ? Date.parse(lastAt) : NaN;
     return Number.isNaN(last) || last < periodEnd.getTime() || now - last >= daysToMs(intervalDays);
+}
+/** Durée de prolongation saisie par les RH : entier de 1 à 365 jours. */
+export function parseExtensionDays(raw: string): number {
+    const text = raw.trim();
+    const days = Number(text);
+    if (!/^\d+$/.test(text) || days < 1 || days > 365) throw new Error('Durée de prolongation : un nombre entier de jours entre 1 et 365');
+    return days;
+}
+/** Prolonger : les jours s'ajoutent aux prolongations précédentes (sans limite) et les relances repartent de zéro. Les autres clés sont conservées. */
+export function extendedMentorship(m: RecruitmentMentorship | undefined, days: number): RecruitmentMentorship {
+    const previous = typeof m?.periodExtraDays === 'number' && m.periodExtraDays > 0 ? m.periodExtraDays : 0;
+    return { ...m, periodExtraDays: previous + days, periodRemindedAt: undefined, mentorRemindedAt: undefined };
+}
+/** Réaffecter : « le mois continue » ne change que les relances ; « le mois repart » fixe un nouveau début sans prolongation héritée. */
+export function reassignedMentorship(m: RecruitmentMentorship | undefined, restart: boolean, now = new Date()): RecruitmentMentorship {
+    return { ...m, ...(restart ? { periodStartAt: now.toISOString(), periodExtraDays: undefined } : {}), periodRemindedAt: undefined, mentorRemindedAt: undefined };
 }
 const PERMISSIONS = ['ViewChannel', 'SendMessages', 'ReadMessageHistory'] as const;
 const AVIS: Record<ParrainAvis, string> = { favorable: 'Favorable', prolonger: 'À prolonger', defavorable: 'Défavorable' };
@@ -274,6 +290,43 @@ export class ParrainageManager {
         });
         await this.sync(demandeId);
     }
+    /** Période de candidat terminée selon le paramètre courant (affichage des boutons Prolonger / Réaffecter). */
+    async periodEnded(d: Demande) { return candidatePeriodEnded(d, Date.now(), await candidatePeriodDays()); }
+    /** Vérifications communes des actions RH de fin de période (dossier verrouillé par l'appelant). */
+    private assertPeriodAction(d: Demande) {
+        if (d.status !== 'candidate' || d.pendingStatus || d.mentorship?.closedAt) throw new Error('Le dossier ne permet plus cette action');
+    }
+    /** Prolonger la période (RH) : jours cumulés sans limite, relances réinitialisées, décision enregistrée. Aucun appel Discord. */
+    async extendPeriod(demandeId: number, days: number, actorId: string) {
+        await this.requireStaff(actorId);
+        const total = await this.bot.db.getEm().transactional(async em => {
+            const d = await this.request(demandeId, em, true);
+            this.assertPeriodAction(d);
+            d.mentorship = extendedMentorship(d.mentorship, days);
+            d.decisions.push({ from: 'candidate', to: 'candidate', actorId, at: new Date().toISOString(), reason: `Période prolongée de ${formatDays(days)}` });
+            d.needsSync = true;
+            await em.flush();
+            return d.mentorship.periodExtraDays!;
+        });
+        return total;
+    }
+    /** Après une réaffectation : « le mois continue » ou « le mois repart ». Le choix n'est enregistré qu'une fois par attribution. */
+    async choosePeriod(demandeId: number, attributionId: number, restart: boolean, actorId: string) {
+        await this.requireStaff(actorId);
+        await this.bot.db.getEm().transactional(async em => {
+            const d = await this.request(demandeId, em, true);
+            this.assertPeriodAction(d);
+            const a = await this.active(d.id, em);
+            if (!a || a.id !== attributionId) throw new Error('L’attribution a changé : actualisez la fiche');
+            if (a.details?.periodChoiceAt) throw new Error('Le choix a déjà été enregistré');
+            const now = new Date();
+            a.details = { ...a.details, periodChoiceAt: now.toISOString() };
+            d.mentorship = reassignedMentorship(d.mentorship, restart, now);
+            d.decisions.push({ from: 'candidate', to: 'candidate', actorId, at: now.toISOString(), reason: `Parrain réaffecté (<@${a.parrainId}>) : ${restart ? 'le mois repart' : 'le mois continue'}` });
+            d.needsSync = true;
+            await em.flush();
+        });
+    }
     private async candidatePanel(i: ComponentInteraction, attributionId: number) {
         const a = await this.owned(attributionId, i.user.id);
         const latest = a.details?.reviews?.at(-1);
@@ -319,8 +372,11 @@ export class ParrainageManager {
             const action = i.isChatInputCommand() ? 'dm' : i.customId.replace(/^parrain_/, '');
             const userId = String(data.userId || i.user.id);
             const reasonField: ModalField = { customId: 'reason', label: 'Motif (facultatif)', style: 'Paragraph', maxLength: 1000 };
-            if (['pause', 'capacity', 'remove', 'close', 'relay', 'review'].includes(action) || (action === 'selection' && data.mode === 'choose')) {
-                if (['remove', 'close'].includes(action) || data.mode === 'choose') await this.requireStaff(i.user.id);
+            if (['pause', 'capacity', 'remove', 'close', 'relay', 'review', 'extend'].includes(action) || (action === 'selection' && data.mode === 'choose')) {
+                if (['remove', 'close', 'extend'].includes(action) || data.mode === 'choose') await this.requireStaff(i.user.id);
+                if (action === 'extend') return await this.form(i, data, 'save_extend', 'Prolonger la période', [
+                    { customId: 'days', label: 'Nombre de jours à ajouter', style: 'Short', required: true, maxLength: 3, default: String(await extensionDays()) },
+                ]);
                 else if (['review', 'relay'].includes(action)) await this.owned(Number(data.attributionId), i.user.id);
                 else { if (userId !== i.user.id) await this.requireStaff(i.user.id); await this.requireParrain(userId); }
                 if (action === 'pause') return await this.form(i, data, 'save_pause', 'Mettre en pause', [
@@ -368,6 +424,11 @@ export class ParrainageManager {
                     await this.changePreference(userId, i.user.id, p => { p.capacity = capacity; }, `Capacité : ${capacity}`);
                     await this.profile(i, userId); return;
                 }
+                if (action === 'save_extend') {
+                    await this.requireStaff(i.user.id);
+                    const total = await this.extendPeriod(Number(data.demandeId), parseExtensionDays(i.fields.getTextInputValue('days')), i.user.id);
+                    await this.display(i, `Période prolongée : ${formatDays(total)} de prolongation au total. Les relances repartent à la prochaine échéance.`, []); return;
+                }
                 const reason = i.fields.getTextInputValue('reason').trim();
                 if (action === 'save_relays') {
                     const ids = data.attributionIds;
@@ -380,8 +441,16 @@ export class ParrainageManager {
                     await this.candidatePanel(i, Number(data.attributionId)); return;
                 }
                 await this.requireStaff(i.user.id);
-                if (action === 'save_assign') await this.assign(Number(data.demandeId), String(data.selectedId), i.user.id, Number(data.expectedId), reason);
-                else if (action === 'save_remove' || action === 'save_close') {
+                if (action === 'save_assign') {
+                    await this.assign(Number(data.demandeId), String(data.selectedId), i.user.id, Number(data.expectedId), reason);
+                    const reassigned = data.reassign === true ? await this.active(Number(data.demandeId)) : null;
+                    if (reassigned) {
+                        await this.display(i, `Parrain réaffecté : <@${reassigned.parrainId}>. Le mois de candidat continue-t-il ou repart-il ?`, [
+                            button('period_continue', 'Le mois continue'), button('period_restart', 'Le mois repart'),
+                        ], { demandeId: Number(data.demandeId), attributionId: reassigned.id });
+                        return;
+                    }
+                } else if (action === 'save_remove' || action === 'save_close') {
                     if (action === 'save_close' && !reason) throw new Error('Motif requis');
                     await this.finish(Number(data.demandeId), i.user.id, reason || 'Retrait du parrain', action === 'save_close', Number(data.expectedId));
                 } else throw new Error('Action inconnue');
@@ -394,6 +463,17 @@ export class ParrainageManager {
                 case 'later':
                     await this.requireStaff(i.user.id);
                     await this.display(i, 'Le candidat reste accepté. Le parrain pourra être attribué depuis sa fiche RH.', []); break;
+                case 'reassign': {
+                    await this.requireStaff(i.user.id);
+                    const d = await this.request(Number(data.demandeId));
+                    if (d.status !== 'candidate' || d.pendingStatus || d.mentorship?.closedAt) throw new Error('Le dossier ne permet plus cette action');
+                    await this.listing(i, 'choose', { ...data, reassign: true, expectedId: (await this.active(d.id))?.id ?? 0 }); break;
+                }
+                case 'period_continue': case 'period_restart': {
+                    const restart = action === 'period_restart';
+                    await this.choosePeriod(Number(data.demandeId), Number(data.attributionId), restart, i.user.id);
+                    await this.display(i, restart ? 'Le mois de candidat repart d’aujourd’hui. Les relances sont réinitialisées.' : 'Le mois de candidat continue. Les relances sont réinitialisées.', []); break;
+                }
                 case 'choose': case 'directory': case 'mine': case 'relay_list': await this.listing(i, action, data); break;
                 case 'prev': case 'next': await this.listing(i, String(data.mode), data, Number(data.page) + (action === 'next' ? 1 : -1)); break;
                 case 'selection':

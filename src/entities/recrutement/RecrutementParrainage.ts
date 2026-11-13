@@ -15,6 +15,8 @@ export interface ParrainageDetails {
     /** Ticket Mentora : accès individuel accordé au mentor, puis retiré en cas de remplacement. */
     mentoraGranted?: boolean;
     mentoraRevoked?: boolean;
+    /** Réaffectation d'un candidat en fin de période (ticket #43) : choix « le mois continue / repart » déjà enregistré. */
+    periodChoiceAt?: string;
 }
 /** Historique des accompagnements, indépendant du profil membre et de l’XP. */
 // Schéma géré par Site1CC, ne pas migrer ici.

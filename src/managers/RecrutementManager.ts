@@ -656,7 +656,7 @@ export class RecrutementManager {
             }
             throw error;
         }) : null;
-        const notification = await RecrutementView.staff(this.bot, demande).sendOrEdit(staffChannel, old, {
+        const notification = await RecrutementView.staff(this.bot, demande, demande.status === 'candidate' && !!this.bot.parrainageManager && await this.bot.parrainageManager.periodEnded(demande)).sendOrEdit(staffChannel, old, {
             content: '',
             embeds: [embed],
             allowedMentions: { parse: [], roles: [], users: [] },

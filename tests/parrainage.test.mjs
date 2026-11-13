@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import { Collection, ChannelType, PermissionFlagsBits as P, PermissionsBitField } from 'discord.js';
 process.env.URL_SITE = 'https://example.invalid';
 process.env.BOT_TOKEN = 'test-only';
-const { ParrainageManager, candidatePeriodEnded, candidatePeriodEnd, reminderDue, parseParrainReturn, parrainAvailability, parrainCapacity } = await import('../dist/src/managers/ParrainageManager.js');
+const { ParrainageManager, candidatePeriodEnded, candidatePeriodEnd, reminderDue, parseParrainReturn, parrainAvailability, parrainCapacity, parseExtensionDays } = await import('../dist/src/managers/ParrainageManager.js');
 const { RecrutementDemande: D } = await import('../dist/src/entities/recrutement/RecrutementDemande.js');
 const { RecrutementParrainage: A } = await import('../dist/src/entities/recrutement/RecrutementParrainage.js');
 const { ParrainPreference: Pref } = await import('../dist/src/entities/recrutement/ParrainPreference.js');
@@ -862,4 +862,158 @@ test('assign : l’auto-affectation ne vaut que pour soi-même et « Gérer le p
     await assert.rejects(f.manager.assign(1, ids.parrain, ids.other, 0, '', true), /lui-même/);
     await assert.rejects(f.manager.assign(1, ids.parrain, ids.other, 0), /RH/);
     assert.equal(f.assignments.length, 0);
+});
+
+// Lot 2 du ticket #43 : Prolonger et Réaffecter.
+const endedFixture = async () => {
+    const f = fixture(); f.requests[0].candidateAt = new Date(Date.now() - 31 * DAY);
+    await f.manager.assign(1, ids.parrain, ids.staff, 0);
+    return f;
+};
+const buttonIds = view => view.rows.flatMap(row => row.components).map(c => c.data.custom_id ?? c.data.customId);
+
+test('fiche RH : Prolonger et Réaffecter seulement pour un candidat dont la période est terminée', () => {
+    const d = Object.assign(new D(), { id: 1, guildId: ids.guild, status: 'candidate' });
+    assert.equal(buttonIds(RecruitmentView.staff({}, d)).includes('parrain_extend'), false);
+    const ended = buttonIds(RecruitmentView.staff({}, d, true));
+    assert.ok(ended.includes('parrain_extend') && ended.includes('parrain_reassign'));
+    assert.equal(buttonIds(RecruitmentView.staff({}, { ...d, status: 'refused' }, true)).includes('parrain_extend'), false);
+});
+
+test('durée de prolongation : entier de 1 à 365', () => {
+    assert.equal(parseExtensionDays(' 14 '), 14);
+    for (const bad of ['0', '-3', '1.5', 'abc', '', '366']) assert.throws(() => parseExtensionDays(bad), /1 et 365/, bad);
+});
+
+test('prolonger : cumul sans limite, relances réinitialisées, décision enregistrée, autres clés conservées', async () => {
+    const f = await endedFixture();
+    await f.manager.check();
+    assert.equal(periodNotices(f).length, 1);
+    f.requests[0].mentorship.rhNotice = undefined;
+    assert.equal(await f.manager.extendPeriod(1, 14, ids.staff), 14);
+    assert.equal(await f.manager.extendPeriod(1, 30, ids.staff), 44);
+    assert.equal(await f.manager.extendPeriod(1, 14, ids.staff), 58);
+    const m = f.requests[0].mentorship;
+    assert.equal(m.periodExtraDays, 58); assert.equal(m.periodRemindedAt, undefined); assert.equal(m.mentorRemindedAt, undefined);
+    assert.equal(m.needsSync, false);
+    const reasons = f.requests[0].decisions.map(x => x.reason);
+    assert.deepEqual(reasons, ['Période prolongée de 14 jours', 'Période prolongée de 30 jours', 'Période prolongée de 14 jours']);
+    assert.equal(f.requests[0].decisions[0].actorId, ids.staff);
+    // Nouvelle échéance non atteinte : plus de relance.
+    await f.manager.check();
+    assert.equal(periodNotices(f).length, 1);
+});
+
+test('prolonger : après la nouvelle échéance, les relances reprennent', async () => {
+    const f = await endedFixture();
+    f.requests[0].candidateAt = new Date(Date.now() - 50 * DAY);
+    await f.manager.extendPeriod(1, 14, ids.staff);
+    await f.manager.check();
+    assert.equal(periodNotices(f).length, 1); assert.match(periodNotices(f)[0][1].content, /44 jours/);
+});
+
+test('prolonger : refusé hors RH, dossier clôturé, hors candidat ou opération en cours', async () => {
+    const f = await endedFixture();
+    await assert.rejects(f.manager.extendPeriod(1, 14, ids.parrain), /RH/);
+    f.requests[0].pendingStatus = 'integrated';
+    await assert.rejects(f.manager.extendPeriod(1, 14, ids.staff), /plus cette action/);
+    f.requests[0].pendingStatus = undefined; f.requests[0].mentorship.closedAt = 'x';
+    await assert.rejects(f.manager.extendPeriod(1, 14, ids.staff), /plus cette action/);
+    f.requests[0].mentorship.closedAt = undefined; f.requests[0].status = 'refused';
+    await assert.rejects(f.manager.extendPeriod(1, 14, ids.staff), /plus cette action/);
+    assert.equal(f.requests[0].decisions.length, 0);
+    assert.equal(f.requests[0].mentorship.periodExtraDays, undefined);
+});
+
+test('prolonger : le formulaire est pré-rempli avec extension_days et réservé aux RH', async () => {
+    for (const [setting, expected] of [[undefined, '14'], [21, '21'], [0, '14']]) {
+        const f = await endedFixture(); if (setting !== undefined) config['bot.recrutement.extension_days'] = setting;
+        const i = f.interaction(ids.staff, 'extend'); i.deferred = false; i.message = { id: 'fiche' };
+        i.deferReply = async () => { throw new Error('Ne pas différer un formulaire'); };
+        i.showModal = async modal => { i.modal = modal; };
+        await f.manager.handler(i, { demandeId: 1, guildId: ids.guild });
+        assert.equal(i.modal.data.custom_id, 'parrain_save_extend');
+        assert.equal(i.modal.components[0].components[0].data.value, expected);
+    }
+    const f = await endedFixture(); const i = f.interaction(ids.parrain, 'extend'); i.deferred = false; i.message = { id: 'fiche' };
+    i.showModal = async () => { throw new Error('Formulaire interdit'); }; i.reply = async options => { i.replies.push(options); };
+    await f.manager.handler(i, { demandeId: 1, guildId: ids.guild });
+    assert.match(i.replies.at(-1).content, /réservée aux RH/);
+});
+
+test('réaffecter : l’ancien parrain est conservé dans l’historique, « le mois continue » ne change que les relances', async () => {
+    const f = await endedFixture(); await f.manager.check();
+    const first = f.assignments[0];
+    await f.manager.assign(1, ids.other, ids.staff, first.id, 'Réaffectation');
+    assert.ok(first.endedAt); assert.equal(f.assignments.length, 2);
+    const second = f.assignments[1];
+    const before = f.requests[0].mentorship;
+    await f.manager.choosePeriod(1, second.id, false, ids.staff);
+    const m = f.requests[0].mentorship;
+    assert.equal(m.periodStartAt, undefined); assert.equal(m.periodRemindedAt, undefined); assert.equal(m.mentorRemindedAt, undefined);
+    assert.equal(m.closedAt, before.closedAt);
+    assert.match(f.requests[0].decisions.at(-1).reason, new RegExp(`<@${ids.other}>.*le mois continue`));
+    // Le nouveau mentor est relancé tout de suite : la période est toujours terminée.
+    await f.manager.check();
+    assert.equal(mentorDMs(f).filter(([, id]) => id === ids.other).length, 1);
+});
+
+test('réaffecter : « le mois repart » fixe le début à maintenant, sans prolongation héritée', async () => {
+    const f = await endedFixture();
+    await f.manager.extendPeriod(1, 14, ids.staff);
+    f.requests[0].candidateAt = new Date(Date.now() - 60 * DAY);
+    await f.manager.assign(1, ids.other, ids.staff, f.assignments[0].id);
+    const t0 = Date.now();
+    await f.manager.choosePeriod(1, f.assignments[1].id, true, ids.staff);
+    const m = f.requests[0].mentorship;
+    assert.ok(Date.parse(m.periodStartAt) >= t0 && Date.parse(m.periodStartAt) <= Date.now());
+    assert.equal(m.periodExtraDays, undefined);
+    assert.equal(candidatePeriodEnded(f.requests[0], Date.now(), 30), false);
+    assert.match(f.requests[0].decisions.at(-1).reason, /le mois repart/);
+    await f.manager.check();
+    assert.equal(periodNotices(f).length, 0);
+});
+
+test('réaffecter : choix refusé hors RH, enregistré une seule fois et lié à l’attribution courante', async () => {
+    const f = await endedFixture();
+    await f.manager.assign(1, ids.other, ids.staff, f.assignments[0].id);
+    const [old, current] = f.assignments;
+    await assert.rejects(f.manager.choosePeriod(1, current.id, true, ids.parrain), /RH/);
+    await assert.rejects(f.manager.choosePeriod(1, old.id, true, ids.staff), /a changé/);
+    await f.manager.choosePeriod(1, current.id, false, ids.staff);
+    await assert.rejects(f.manager.choosePeriod(1, current.id, true, ids.staff), /déjà/);
+    assert.equal(f.requests[0].decisions.length, 1);
+    f.requests[0].pendingStatus = 'integrated';
+    await assert.rejects(f.manager.choosePeriod(1, current.id, true, ids.staff), /plus cette action/);
+});
+
+test('réaffecter : le bouton de la fiche ouvre le choix du parrain, puis propose continue / repart', async () => {
+    const f = await endedFixture();
+    const i = f.interaction(ids.staff, 'reassign'); i.message = { flags: { has: () => false } };
+    await f.manager.handler(i, { demandeId: 1, guildId: ids.guild });
+    const ids1 = i.replies.at(-1).components.flatMap(row => row.components).map(c => c.data.custom_id);
+    assert.ok(ids1.includes('parrain_selection'));
+    const stored = f.contexts.map(c => c.data).find(c => c?.reassign === true);
+    assert.equal(stored.expectedId, f.assignments[0].id);
+    const submit = f.interaction(ids.staff, 'save_assign');
+    submit.isButton = () => false; submit.isModalSubmit = () => true; submit.isFromMessage = () => false;
+    submit.fields = { getTextInputValue: () => 'Mentor injoignable' };
+    await f.manager.handler(submit, { demandeId: 1, guildId: ids.guild, actorId: ids.staff, reassign: true, selectedId: ids.other, expectedId: f.assignments[0].id });
+    assert.equal(f.assignments[1].parrainId, ids.other);
+    const choice = submit.replies.at(-1).components.flatMap(row => row.components).map(c => c.data.custom_id);
+    assert.deepEqual(choice, ['parrain_period_continue', 'parrain_period_restart']);
+    const click = f.interaction(ids.staff, 'period_restart');
+    await f.manager.handler(click, { demandeId: 1, guildId: ids.guild, actorId: ids.staff, attributionId: f.assignments[1].id });
+    assert.ok(f.requests[0].mentorship.periodStartAt);
+    assert.match(click.replies.at(-1).content, /repart/);
+});
+
+test('réaffecter sans reassign : le remplacement classique retourne à la fiche, sans question sur le mois', async () => {
+    const f = await endedFixture();
+    const submit = f.interaction(ids.staff, 'save_assign');
+    submit.isButton = () => false; submit.isModalSubmit = () => true; submit.isFromMessage = () => false;
+    submit.fields = { getTextInputValue: () => '' };
+    await f.manager.handler(submit, { demandeId: 1, guildId: ids.guild, actorId: ids.staff, selectedId: ids.other, expectedId: f.assignments[0].id });
+    const all = submit.replies.flatMap(r => r.components ?? []).flatMap(row => row.components).map(c => c.data.custom_id);
+    assert.equal(all.includes('parrain_period_continue'), false);
 });
