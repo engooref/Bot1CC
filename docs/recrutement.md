@@ -72,6 +72,8 @@ Le scheduler retire aussi `[A]` sept jours après l’arrivée, indépendamment 
 
 Les demandes disposent d’une contrainte unique serveur/demandeur et d’un verrou SQL individuel. Les décisions sont enregistrées avant les changements Discord, avec reprise automatique après échec. Un dossier refusé ou expiré n’est pas rouvert automatiquement ; le demandeur doit contacter les RH. Les anciens profils RH `Candidatures` ne reçoivent pas de deuxième ticket : ces candidats, passés par l’ancien bouton, sont à migrer manuellement (le bouton leur répond qu’une demande est en cours). L’ancien circuit du bouton (fil RH, salon `admission-*` créé via `ADMISSION_CATEGORY_ID`) est supprimé.
 
+**Purge des comptes** : `purgeInvalidUsers` n'anonymise pas un compte du site dont le `discordId` a un dossier de recrutement **ouvert**, c'est-à-dire un statut autre que `refused`, `expired` et `integrated`, et un mentorat non clos (`mentorship.closedAt` absent). Un candidat refusé ou expiré, ou sans dossier, garde le comportement habituel. La règle historique reste en vigueur : un compte dont le profil RH a le statut `Candidatures` est aussi épargné. Le nombre de comptes épargnés est journalisé. Cette protection prépare la suppression de la création anticipée du profil RH (ticket #44, lot 2).
+
 Les opérations Discord et SQL ne sont pas atomiques : le salon est retrouvé grâce à son marqueur de dossier, mais un arrêt entre l’envoi d’un message et l’enregistrement de son ID peut encore produire un doublon de message.
 
 ## Décisions prises sur le site

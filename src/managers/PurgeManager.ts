@@ -7,6 +7,8 @@ import { BotManager } from '../BotManager.js';
 import { Channel } from '../entities/core/Channel.js';
 import { Role } from '../entities/core/Role.js';
 import { RHMember } from '../entities/rh/RHMember.js';
+import { RecrutementDemande } from '../entities/recrutement/RecrutementDemande.js';
+import { CLOSED_RECRUITMENT_STATUSES, isOpenRecruitmentDossier, shouldSparePurgedUser } from './purgeRules.js';
 import { EmbedBuilder, TextChannel } from 'discord.js';
 
 export class PurgeManager {
@@ -22,6 +24,13 @@ export class PurgeManager {
     const dbUsers = await this.em.find(User, {}, { populate: ['rolesDiscord'] });
     const reservistRoleId = await settingsService.getString(SettingKeys.bot.roles.reserviste);
 
+    const openDossiers = await this.em.find(RecrutementDemande, {
+      guildId: this.bot.guild.id,
+      status: { $nin: [...CLOSED_RECRUITMENT_STATUSES] },
+    });
+    const openApplicantIds = new Set(openDossiers.filter(isOpenRecruitmentDossier).map((d) => d.applicantId));
+    let spared = 0;
+
     for (const dbUser of dbUsers) {
       const discordMember = discordMembers.get(dbUser.discordId);
 
@@ -32,7 +41,7 @@ export class PurgeManager {
 
       if (!discordMember || !discordMember.roles.cache.has(roleMemberId) || discordMember?.roles.cache.has(reservistRoleId) || !discordMember.displayName.startsWith('[1CC]')) {
         // L'utilisateur n'est pas un membre valide, anonymisation
-        await this.anonymizeUserData(dbUser);
+        if (!(await this.anonymizeUserData(dbUser, openApplicantIds.has(dbUser.discordId)))) spared++;
         continue;
       }
 
@@ -42,23 +51,26 @@ export class PurgeManager {
       await this.em.persist(dbUser).flush();
       await this.logger.debug(`Rôles mis à jour pour l'utilisateur : ${dbUser.username}`);
     }
+
+    if (spared > 0) {
+      await this.logger.info(`Purge : ${spared} compte(s) épargné(s) (dossier de recrutement ouvert ou ancien profil Candidatures).`);
+    }
   }
 
   /**
    * Anonymise un utilisateur sans supprimer ses données historiques
    */
-  private async anonymizeUserData(user: User): Promise<void> {
+  private async anonymizeUserData(user: User, hasOpenDossier = false): Promise<boolean> {
     // Récupérer le RHMember associé à l'utilisateur
     const rhMember = await this.em.findOne<RHMember>('RHMember', { user: user.id });
-    if (rhMember) {
-      if (rhMember.status === 'Candidatures') {
-        return;
-      }
+    if (shouldSparePurgedUser({ hasOpenDossier, rhMemberStatus: rhMember?.status })) {
+      return false;
     }
 
     await this.purgeContract(user);
     await this.bot.userManager.deleteUser(user);
     await this.logger.debug(`Utilisateur anonymisé : ${user.username}`);
+    return true;
   }
 
   /**
