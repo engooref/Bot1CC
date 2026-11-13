@@ -298,18 +298,12 @@ export class DatabaseManager {
         user.rolesDiscord.set(roles);
 
       } else {
-        // mise à jour : on n'insert que les rôles manquants
+        // mise à jour : les rôles du site reflètent exactement les rôles Discord actuels
         user.username = mg.displayName;
         user.avatar   = avatarUrl;
-        for (const role of roles) {
-          if (!user.rolesDiscord.contains(role)) {
-            user.rolesDiscord.add(role);
-          } else {
-            user.rolesDiscord.remove(role);
-          }
-        }
+        user.rolesDiscord.set(roles);
       }
-      
+
       await em.persist(user).flush();
       id = user.id;
       // 3) Reload pour retourner un Loaded<User,'rolesDiscord'>

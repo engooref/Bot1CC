@@ -50,3 +50,35 @@ test('database errors propagate instead of reporting a successful sync', async (
   em.find = async () => { throw new Error('database unavailable'); };
   await assert.rejects(db.syncRoles(new Collection([['123', { id: '123' }]]), em, true), /database unavailable/);
 });
+
+function userFixture(initial) {
+  const current = [...initial];
+  const user = {
+    id: 1, username: 'old', avatar: '',
+    rolesDiscord: { set(roles) { current.splice(0, current.length, ...roles); } },
+  };
+  const em = {
+    findOne: async () => user,
+    findOneOrFail: async () => user,
+    persist() { return this; },
+    async flush() {},
+  };
+  const member = { id: 'u1', displayName: 'Nom', user: { avatar: 'a' }, roles: { cache: new Collection() } };
+  const db = new DatabaseManager({ guild: { members: { fetch: async () => member } } });
+  db.orm = { em: { transactional: cb => cb(em) } };
+  return { db, current };
+}
+
+test('insertAndGetUser: rôles stables entre deux appels, perdus retirés, gagnés ajoutés', async () => {
+  const [a, b, c] = [{ id: 'a' }, { id: 'b' }, { id: 'c' }];
+  const { db, current } = userFixture([a, b]);
+  let next = [a, b];
+  db.syncRoles = async () => next;
+  await db.insertAndGetUser({ id: 'u1' });
+  assert.deepEqual(current, [a, b]);
+  await db.insertAndGetUser({ id: 'u1' });
+  assert.deepEqual(current, [a, b]);
+  next = [b, c];
+  await db.insertAndGetUser({ id: 'u1' });
+  assert.deepEqual(current, [b, c]);
+});
