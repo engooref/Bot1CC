@@ -42,6 +42,8 @@ export default class RecrutementView extends BaseComponentView {
         if (d.status === 'candidate' && periodEnded) definitions.push(
             { type: T.Button, customId: 'parrain_extend', label: 'Prolonger', style: 'Secondary', disabled: !!d.pendingStatus },
             { type: T.Button, customId: 'parrain_reassign', label: 'Réaffecter', style: 'Secondary', disabled: !!d.pendingStatus });
+        // Acceptation déléguée au site (ticket #43, lot 3). Les rôles sont revérifiés au clic.
+        if (d.status === 'candidate') definitions.push({ type: T.Button, customId: 'parrain_validate', label: 'Valider', style: 'Success', disabled: !!d.pendingStatus });
         definitions.push({ type: T.Button, customId: 'parrain_directory', label: 'Gérer les parrains', style: 'Secondary' });
         if (d.channelId) definitions.push({ type: T.Button, customId: 'recrutement_ticket_link', label: 'Ouvrir le ticket', style: 'Link', url: `https://discord.com/channels/${d.guildId}/${d.channelId}` });
         if (d.status === 'awaiting_mentor' && d.mentorship?.mentoraChannelId) definitions.push({ type: T.Button, customId: 'recrutement_mentora_link', label: 'Ouvrir le ticket Mentora', style: 'Link', url: `https://discord.com/channels/${d.guildId}/${d.mentorship.mentoraChannelId}` });
