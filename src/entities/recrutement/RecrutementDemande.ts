@@ -3,6 +3,8 @@ import { Entity, PrimaryKey, Property, Unique } from '@mikro-orm/core';
 export interface RecruitmentMentorship {
     closedAt?: string; closedReason?: string; closedBy?: string; waitingSince?: string; remindedAt?: string; needsSync?: boolean;
     ticketNotice?: string; rhNotice?: string; periodRemindedAt?: string; interviewRemindedAt?: string;
+    /** Période de candidat (ticket #43) : « le mois repart » fixe le début, la prolongation s'ajoute en jours. `periodRemindedAt` / `mentorRemindedAt` = dernière relance. */
+    periodStartAt?: string; periodExtraDays?: number; mentorRemindedAt?: string;
     /** Ticket Mentora (statut awaiting_mentor). */
     mentoraChannelId?: string; mentoraMessageId?: string;
 }
