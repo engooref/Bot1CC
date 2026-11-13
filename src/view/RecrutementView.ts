@@ -30,7 +30,7 @@ export default class RecrutementView extends BaseComponentView {
             { type: T.Button, customId: RecruitmentActions.Submit, label: 'J’ai déposé ma candidature RSI', style: 'Success', disabled: d.status !== 'waiting_rsi' || !!d.pendingStatus },
         ]);
     }
-    static staff(bot: BotManager, d: RecrutementDemande) {
+    static staff(bot: BotManager, d: RecrutementDemande, periodEnded = false) {
         const definitions: JSONComponent[] = [];
         if (d.status === 'waiting_rsi' || d.status === 'review' || d.status === 'postulant') {
             definitions.push({ type: T.Button, customId: d.status === 'postulant' ? RecruitmentActions.Interview : RecruitmentActions.Validate,
@@ -38,6 +38,10 @@ export default class RecrutementView extends BaseComponentView {
                 { type: T.Button, customId: RecruitmentActions.Refuse, label: 'Refuser', style: 'Danger', disabled: !!d.pendingStatus });
         }
         if (d.status === 'candidate' || d.status === 'awaiting_mentor') definitions.push({ type: T.Button, customId: 'parrain_staff', label: 'Gérer le parrainage', style: 'Primary' });
+        // Période de candidat terminée : décision RH (ticket #43, lot 2). Les rôles sont revérifiés au clic.
+        if (d.status === 'candidate' && periodEnded) definitions.push(
+            { type: T.Button, customId: 'parrain_extend', label: 'Prolonger', style: 'Secondary', disabled: !!d.pendingStatus },
+            { type: T.Button, customId: 'parrain_reassign', label: 'Réaffecter', style: 'Secondary', disabled: !!d.pendingStatus });
         definitions.push({ type: T.Button, customId: 'parrain_directory', label: 'Gérer les parrains', style: 'Secondary' });
         if (d.channelId) definitions.push({ type: T.Button, customId: 'recrutement_ticket_link', label: 'Ouvrir le ticket', style: 'Link', url: `https://discord.com/channels/${d.guildId}/${d.channelId}` });
         if (d.status === 'awaiting_mentor' && d.mentorship?.mentoraChannelId) definitions.push({ type: T.Button, customId: 'recrutement_mentora_link', label: 'Ouvrir le ticket Mentora', style: 'Link', url: `https://discord.com/channels/${d.guildId}/${d.mentorship.mentoraChannelId}` });

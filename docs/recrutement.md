@@ -64,7 +64,7 @@ Le scheduler retire aussi `[A]` après la durée `bot.recrutement.arrival_days` 
 | `bot.recrutement.ticket_inactivity_days` | 7 | Inactivité du ticket avant expiration |
 | `bot.recrutement.mentor_wait_days` | 2 | Attente d’un parrain avant rappel aux RH |
 | `bot.recrutement.candidate_period_days` | 30 | Durée de la période de candidat |
-| `bot.recrutement.extension_days` | 14 | Durée de prolongation proposée aux RH (utilisée au lot 2) |
+| `bot.recrutement.extension_days` | 14 | Durée de prolongation pré-remplie dans le formulaire « Prolonger » de la fiche RH (modifiable par le RH) |
 | `bot.recrutement.mentor_reminder_days` | 3 | Intervalle des relances (mentor et RH) une fois la période échue |
 
 Une valeur absente, nulle, négative ou non numérique retombe sur le défaut et est journalisée, sans erreur. Les messages du ticket affichent la durée configurée (« 1 jour » au singulier). Les clés sont déclarées côté site ; exemple au format du registre : `docs/app_settings/bot_recrutement_delais.json`.
