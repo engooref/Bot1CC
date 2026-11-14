@@ -5,7 +5,8 @@ import { RecrutementDemande } from '../../entities/recrutement/RecrutementDemand
 import { getManagerLogger } from '../../logger.js';
 import { expireArrivalPrefix } from '../../utils/ArrivalPrefix.js';
 import { SafeMethod } from '../../exception/Safe.js';
-import { DEFAULT_TICKET_INACTIVITY_DAYS, arrivalDelayMs, daysToMs, formatDays, ticketInactivityDays } from '../../utils/RecruitmentDelays.js';
+import { DEFAULT_TICKET_INACTIVITY_DAYS, arrivalDelayMs, closedTicketRetentionDays, daysToMs, formatDays, ticketInactivityDays } from '../../utils/RecruitmentDelays.js';
+import { MAX_TICKET_DELETIONS_PER_RUN, closedTicketDue } from '../../utils/ClosedTicket.js';
 import { notifyRH, staffLink } from '../../utils/NotifyRH.js';
 import { SettingKeys } from '../../constants/SettingKeys.js';
 import { settingsService } from '../../services/SettingsService.js';
@@ -108,8 +109,26 @@ export class SchedulerRH {
                     await this.logger.error({ err, demandeId: demande.id }, 'Suivi de la demande RH impossible');
                 }
             }
+            await this.deleteClosedTickets(requests);
         } finally {
             this.checking = false;
+        }
+    }
+
+    /** Supprime les tickets clos échus, 5 au plus par passage ; paramètre à 0 ou négatif : rien n'est supprimé. */
+    private async deleteClosedTickets(requests: RecrutementDemande[]): Promise<void> {
+        const days = await closedTicketRetentionDays();
+        if (days <= 0) return;
+        let handled = 0;
+        for (const demande of requests) {
+            if (handled >= MAX_TICKET_DELETIONS_PER_RUN) break;
+            if (!closedTicketDue(demande, Date.now(), days)) continue;
+            try {
+                if (await this.bot.recrutementManager.deleteClosedTicket(demande.id, days)) handled++;
+            } catch (err) {
+                handled++; // un échec compte aussi : pas de rafale d'appels Discord en erreur
+                await this.logger.error({ err, demandeId: demande.id }, 'Suppression du ticket clos impossible');
+            }
         }
     }
 

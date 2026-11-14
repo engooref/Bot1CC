@@ -1,6 +1,6 @@
 import { SettingKeys } from '../constants/SettingKeys.js';
 import { recruitmentNickname } from '../utils/ArrivalPrefix.js';
-import { formatDays, ticketInactivityDays } from '../utils/RecruitmentDelays.js';
+import { closedTicketRetentionDays, formatDays, ticketInactivityDays } from '../utils/RecruitmentDelays.js';
 export { recruitmentNickname } from '../utils/ArrivalPrefix.js';
 import { LockMode, type EntityManager } from '@mikro-orm/core';
 import {
@@ -14,7 +14,7 @@ import { settingsService } from '../services/SettingsService.js';
 import { getManagerLogger } from '../logger.js';
 import { RHMember } from '../entities/rh/RHMember.js';
 import { RecrutementDemande, type RecrutementStatus } from '../entities/recrutement/RecrutementDemande.js';
-import { ticketDeleted } from '../utils/ClosedTicket.js';
+import { closedTicketDue, closedTicketNotice, ticketDeleted, ticketMarker } from '../utils/ClosedTicket.js';
 import { staffLink } from '../utils/NotifyRH.js';
 import { editMemberOverwrite } from '../utils/PermissionOverwrites.js';
 import ParrainageView, { mentoraEmbed } from '../view/ParrainageView.js';
@@ -22,7 +22,7 @@ import RecrutementView, { RecruitmentActions, recruitmentLabels } from '../view/
 
 const TICKET_PERMISSIONS = [P.ViewChannel, P.SendMessages, P.ReadMessageHistory];
 
-export { closedTicketDue, closedAtOf, ticketDeleted } from '../utils/ClosedTicket.js';
+export { closedTicketDue, closedTicketNotice, closedAtOf, ticketDeleted, ticketMarker, MAX_TICKET_DELETIONS_PER_RUN } from '../utils/ClosedTicket.js';
 
 export function recruitmentTarget(action: string, status: RecrutementStatus): RecrutementStatus {
     if (action === RecruitmentActions.Submit && status === 'waiting_rsi') {
@@ -242,7 +242,7 @@ export class RecrutementManager {
             if (!category || category.type !== ChannelType.GuildCategory || !category.permissionsFor(me)?.has(P.ManageChannels)) {
                 throw new Error(`${SettingKeys.bot.recrutement.categoryAdmission} doit désigner une catégorie gérable.`);
             }
-            const marker = `recrutement:${demande.guildId}:${demande.id}`;
+            const marker = ticketMarker(demande);
             const channels = await this.bot.guild.channels.fetch();
             let ticket = channels.find(c => c?.type === ChannelType.GuildText && c.topic === marker) as TextChannel | undefined;
             if (!ticket) {
@@ -515,6 +515,37 @@ export class RecrutementManager {
         }
     }
 
+    /**
+     * Supprime le salon d'admission d'un dossier clos depuis au moins `days` jours (ticket #41). Retourne true si le
+     * ticket est désormais considéré comme supprimé (supprimé maintenant ou déjà absent), false si rien n'a été fait :
+     * dossier non dû (rouvert, désactivé, déjà traité) ou salon dont le sujet n'est pas exactement le marqueur du dossier.
+     * Journalisation : identifiant du dossier uniquement.
+     */
+    async deleteClosedTicket(id: number, days: number): Promise<boolean> {
+        return this.withLockedRequest(id, async (demande, entityManager) => {
+            if (!closedTicketDue(demande, Date.now(), days)) return false;
+            const channel = await this.bot.guild.channels.fetch(demande.channelId!).catch((err: { code?: number }) => {
+                if (err.code === 10003) return null; // salon inconnu : déjà supprimé
+                throw err;
+            });
+            if (channel) {
+                if (channel.type !== ChannelType.GuildText || channel.topic !== ticketMarker(demande)) {
+                    await this.logger.warn({ demandeId: demande.id }, 'Suppression du ticket clos refusée : le sujet du salon ne correspond pas au dossier');
+                    return false;
+                }
+                try {
+                    await channel.delete(`Ticket de recrutement clos depuis plus de ${days} jour(s)`);
+                } catch (err) {
+                    if ((err as { code?: number }).code !== 10003) throw err;
+                }
+            }
+            demande.mentorship = { ...demande.mentorship, ticketDeletedAt: new Date().toISOString() };
+            await entityManager.flush();
+            await this.logger.info({ demandeId: demande.id }, channel ? 'Ticket de recrutement clos supprimé' : 'Ticket de recrutement clos déjà supprimé');
+            return true;
+        });
+    }
+
     private async syncMessages(demande: RecrutementDemande, entityManager: EntityManager) {
         if (!ticketDeleted(demande)) {
             await this.syncWelcomeMessage(demande, entityManager);
@@ -540,8 +571,10 @@ export class RecrutementManager {
         if (!update) return;
         const ticket = await this.getTextChannel(demande.channelId!);
         const reason = demande.status === 'refused' && decision.reason ? `\nMotif : ${decision.reason}` : '';
+        // Annonce du délai de suppression : refused et expired seulement (integrated n'a pas de message, pas de nouvelle mention).
+        const notice = demande.status === 'refused' || demande.status === 'expired' ? closedTicketNotice(demande, await closedTicketRetentionDays()) : null;
         const message = await ticket.send({
-            content: `<@${demande.applicantId}> — ${update}${reason}`,
+            content: `<@${demande.applicantId}> — ${update}${reason}${notice ? `\n${notice}` : ''}`,
             allowedMentions: { parse: [] },
         });
         decision.ticketMessageId = message.id;
@@ -577,6 +610,8 @@ export class RecrutementManager {
         if (demande.status === 'candidate') {
             details.push('Votre passage Candidat est validé. Les RH organisent votre parrainage pour découvrir l’ensemble du 1CC.');
         }
+        const closedNotice = closedTicketNotice(demande, await closedTicketRetentionDays());
+        if (closedNotice) details.push(closedNotice);
         const welcomeView = RecrutementView.ticket(this.bot, demande);
         const oldWelcome = demande.welcomeMessageId ? await ticket.messages.fetch(demande.welcomeMessageId).catch((error: { code?: number }) => {
             if (error.code === 10008) {

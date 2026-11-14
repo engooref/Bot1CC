@@ -143,7 +143,7 @@ function fixture({ status = 'waiting_rsi', legacy = false, noRequest = false } =
     const manager = new RecrutementManager(bot);
     bot.recrutementManager = manager;
     const scheduler = Object.assign(Object.create(SchedulerRH.prototype), { bot, checking: false, logger: { async error() {} } });
-    manager.logger = { async error() {}, async warn() {} };
+    manager.logger = { async error() {}, async warn() {}, async info() {} };
     function interaction(action, actor = ids.rh, modal = false) {
         const i = { guildId: ids.guild, channelId: ids.ticket, user: { id: actor }, customId: action, deferred: false, replied: false,
             fields: { getTextInputValue: () => 'Dossier non retenu' }, isButton: () => !modal, isModalSubmit: () => modal,
@@ -1306,4 +1306,220 @@ test('« Accéder à mon ticket » : dossier clos ou ticket supprimé, aucun lie
     f.d.status = 'review'; f.d.mentorship = undefined;
     i = await f.run(A.Ticket, ids.applicant);
     assert.match(i.response, new RegExp(`<#${ids.ticket}>`));
+});
+
+// --- Ticket #41, lot 2 : suppression des tickets clos et annonce du délai ---
+const marker = n => `recrutement:${ids.guild}:${n}`;
+const agoIso = days => new Date(Date.now() - days * DAY).toISOString();
+function withRetention(days) {
+    settings['bot.recrutement.closed_ticket_retention_days'] = days;
+    settingsService.getInt = async (key, fallback) => settings[key] ?? fallback;
+}
+/** Ajoute un salon supprimable au fixture ; `deleted` passe à true quand le bot le supprime. */
+function deletableChannel(f, channelId, topic) {
+    const c = f.channels.get(channelId) ?? f.makeChannel(channelId);
+    c.topic = topic; c.deleted = false;
+    c.delete = async () => { c.deleted = true; f.channels.delete(channelId); f.operations.push(['delete-channel', channelId]); };
+    return c;
+}
+const closeDossier = (d, status, days) => { d.status = status; d.decisions = [{ from: 'review', to: status, actorId: ids.rh, at: agoIso(days) }]; };
+
+test('suppression : salon au sujet exact supprimé, ticketDeletedAt posé, rien d’autre dans mentorship perdu', async () => {
+    const f = fixture(); withRetention(30);
+    closeDossier(f.d, 'refused', 40); f.d.mentorship = { cleInconnue: 'conservee' };
+    const c = deletableChannel(f, ids.ticket, marker(1));
+    assert.equal(await f.manager.deleteClosedTicket(1, 30), true);
+    assert.equal(c.deleted, true);
+    assert.ok(Date.parse(f.d.mentorship.ticketDeletedAt) > 0);
+    assert.equal(f.d.mentorship.cleInconnue, 'conservee');
+    // Plus due une fois le marqueur posé : aucun second appel Discord.
+    assert.equal(await f.manager.deleteClosedTicket(1, 30), false);
+    assert.equal(f.operations.filter(x => x[0] === 'delete-channel').length, 1);
+});
+
+test('suppression : un salon au sujet différent n’est jamais supprimé ni marqué', async () => {
+    const f = fixture(); withRetention(30);
+    closeDossier(f.d, 'expired', 40);
+    for (const topic of [marker(2), `${marker(1)} `, `mentora:${ids.guild}:1`, `recrutement:${id(99)}:1`, undefined, '']) {
+        const c = deletableChannel(f, ids.ticket, topic);
+        assert.equal(await f.manager.deleteClosedTicket(1, 30), false, String(topic));
+        assert.equal(c.deleted, false, String(topic));
+        assert.equal(f.d.mentorship?.ticketDeletedAt, undefined);
+    }
+    // Un salon qui n'est pas textuel n'est pas supprimé non plus.
+    const voice = deletableChannel(f, ids.ticket, marker(1)); voice.type = ChannelType.GuildVoice;
+    assert.equal(await f.manager.deleteClosedTicket(1, 30), false);
+    assert.equal(voice.deleted, false);
+});
+
+test('suppression : salon déjà supprimé à la main (inconnu ou erreur 10003) = marqueur posé sans erreur', async () => {
+    const f = fixture(); withRetention(30);
+    closeDossier(f.d, 'integrated', 40);
+    f.channels.delete(ids.ticket);
+    assert.equal(await f.manager.deleteClosedTicket(1, 30), true);
+    assert.ok(f.d.mentorship.ticketDeletedAt);
+
+    const g = fixture(); withRetention(30);
+    closeDossier(g.d, 'refused', 40);
+    g.bot.guild.channels.fetch = async () => { throw Object.assign(new Error('Unknown Channel'), { code: 10003 }); };
+    assert.equal(await g.manager.deleteClosedTicket(1, 30), true);
+    assert.ok(g.d.mentorship.ticketDeletedAt);
+
+    // Le salon disparaît entre la lecture et la suppression.
+    const h = fixture(); withRetention(30);
+    closeDossier(h.d, 'refused', 40);
+    const c = deletableChannel(h, ids.ticket, marker(1));
+    c.delete = async () => { throw Object.assign(new Error('Unknown Channel'), { code: 10003 }); };
+    assert.equal(await h.manager.deleteClosedTicket(1, 30), true);
+    assert.ok(h.d.mentorship.ticketDeletedAt);
+
+    // Toute autre erreur Discord : rien n'est marqué, la suppression sera retentée.
+    const k = fixture(); withRetention(30);
+    closeDossier(k.d, 'refused', 40);
+    const kc = deletableChannel(k, ids.ticket, marker(1));
+    kc.delete = async () => { throw Object.assign(new Error('Missing Permissions'), { code: 50013 }); };
+    await assert.rejects(() => k.manager.deleteClosedTicket(1, 30), /Missing Permissions/);
+    assert.equal(k.d.mentorship?.ticketDeletedAt, undefined);
+});
+
+test('suppression : dossier rouvert ou avant l’échéance non supprimé', async () => {
+    const f = fixture(); withRetention(30);
+    const c = deletableChannel(f, ids.ticket, marker(1));
+    closeDossier(f.d, 'refused', 40);
+    f.d.status = 'waiting_rsi'; // rouvert : l'ancienne décision de clôture reste dans l'historique
+    assert.equal(await f.manager.deleteClosedTicket(1, 30), false);
+    closeDossier(f.d, 'refused', 10);
+    assert.equal(await f.manager.deleteClosedTicket(1, 30), false);
+    assert.equal(c.deleted, false);
+    assert.equal(f.d.mentorship?.ticketDeletedAt, undefined);
+});
+
+test('suppression : après suppression, resume() ne recrée ni salon ni message', async () => {
+    const f = fixture(); withRetention(30);
+    closeDossier(f.d, 'refused', 40);
+    deletableChannel(f, ids.ticket, marker(1));
+    assert.equal(await f.manager.deleteClosedTicket(1, 30), true);
+    f.operations.length = 0;
+    f.d.needsSync = true; f.d.pendingStatus = undefined;
+    await f.manager.resume(1);
+    assert.equal(f.operations.some(x => x[0] === 'create-channel'), false);
+    assert.equal(f.operations.some(x => x[0] === 'send' && x[1] === ids.ticket), false);
+    assert.ok(f.d.mentorship.ticketDeletedAt);
+});
+
+test('scheduler : au plus 5 suppressions par passage, les suivantes au passage d’après', async () => {
+    const f = fixture(); withRetention(30);
+    const dossiers = [];
+    for (let n = 1; n <= 7; n++) {
+        const d = n === 1 ? f.d : Object.assign(new Demande(), { id: n, guildId: ids.guild, applicantId: id(300 + n), channelId: id(200 + n), needsSync: false });
+        if (n > 1) f.requests.push(d);
+        closeDossier(d, 'refused', 40 + n); d.channelId = id(200 + n);
+        deletableChannel(f, d.channelId, marker(n));
+        dossiers.push(d);
+    }
+    await f.scheduler.deleteClosedTickets(f.requests);
+    assert.equal(dossiers.filter(d => d.mentorship?.ticketDeletedAt).length, 5);
+    assert.equal(f.operations.filter(x => x[0] === 'delete-channel').length, 5);
+    await f.scheduler.deleteClosedTickets(f.requests);
+    assert.equal(dossiers.filter(d => d.mentorship?.ticketDeletedAt).length, 7);
+    assert.equal(f.operations.filter(x => x[0] === 'delete-channel').length, 7);
+});
+
+test('scheduler : un salon au sujet différent ne consomme pas le plafond', async () => {
+    const f = fixture(); withRetention(30);
+    const dossiers = [];
+    for (let n = 1; n <= 6; n++) {
+        const d = n === 1 ? f.d : Object.assign(new Demande(), { id: n, guildId: ids.guild, applicantId: id(300 + n), needsSync: false });
+        if (n > 1) f.requests.push(d);
+        closeDossier(d, 'expired', 40); d.channelId = id(200 + n);
+        deletableChannel(f, d.channelId, n === 1 ? 'autre sujet' : marker(n));
+        dossiers.push(d);
+    }
+    await f.scheduler.deleteClosedTickets(f.requests);
+    assert.equal(dossiers[0].mentorship?.ticketDeletedAt, undefined);
+    assert.equal(dossiers.slice(1).filter(d => d.mentorship?.ticketDeletedAt).length, 5);
+});
+
+test('scheduler : paramètre à 0 ou négatif, aucune suppression', async () => {
+    for (const days of [0, -1]) {
+        const f = fixture(); withRetention(days);
+        closeDossier(f.d, 'refused', 400);
+        const c = deletableChannel(f, ids.ticket, marker(1));
+        await f.scheduler.deleteClosedTickets(f.requests);
+        assert.equal(c.deleted, false);
+        assert.equal(f.d.mentorship?.ticketDeletedAt, undefined);
+        assert.equal(await f.manager.deleteClosedTicket(1, days), false);
+        assert.equal(c.deleted, false);
+    }
+});
+
+test('scheduler : un échec Discord est journalisé sans arrêter les autres dossiers', async () => {
+    const f = fixture(); withRetention(30);
+    const errors = [];
+    f.scheduler.logger = { async error(payload) { errors.push(payload); } };
+    const second = Object.assign(new Demande(), { id: 2, guildId: ids.guild, applicantId: id(302), channelId: id(202), needsSync: false });
+    f.requests.push(second);
+    closeDossier(f.d, 'refused', 40); closeDossier(second, 'refused', 40);
+    const first = deletableChannel(f, ids.ticket, marker(1));
+    first.delete = async () => { throw new Error('Missing Permissions'); };
+    const other = deletableChannel(f, id(202), marker(2));
+    await f.scheduler.deleteClosedTickets(f.requests);
+    assert.equal(other.deleted, true);
+    assert.equal(errors.length, 1);
+    assert.deepEqual(Object.keys(errors[0]).sort(), ['demandeId', 'err']);
+});
+
+test('annonce : refusé et expiré reçoivent la date <t:UNIX:D> dans le message et l’embed épinglé', async () => {
+    for (const status of ['refused', 'expired']) {
+        const f = fixture(); withRetention(45);
+        closeDossier(f.d, status, 0);
+        f.d.needsSync = true;
+        await f.manager.resume(1);
+        const unix = Math.floor((Date.parse(f.d.decisions[0].at) + 45 * DAY) / 1000);
+        const expected = `Ce ticket sera supprimé le <t:${unix}:D>, 45 jours après la clôture du dossier.`;
+        const sends = f.operations.filter(x => x[0] === 'send' && x[1] === ids.ticket).map(x => x[2]);
+        const message = sends.find(s => s.content?.includes('sera supprimé'));
+        assert.ok(message, status);
+        assert.ok(message.content.includes(expected), status);
+        const embed = sends.find(s => s.embeds?.[0]);
+        assert.ok(embed.embeds[0].data.description.includes(expected), status);
+    }
+});
+
+test('annonce : integrated, texte dans l’embed épinglé seulement, sans nouveau message ni mention', async () => {
+    const f = fixture(); withRetention(30);
+    closeDossier(f.d, 'integrated', 0);
+    f.d.needsSync = true;
+    await f.manager.resume(1);
+    const sends = f.operations.filter(x => x[0] === 'send' && x[1] === ids.ticket).map(x => x[2]);
+    assert.equal(sends.length, 1);
+    assert.match(sends[0].embeds[0].data.description, /Ce ticket sera supprimé le <t:\d+:D>, 30 jours/);
+    assert.equal(sends[0].content, `<@${ids.applicant}>`);
+    assert.deepEqual(sends[0].allowedMentions, { parse: [] });
+});
+
+test('annonce : « 1 jour » au singulier, et aucune annonce quand la suppression est désactivée', async () => {
+    const one = fixture(); withRetention(1);
+    closeDossier(one.d, 'refused', 0); one.d.needsSync = true;
+    await one.manager.resume(1);
+    assert.ok(one.operations.some(x => x[0] === 'send' && x[2].content?.includes(', 1 jour après la clôture')));
+
+    for (const days of [0, -2]) {
+        const f = fixture(); withRetention(days);
+        for (const status of ['refused', 'expired', 'integrated']) {
+            closeDossier(f.d, status, 0); f.d.needsSync = true;
+            await f.manager.resume(1);
+        }
+        const text = JSON.stringify(f.operations.filter(x => x[0] === 'send' || x[0] === 'edit').map(x => x[2] ?? null));
+        assert.equal(text.includes('sera supprimé'), false, String(days));
+    }
+});
+
+test('annonce : absente une fois le ticket supprimé et pour un dossier encore ouvert', async () => {
+    const { closedTicketNotice } = await import('../dist/src/managers/RecrutementManager.js');
+    const at = Date.parse('2026-10-01T00:00:00.000Z');
+    assert.match(closedTicketNotice(closedDemande('refused', at), 30), new RegExp(`<t:${(at + 30 * DAY) / 1000}:D>`));
+    assert.equal(closedTicketNotice(closedDemande('refused', at, { mentorship: { ticketDeletedAt: '2026-11-05T00:00:00.000Z' } }), 30), null);
+    assert.equal(closedTicketNotice(closedDemande('review', at), 30), null);
+    assert.equal(closedTicketNotice(closedDemande('refused', null), 30), null);
 });

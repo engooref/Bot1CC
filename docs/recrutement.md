@@ -75,14 +75,26 @@ Le scheduler retire aussi `[A]` sept jours après l’arrivée, indépendamment 
 
 Les demandes disposent d’une contrainte unique serveur/demandeur et d’un verrou SQL individuel. Les décisions sont enregistrées avant les changements Discord, avec reprise automatique après échec. Un dossier refusé ou expiré n’est pas rouvert automatiquement ; le demandeur doit contacter les RH. Les anciens profils RH `Candidatures` ne reçoivent pas de deuxième ticket : ces candidats, passés par l’ancien bouton, sont à migrer manuellement (le bouton leur répond qu’une demande est en cours). L’ancien circuit du bouton (fil RH, salon `admission-*` créé via `ADMISSION_CATEGORY_ID`) est supprimé.
 
-### Tickets clos (ticket #41, lot 1 : garde et mesure, aucune suppression)
+### Tickets clos : suppression et annonce (ticket #41)
 
-Décision du propriétaire : un ticket clos (refusé, expiré, intégré, ou candidat devenu membre) sera supprimé `bot.recrutement.closed_ticket_retention_days` jours (30 par défaut) après la clôture. **Dans l’état actuel, le bot ne supprime encore aucun salon** : le lot 2 ajoutera la suppression et l’annonce du délai dans le ticket. Le lot 1 pose uniquement ce qui doit exister avant :
+Décision du propriétaire : un ticket clos (refusé, expiré, intégré, ou candidat devenu membre) est **supprimé** `bot.recrutement.closed_ticket_retention_days` jours (30 par défaut) après la clôture. **L’historique du ticket est alors perdu.** Le passage du scheduler RH (`checkRH()`, toutes les 5 minutes) applique la règle ainsi :
+
+- **Interrupteur** : paramètre à `0` ou négatif = aucune suppression et aucune annonce.
+- **Plafond** : 5 suppressions au plus par passage. Au premier passage après le déploiement, tous les tickets clos depuis plus de 30 jours sont dus : ils partent par paquets de 5 (un passage toutes les 5 minutes) et n’ont jamais reçu l’annonce. Pour les épargner, mettre le paramètre à 0 sur le site avant la fusion. Un salon refusé par la vérification ci-dessous ne consomme pas le plafond.
+- **Vérification du sujet** : le salon n’est supprimé que si son sujet est exactement `recrutement:<guilde>:<id du dossier>` (et s’il est textuel). Sinon rien n’est supprimé ni marqué (avertissement journalisé, nouvel essai au passage suivant). Un salon inconnu de Discord (supprimé à la main, erreur 10003) est considéré comme déjà supprimé : `ticketDeletedAt` est posé sans erreur.
+- **Dossier rouvert** : la condition est revérifiée sous verrou SQL juste avant la suppression ; un dossier revenu à un statut ouvert n’est pas supprimé.
+- **Journalisation** : l’identifiant du dossier uniquement (aucun pseudo ni identifiant Discord).
+- **Erreur Discord** (permissions, panne) : rien n’est marqué, l’erreur est journalisée et la suppression est retentée au passage suivant ; un échec compte dans le plafond du passage.
+- **Annonce du délai** : une phrase « Ce ticket sera supprimé le `<t:UNIX:D>`, N jours après la clôture du dossier. » est ajoutée au message `refused`, au message `expired` et à l’embed épinglé. Pour `integrated` (et le candidat devenu membre), elle figure dans l’embed épinglé seulement : pas de nouveau message, pas de mention. N vient du paramètre. Les messages déjà envoyés ne sont pas modifiés.
+- **Parrainage** : `ParrainageManager.sync` ne touche plus au salon d’un dossier dont le ticket est supprimé (ni restauration de droits, ni message) et ne modifie pas `ticketDeletedAt`.
+
+Détail des briques (lot 1) :
 
 - Le paramètre : `0` ou une valeur négative désactive la suppression (interrupteur de sécurité) ; une valeur absente ou non numérique retombe sur 30 et est journalisée.
 - `closedTicketDue(demande, now, days)` (fonction pure, `src/utils/ClosedTicket.ts`) : un ticket est dû si le dossier est clos depuis au moins `days` jours, si un `channelId` existe et si `mentorship.ticketDeletedAt` n’est pas posé. La date de clôture est l’`at` de la dernière décision vers `refused`, `expired` ou `integrated` ; pour un candidat devenu membre (statut `candidate`), c’est `mentorship.closedAt`. Sans date de clôture connue, ou pour un dossier rouvert (statut ouvert), rien n’est dû.
 - Le marqueur `ticketDeletedAt` (clé optionnelle du JSON `mentorship`, sans migration) : une fois posé sur un dossier clos, `resume()` n’appelle plus `ensureTicket`, `syncWelcomeMessage` ni `syncTicketUpdate`, donc aucun salon ni message n’est recréé. La fiche RH reste mise à jour : le champ « Ticket de recrutement » affiche « Ticket supprimé » et le bouton « Ouvrir le ticket » (fiche RH et panneau du parrain) disparaît. « Accéder à mon ticket » répond « Votre demande est terminée » et ne renvoie jamais de lien vers un salon supprimé.
 - `assign()` et `finish()` du parrainage conservent les clés existantes de `mentorship`, dont `ticketDeletedAt` (test).
+- `ticketDeletedAt` est posé par `RecrutementManager.deleteClosedTicket` ; le salon n’est pas supprimé du dossier (`channelId` conservé), c’est le marqueur qui fait foi.
 
 **Purge des comptes** : `purgeInvalidUsers` n'anonymise pas un compte du site dont le `discordId` a un dossier de recrutement **ouvert**, c'est-à-dire un statut autre que `refused`, `expired` et `integrated`, et un mentorat non clos (`mentorship.closedAt` absent). Un candidat refusé ou expiré, ou sans dossier, garde le comportement habituel. La règle historique reste en vigueur : un compte dont le profil RH a le statut `Candidatures` est aussi épargné. Le nombre de comptes épargnés est journalisé. Cette protection remplace celle qu’apportait la création anticipée du profil RH, supprimée (ticket #44, lot 2).
 
