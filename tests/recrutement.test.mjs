@@ -964,6 +964,116 @@ test('décision du site : refusée tant qu\'une opération est en reprise', asyn
     assert.equal(f.d.status, 'review');
 });
 
+const { siteActionTarget, siteActionReason, SiteActionError, SITE_ACTIONS, PLANNED_SITE_ACTIONS } = await import('../dist/src/managers/RecrutementManager.js');
+const ALL_STATUSES = ['waiting_rsi', 'review', 'postulant', 'awaiting_mentor', 'candidate', 'refused', 'expired', 'integrated'];
+
+test('action du site : matrice siteActionTarget, toutes les actions × tous les statuts, statut inconnu sans transition', () => {
+    const expected = {
+        validate_rsi: { waiting_rsi: 'postulant', review: 'postulant' },
+        validate_interview: { postulant: 'awaiting_mentor' },
+        refuse: { waiting_rsi: 'refused', review: 'refused', postulant: 'refused', awaiting_mentor: 'refused', candidate: 'refused' },
+    };
+    assert.deepEqual([...SITE_ACTIONS].sort(), Object.keys(expected).sort());
+    for (const action of SITE_ACTIONS) {
+        for (const status of ALL_STATUSES) assert.equal(siteActionTarget(action, status), expected[action][status] ?? null, `${action} depuis ${status}`);
+        for (const status of ['unknown', '', undefined, null]) assert.equal(siteActionTarget(action, status), null, `${action} depuis ${status}`);
+    }
+    assert.equal(siteActionTarget('accept', 'postulant'), null);
+    assert.equal(siteActionTarget('reopen', 'refused'), null);
+    assert.deepEqual([...PLANNED_SITE_ACTIONS], ['assign_mentor', 'reopen']);
+});
+
+test('action du site : motif obligatoire pour refuser, 500 caractères au plus, facultatif ailleurs', () => {
+    for (const bad of [undefined, null, '', '   ', 12]) {
+        assert.throws(() => siteActionReason('refuse', bad), error => error instanceof SiteActionError && error.httpStatus === 400);
+    }
+    assert.throws(() => siteActionReason('refuse', 'x'.repeat(501)), error => error instanceof SiteActionError && error.httpStatus === 400);
+    assert.throws(() => siteActionReason('validate_rsi', 'x'.repeat(501)), SiteActionError);
+    assert.equal(siteActionReason('refuse', ` ${'x'.repeat(500)} `), 'x'.repeat(500));
+    assert.equal(siteActionReason('validate_rsi', undefined), undefined);
+    assert.equal(siteActionReason('validate_interview', '  RAS  '), 'RAS');
+});
+
+test('action du site : acteur RH ou administrateur seulement, absent du serveur refusé', async () => {
+    const f = fixture();
+    assert.equal(await f.manager.isSiteActorStaff(ids.rh), true);
+    assert.equal(await f.manager.isSiteActorStaff(ids.bot), false);
+    assert.equal(await f.manager.isSiteActorStaff(ids.outsider), false);
+    assert.equal(await f.manager.isSiteActorStaff(ids.unrelated), false);
+});
+
+test('action du site : validate_rsi puis validate_interview, motif consigné, ticket Mentora ouvert', async () => {
+    const f = fixture({ status: 'review' });
+    assert.deepEqual(await f.manager.applySiteAction(ids.applicant, 'validate_rsi', ids.rh, 'review'), { found: true, changed: true, status: 'postulant' });
+    assert.equal(f.d.status, 'postulant'); assert.equal(f.d.pendingStatus, undefined);
+    assert.ok(f.d.submittedAt);
+    assert.equal(f.d.decisions.at(-1).actorId, ids.rh);
+    assert.equal(f.d.decisions.at(-1).reason, undefined);
+    assert.deepEqual(await f.manager.applySiteAction(ids.applicant, 'validate_interview', ids.rh, 'postulant', ' Entretien OK '), { found: true, changed: true, status: 'awaiting_mentor' });
+    assert.equal(f.d.decisions.at(-1).reason, 'Entretien OK');
+    assert.equal(f.d.decisions.at(-1).from, 'postulant');
+});
+
+test('action du site : refuse avec motif remplace le motif figé, rôles retirés', async () => {
+    const f = fixture({ status: 'postulant' });
+    const result = await f.manager.applySiteAction(ids.applicant, 'refuse', ids.rh, 'postulant', 'Profil incompatible');
+    assert.deepEqual(result, { found: true, changed: true, status: 'refused' });
+    assert.equal(f.d.decisions.at(-1).reason, 'Profil incompatible');
+    assert.equal(f.d.decisions.at(-1).actorId, ids.rh);
+    assert.equal(f.applicant.roles.cache.has(ids.postulant), false);
+});
+
+test('action du site : refus sans motif ou motif trop long, aucune écriture', async () => {
+    const f = fixture({ status: 'postulant' });
+    await assert.rejects(() => f.manager.applySiteAction(ids.applicant, 'refuse', ids.rh, 'postulant', ''), SiteActionError);
+    await assert.rejects(() => f.manager.applySiteAction(ids.applicant, 'refuse', ids.rh, 'postulant', 'x'.repeat(501)), SiteActionError);
+    assert.equal(f.d.status, 'postulant'); assert.equal(f.d.pendingStatus, undefined); assert.equal(f.d.decisions.length, 0);
+});
+
+test('action du site : refus d\'un candidat = parrainage clôturé puis refus', async () => {
+    const f = fixture({ status: 'candidate' });
+    const closed = [];
+    f.bot.parrainageManager = { async closeForRequest(...args) { closed.push(args); } };
+    const result = await f.manager.applySiteAction(ids.applicant, 'refuse', ids.rh, 'candidate', 'Inactif');
+    assert.equal(result.status, 'refused');
+    assert.deepEqual(closed, [[1, ids.rh, 'Candidature refusée depuis le site']]);
+});
+
+test('action du site : expectedStatus périmé = 409 sans parrainage clôturé ni écriture', async () => {
+    const f = fixture({ status: 'candidate' });
+    let closed = 0;
+    f.bot.parrainageManager = { async closeForRequest() { closed++; } };
+    await assert.rejects(() => f.manager.applySiteAction(ids.applicant, 'refuse', ids.rh, 'postulant', 'Motif'),
+        error => error instanceof SiteActionError && error.httpStatus === 409);
+    const g = fixture({ status: 'review' });
+    await assert.rejects(() => g.manager.applySiteAction(ids.applicant, 'validate_rsi', ids.rh, 'waiting_rsi'),
+        error => error instanceof SiteActionError && error.httpStatus === 409);
+    assert.equal(closed, 0); assert.equal(f.d.status, 'candidate'); assert.equal(f.d.decisions.length, 0);
+    assert.equal(g.d.status, 'review'); assert.equal(g.d.pendingStatus, undefined);
+});
+
+test('action du site : transition impossible = 409, y compris depuis un état final', async () => {
+    for (const [action, status] of [['validate_rsi', 'postulant'], ['validate_interview', 'review'], ['refuse', 'refused'], ['refuse', 'integrated'], ['validate_rsi', 'expired']]) {
+        const f = fixture({ status });
+        await assert.rejects(() => f.manager.applySiteAction(ids.applicant, action, ids.rh, status, 'Motif'),
+            error => error instanceof SiteActionError && error.httpStatus === 409, `${action} depuis ${status}`);
+        assert.equal(f.d.status, status); assert.equal(f.d.decisions.length, 0);
+    }
+});
+
+test('action du site : pendingStatus déjà posé = 409, rien de modifié', async () => {
+    const f = fixture({ status: 'review' });
+    f.d.pendingStatus = 'review';
+    await assert.rejects(() => f.manager.applySiteAction(ids.applicant, 'refuse', ids.rh, 'review', 'Motif'),
+        error => error instanceof SiteActionError && error.httpStatus === 409 && /déjà en cours/.test(error.message));
+    assert.equal(f.d.status, 'review'); assert.equal(f.d.decisions.length, 0);
+});
+
+test('action du site : dossier absent = found false', async () => {
+    const f = fixture({ noRequest: true });
+    assert.deepEqual(await f.manager.applySiteAction(ids.applicant, 'validate_rsi', ids.rh, 'review'), { found: false, changed: false });
+});
+
 const { interviewReminderDue } = await import('../dist/src/managers/schedulers/SchedulerRH.js');
 const DAY = 24 * 3600 * 1000;
 const since = Date.parse('2026-10-01T10:00:00.000Z');

@@ -52,6 +52,43 @@ export function siteDecisionTarget(decision: SiteDecision, status: RecrutementSt
     return inProgress || status === 'candidate' ? 'refused' : null;
 }
 
+export type SiteAction = 'validate_rsi' | 'validate_interview' | 'refuse';
+/** Actions du contrat `POST /recrutement/action` prévues dans d'autres lots : refusées tant qu'elles ne sont pas faites. */
+export const PLANNED_SITE_ACTIONS = ['assign_mentor', 'reopen'] as const;
+export const SITE_ACTIONS: readonly SiteAction[] = ['validate_rsi', 'validate_interview', 'refuse'];
+export const SITE_ACTION_REASON_MAX = 500;
+export const RECRUITMENT_STATUSES: readonly RecrutementStatus[] = ['waiting_rsi', 'review', 'postulant', 'awaiting_mentor', 'candidate', 'refused', 'expired', 'integrated'];
+
+/**
+ * Action demandée par le site (onglet RH > Candidatures) : statut cible, ou null si la transition est impossible
+ * (statut inconnu compris). `accept` n'existe pas ici : l'acceptation reste `POST /recrutement/decision`.
+ */
+export function siteActionTarget(action: SiteAction, status: RecrutementStatus): RecrutementStatus | null {
+    if (action === 'validate_rsi') return status === 'waiting_rsi' || status === 'review' ? 'postulant' : null;
+    if (action === 'validate_interview') return status === 'postulant' ? 'awaiting_mentor' : null;
+    if (action === 'refuse') {
+        return status === 'waiting_rsi' || status === 'review' || status === 'postulant' || status === 'awaiting_mentor' || status === 'candidate'
+            ? 'refused' : null;
+    }
+    return null;
+}
+
+/** Motif d'une action du site : obligatoire pour `refuse` (500 caractères au plus), facultatif sinon. Lève une erreur de requête sinon. */
+export function siteActionReason(action: SiteAction, raw: unknown): string | undefined {
+    const reason = typeof raw === 'string' ? raw.trim() : '';
+    if (action === 'refuse' && !reason) throw new SiteActionError(400, 'reason est obligatoire pour refuser une candidature');
+    if (reason.length > SITE_ACTION_REASON_MAX) throw new SiteActionError(400, `reason ne doit pas dépasser ${SITE_ACTION_REASON_MAX} caractères`);
+    return reason || undefined;
+}
+
+/** Erreur d'une action du site, avec le code HTTP à renvoyer (400, 403 ou 409) et un message lisible par le RH. */
+export class SiteActionError extends Error {
+    constructor(public readonly httpStatus: 400 | 403 | 409, message: string) {
+        super(message);
+        this.name = 'SiteActionError';
+    }
+}
+
 export class RecrutementManager {
 
     private logger = getManagerLogger('RecrutementManager');
@@ -149,6 +186,68 @@ export class RecrutementManager {
         }
         const current = await this.bot.db.getEm().findOne(RecrutementDemande, { id: found.id, guildId: this.bot.guild.id });
         return { found: true, changed, status: current?.status ?? found.status };
+    }
+
+    /** L'acteur d'une action du site est-il RH ou administrateur sur le serveur Discord ? Absent du serveur = non. */
+    async isSiteActorStaff(actorId: string): Promise<boolean> {
+        const member = await this.bot.guild.members.fetch({ user: actorId, force: true }).catch((err: { code?: number }) => {
+            if (err.code === 10007) return null;
+            throw err;
+        });
+        return !!member && !member.user.bot && await this.isStaffMember(member);
+    }
+
+    /**
+     * Action demandée depuis le site, même schéma que `applySiteDecision` : sous verrou, l'intention est enregistrée avant
+     * les changements Discord, que `resume()` applique (et que le scheduler reprend en cas d'échec).
+     * `expectedStatus` est le statut affiché sur la fiche du site ; s'il a changé, rien n'est fait (409).
+     * L'acteur doit avoir été vérifié par l'appelant (`isSiteActorStaff`).
+     */
+    async applySiteAction(discordId: string, action: SiteAction, actorId: string, expectedStatus: RecrutementStatus, rawReason?: unknown):
+        Promise<{ found: boolean; changed: boolean; status?: RecrutementStatus }> {
+        const reason = siteActionReason(action, rawReason);
+        const found = await this.bot.db.getEm().findOne(RecrutementDemande, { guildId: this.bot.guild.id, applicantId: discordId });
+        if (!found) {
+            return { found: false, changed: false };
+        }
+        const staleMessage = (status: RecrutementStatus) =>
+            `La candidature a évolué (statut actuel : ${recruitmentLabels[status] ?? status}). Actualisez la fiche.`;
+        if (found.status !== expectedStatus) {
+            throw new SiteActionError(409, staleMessage(found.status));
+        }
+        if (!siteActionTarget(action, found.status)) {
+            throw new SiteActionError(409, `Cette action est impossible pour une candidature au statut « ${recruitmentLabels[found.status] ?? found.status} ».`);
+        }
+        if (action === 'refuse' && found.status === 'candidate') {
+            await this.bot.parrainageManager?.closeForRequest(found.id, actorId, 'Candidature refusée depuis le site');
+        }
+        await this.withLockedRequest(found.id, async (demande, entityManager) => {
+            if (demande.pendingStatus) {
+                throw new SiteActionError(409, 'Une opération est déjà en cours de reprise pour cette candidature. Réessayez dans un instant.');
+            }
+            if (demande.status !== expectedStatus) {
+                throw new SiteActionError(409, staleMessage(demande.status));
+            }
+            const target = siteActionTarget(action, demande.status);
+            if (!target) {
+                throw new SiteActionError(409, `Cette action est impossible pour une candidature au statut « ${recruitmentLabels[demande.status] ?? demande.status} ».`);
+            }
+            demande.pendingStatus = target;
+            demande.needsSync = true;
+            if (target === 'postulant' && !demande.submittedAt) {
+                demande.submittedAt = new Date();
+            }
+            demande.decisions.push({ from: demande.status, to: target, actorId, at: new Date().toISOString(), reason });
+            await entityManager.flush();
+        });
+        try {
+            await this.resume(found.id);
+        } catch (error) {
+            // L'action est enregistrée : le scheduler terminera les changements Discord.
+            await this.logger.error({ err: error, demandeId: found.id }, 'Action du site enregistrée, application Discord à reprendre');
+        }
+        const current = await this.bot.db.getEm().findOne(RecrutementDemande, { id: found.id, guildId: this.bot.guild.id });
+        return { found: true, changed: true, status: current?.status ?? found.status };
     }
 
     async applyFromButton(interaction: ButtonInteraction) {
