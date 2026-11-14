@@ -644,7 +644,8 @@ export class ParrainageManager {
                 if (a.endedAt) {
                     const access = a.details.access;
                     if (access && !a.details.accessRestored) {
-                        const oldChannel = await this.bot.guild.channels.fetch(access.channelId);
+                        // Ticket supprimé : plus de droit à restaurer, et le salon ne doit jamais être recréé.
+                        const oldChannel = ticketDeleted(d) ? null : await this.bot.guild.channels.fetch(access.channelId);
                         if (oldChannel?.type === ChannelType.GuildText) {
                             await oldChannel.permissionOverwrites.edit(a.parrainId, access.permissions);
                             const overwrite = oldChannel.permissionOverwrites.cache.get(a.parrainId);
@@ -673,7 +674,7 @@ export class ParrainageManager {
             }
             await this.syncMentora(d, rows, em);
             if (d.mentorship?.ticketNotice && d.channelId) {
-                const channel = await this.bot.guild.channels.fetch(d.channelId);
+                const channel = ticketDeleted(d) ? null : await this.bot.guild.channels.fetch(d.channelId);
                 if (channel?.type === ChannelType.GuildText) await channel.send({ content: d.mentorship.ticketNotice, allowedMentions: { parse: [] } });
                 d.mentorship.ticketNotice = undefined;
             }

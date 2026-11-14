@@ -749,6 +749,25 @@ test('assign() et finish() conservent ticketDeletedAt (ticket #41)', async () =>
     assert.equal(f.requests[0].mentorship.ticketDeletedAt, '2026-11-01T00:00:00.000Z');
 });
 
+test('sync() d’un dossier clos dont le ticket est supprimé : aucun accès au salon, aucun message, ticketDeletedAt conservé (ticket #41)', async () => {
+    const f = fixture();
+    const d = f.requests[0];
+    d.mentorship = { closedAt: '2026-10-01T00:00:00.000Z', ticketDeletedAt: '2026-11-05T00:00:00.000Z', ticketNotice: 'Le suivi de parrainage est clôturé.', cleInconnue: 'conservee' };
+    f.assignment(ids.parrain, d, { endedAt: new Date('2026-10-01T00:00:00.000Z'), details: { access: { channelId: ids.ticket, hadOverwrite: false, permissions: {} } } });
+    const fetched = [];
+    f.bot.guild.channels.fetch = async id => {
+        fetched.push(id);
+        if (id === ids.ticket) throw Object.assign(new Error('Unknown Channel'), { code: 10003 });
+        return null;
+    };
+    await f.manager.sync(1);
+    assert.equal(fetched.includes(ids.ticket), false);
+    assert.equal(f.operations.some(x => x[0] === 'message' || x[0] === 'permissions' || x[0] === 'delete-permissions'), false);
+    assert.equal(d.mentorship.ticketDeletedAt, '2026-11-05T00:00:00.000Z');
+    assert.equal(d.mentorship.cleInconnue, 'conservee');
+    assert.equal(d.channelId, ids.ticket);
+});
+
 test('finish() conserve les clés inconnues de mentorship (retrait du parrain puis clôture)', async () => {
     const f = fixture();
     f.requests[0].mentorship = { cleInconnue: 'conservee', interviewRemindedAt: '2026-10-02T00:00:00.000Z', periodRemindedAt: '2026-10-03T00:00:00.000Z' };
