@@ -8,6 +8,7 @@ import { ParrainPreference as Preference } from '../entities/recrutement/Parrain
 import { SettingKeys } from '../constants/SettingKeys.js';
 import { settingsService } from '../services/SettingsService.js';
 import { getManagerLogger } from '../logger.js';
+import { ticketDeleted } from '../utils/ClosedTicket.js';
 import { DEFAULT_CANDIDATE_PERIOD_DAYS, candidatePeriodDays, daysToMs, extensionDays, formatDays, mentorReminderDays, mentorWaitDays } from '../utils/RecruitmentDelays.js';
 import View, { mentoraEmbed, parrainButton as button, parrainSelect as select } from '../view/ParrainageView.js';
 import type { ComponentInteraction } from '../view/BaseView.js';
@@ -384,7 +385,7 @@ export class ParrainageManager {
         await this.display(i, `**Candidat <@${a.demande.applicantId}>**\nAccompagné depuis le ${a.startedAt.toLocaleDateString('fr-FR')}\n${await this.periodLabel(a.demande)}\n${a.details?.relay ? 'Relais demandé aux RH.\n' : ''}${latest ? `Avis : ${AVIS[latest.avis]}\n${latest.comment}` : 'Aucun bilan déposé.'}`, [
             select('review', AVIS_PROPOSES.map(value => ({ label: AVIS[value], value }))),
             button('relay', 'Demander un relais'), button('mine', 'Retour aux candidats'), button('home', 'Mon espace'),
-            ...(a.demande.channelId ? [{ type: T.Button as const, customId: 'parrain_ticket', label: 'Ouvrir le ticket', style: 'Link' as const, url: `https://discord.com/channels/${this.bot.guild.id}/${a.demande.channelId}` }] : []),
+            ...(a.demande.channelId && !ticketDeleted(a.demande) ? [{ type: T.Button as const, customId: 'parrain_ticket', label: 'Ouvrir le ticket', style: 'Link' as const, url: `https://discord.com/channels/${this.bot.guild.id}/${a.demande.channelId}` }] : []),
         ], { attributionId: a.id, userId: a.parrainId });
     }
     private async owned(id: number, actorId: string, em = this.bot.db.getEm()) {

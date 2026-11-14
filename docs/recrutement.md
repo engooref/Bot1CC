@@ -68,11 +68,21 @@ Le scheduler retire aussi `[A]` après la durée `bot.recrutement.arrival_days` 
 | `bot.recrutement.candidate_period_days` | 30 | Durée de la période de candidat |
 | `bot.recrutement.extension_days` | 14 | Durée de prolongation pré-remplie dans le formulaire « Prolonger » de la fiche RH (modifiable par le RH) |
 | `bot.recrutement.mentor_reminder_days` | 3 | Intervalle des relances (mentor et RH) une fois la période échue |
+| `bot.recrutement.closed_ticket_retention_days` | 30 | Conservation d’un ticket clos (voir « Tickets clos » ci-dessous). **0 ou négatif = suppression désactivée** |
 
 Une valeur absente, nulle, négative ou non numérique retombe sur le défaut et est journalisée, sans erreur. Les messages du ticket affichent la durée configurée (« 1 jour » au singulier). Les clés sont déclarées côté site ; exemple au format du registre : `docs/app_settings/bot_recrutement_delais.json`.
 Le scheduler retire aussi `[A]` sept jours après l’arrivée, indépendamment du ticket, sans retirer `[P]` ou `[C-1CC]`. `[P]` n’est posé qu’à la validation RSI par les RH ; avant, le pseudo n’est pas modifié.
 
 Les demandes disposent d’une contrainte unique serveur/demandeur et d’un verrou SQL individuel. Les décisions sont enregistrées avant les changements Discord, avec reprise automatique après échec. Un dossier refusé ou expiré n’est pas rouvert automatiquement ; le demandeur doit contacter les RH. Les anciens profils RH `Candidatures` ne reçoivent pas de deuxième ticket : ces candidats, passés par l’ancien bouton, sont à migrer manuellement (le bouton leur répond qu’une demande est en cours). L’ancien circuit du bouton (fil RH, salon `admission-*` créé via `ADMISSION_CATEGORY_ID`) est supprimé.
+
+### Tickets clos (ticket #41, lot 1 : garde et mesure, aucune suppression)
+
+Décision du propriétaire : un ticket clos (refusé, expiré, intégré, ou candidat devenu membre) sera supprimé `bot.recrutement.closed_ticket_retention_days` jours (30 par défaut) après la clôture. **Dans l’état actuel, le bot ne supprime encore aucun salon** : le lot 2 ajoutera la suppression et l’annonce du délai dans le ticket. Le lot 1 pose uniquement ce qui doit exister avant :
+
+- Le paramètre : `0` ou une valeur négative désactive la suppression (interrupteur de sécurité) ; une valeur absente ou non numérique retombe sur 30 et est journalisée.
+- `closedTicketDue(demande, now, days)` (fonction pure, `src/utils/ClosedTicket.ts`) : un ticket est dû si le dossier est clos depuis au moins `days` jours, si un `channelId` existe et si `mentorship.ticketDeletedAt` n’est pas posé. La date de clôture est l’`at` de la dernière décision vers `refused`, `expired` ou `integrated` ; pour un candidat devenu membre (statut `candidate`), c’est `mentorship.closedAt`. Sans date de clôture connue, ou pour un dossier rouvert (statut ouvert), rien n’est dû.
+- Le marqueur `ticketDeletedAt` (clé optionnelle du JSON `mentorship`, sans migration) : une fois posé sur un dossier clos, `resume()` n’appelle plus `ensureTicket`, `syncWelcomeMessage` ni `syncTicketUpdate`, donc aucun salon ni message n’est recréé. La fiche RH reste mise à jour : le champ « Ticket de recrutement » affiche « Ticket supprimé » et le bouton « Ouvrir le ticket » (fiche RH et panneau du parrain) disparaît. « Accéder à mon ticket » répond « Votre demande est terminée » et ne renvoie jamais de lien vers un salon supprimé.
+- `assign()` et `finish()` du parrainage conservent les clés existantes de `mentorship`, dont `ticketDeletedAt` (test).
 
 **Purge des comptes** : `purgeInvalidUsers` n'anonymise pas un compte du site dont le `discordId` a un dossier de recrutement **ouvert**, c'est-à-dire un statut autre que `refused`, `expired` et `integrated`, et un mentorat non clos (`mentorship.closedAt` absent). Un candidat refusé ou expiré, ou sans dossier, garde le comportement habituel. La règle historique reste en vigueur : un compte dont le profil RH a le statut `Candidatures` est aussi épargné. Le nombre de comptes épargnés est journalisé. Cette protection remplace celle qu’apportait la création anticipée du profil RH, supprimée (ticket #44, lot 2).
 

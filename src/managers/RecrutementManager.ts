@@ -14,12 +14,15 @@ import { settingsService } from '../services/SettingsService.js';
 import { getManagerLogger } from '../logger.js';
 import { RHMember } from '../entities/rh/RHMember.js';
 import { RecrutementDemande, type RecrutementStatus } from '../entities/recrutement/RecrutementDemande.js';
+import { ticketDeleted } from '../utils/ClosedTicket.js';
 import { staffLink } from '../utils/NotifyRH.js';
 import { editMemberOverwrite } from '../utils/PermissionOverwrites.js';
 import ParrainageView, { mentoraEmbed } from '../view/ParrainageView.js';
 import RecrutementView, { RecruitmentActions, recruitmentLabels } from '../view/RecrutementView.js';
 
 const TICKET_PERMISSIONS = [P.ViewChannel, P.SendMessages, P.ReadMessageHistory];
+
+export { closedTicketDue, closedAtOf, ticketDeleted } from '../utils/ClosedTicket.js';
 
 export function recruitmentTarget(action: string, status: RecrutementStatus): RecrutementStatus {
     if (action === RecruitmentActions.Submit && status === 'waiting_rsi') {
@@ -457,7 +460,8 @@ export class RecrutementManager {
                 if (['waiting_rsi', 'review'].includes(demande.status)) {
                     await this.syncPostulantAccess(demande, entityManager);
                 }
-                await this.ensureTicket(demande, entityManager);
+                // Ticket supprimé d'un dossier clos : jamais de salon recréé (ticket #41).
+                if (!ticketDeleted(demande)) await this.ensureTicket(demande, entityManager);
                 if (demande.pendingStatus) {
                     await this.applyPendingStatus(demande);
                     demande.status = demande.pendingStatus;
@@ -512,8 +516,10 @@ export class RecrutementManager {
     }
 
     private async syncMessages(demande: RecrutementDemande, entityManager: EntityManager) {
-        await this.syncWelcomeMessage(demande, entityManager);
-        await this.syncTicketUpdate(demande, entityManager);
+        if (!ticketDeleted(demande)) {
+            await this.syncWelcomeMessage(demande, entityManager);
+            await this.syncTicketUpdate(demande, entityManager);
+        }
         await this.syncStaffNotification(demande, entityManager);
     }
 
@@ -628,7 +634,7 @@ export class RecrutementManager {
             .addFields(
                 { name: 'Lien vers la liste des candidatures', value: '[Candidatures 1CC](https://robertsspaceindustries.com/en/orgs/1CC/admin/applications)', inline: true },
                 { name: 'Contacter le candidat', value: `[Envoyer un message privé](https://discord.com/users/${demande.applicantId})`, inline: true },
-                { name: 'Ticket de recrutement', value: `<#${demande.channelId}>`, inline: true },
+                { name: 'Ticket de recrutement', value: ticketDeleted(demande) ? 'Ticket supprimé' : `<#${demande.channelId}>`, inline: true },
                 { name: 'Parcours', value: recruitmentLabels[demande.status] },
             );
         if (demande.submittedAt) {
@@ -699,7 +705,7 @@ export class RecrutementManager {
                 const demande = await this.bot.db.getEm().findOne(RecrutementDemande, { guildId: interaction.guildId, applicantId: interaction.user.id });
                 let response = 'Sélectionnez « Je postule » dans l’intégration Discord. Si vous avez une ancienne candidature, contactez les RH.';
                 if (demande) {
-                    const hasActiveTicket = demande.channelId && !['refused', 'expired', 'integrated'].includes(demande.status);
+                    const hasActiveTicket = demande.channelId && !ticketDeleted(demande) && !['refused', 'expired', 'integrated'].includes(demande.status);
                     response = hasActiveTicket
                         ? `Votre ticket : <#${demande.channelId}>`
                         : 'Votre demande est terminée. Contactez les RH.';
