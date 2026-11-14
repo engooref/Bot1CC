@@ -114,6 +114,26 @@ L'onglet RH > Candidatures du site accepte ou rejette un candidat. Le site prév
 
 Pas de demande pour ce Discord (ancien circuit) : `found: false`, ce n'est pas une erreur. Comme pour les boutons RH, l'intention est enregistrée avant les changements Discord et reprise par le scheduler en cas d'échec. Une opération déjà en reprise fait répondre une erreur : le site peut réessayer.
 
+## Actions demandées depuis le site (ticket #76, lot 1)
+
+Le bot est le seul à écrire le statut d'un dossier : le site demande une action par la route signée `POST /recrutement/action` (formulaire, mêmes en-têtes que `/decision`). Champs : `discordId` (le candidat), `action`, `actorId` (le RH qui agit, **obligatoire**), `expectedStatus` (le statut affiché sur la fiche du site, **obligatoire**) et `reason`. L'acceptation reste celle de `/recrutement/decision`.
+
+| Action | Depuis | Vers | Motif |
+| --- | --- | --- | --- |
+| `validate_rsi` | `waiting_rsi`, `review` | `postulant` | facultatif |
+| `validate_interview` | `postulant` | `awaiting_mentor` (le ticket Mentora est ouvert par `resume()`) | facultatif |
+| `refuse` | `waiting_rsi`, `review`, `postulant`, `awaiting_mentor`, `candidate` | `refused` | **obligatoire**, 500 caractères au plus, consigné dans `decisions` (un candidat voit d'abord son parrainage clos) |
+
+`assign_mentor` et `reopen` sont prévus (lots 2 et 3) : ils répondent pour l'instant 400 « action non disponible ».
+
+Réponse : `{ success: true, found, changed, status }`, ou `found: false` si le dossier n'existe pas. Erreurs, avec un `message` lisible :
+
+- **400** : `discordId`, `actorId`, `action`, `expectedStatus` ou `reason` invalide (motif vide ou de plus de 500 caractères pour `refuse`) ; action non disponible.
+- **403** : `actorId` absent du serveur, ou sans le rôle RH ni la permission administrateur (vérifié par le bot à chaque appel, pas seulement par le site).
+- **409** : `expectedStatus` différent du statut réel, transition impossible depuis ce statut, ou opération déjà en reprise. Rien n'est modifié ; le site affiche le message et peut réessayer.
+
+Comme pour les décisions, sous verrou, l'intention (`pendingStatus`, `needsSync`, entrée dans `decisions`) est enregistrée avant les changements Discord, appliqués par `resume()` et repris par le scheduler en cas d'échec. Les règles de transition sont dans la fonction pure `siteActionTarget(action, status)` (statut inconnu = pas de transition). Aucune migration, aucun paramètre ni variable d'environnement.
+
 ## Validation
 
 `npm run test:recrutement` compile et teste le parcours sans connexion réelle à Discord, au site ou à MySQL. Après compilation, `node --test tests/diplomatie.test.mjs` vérifie la diplomatie.
