@@ -1179,3 +1179,131 @@ test('un membre parti du serveur ne bloque plus la reprise : le droit individuel
     const failing = { permissionOverwrites: { edit: async () => { throw other; } } };
     await assert.rejects(() => editMemberOverwrite(failing, ids.applicant, { ViewChannel: false }), other);
 });
+
+// --- Ticket #41, lot 1 : tickets clos (aucune suppression de salon dans ce lot) ---
+const closedDemande = (status, at, extra = {}) => Object.assign(new Demande(), { id: 1, guildId: ids.guild, applicantId: ids.applicant, channelId: ids.ticket, status,
+    decisions: at ? [{ from: 'review', to: status, actorId: ids.rh, at: new Date(at).toISOString() }] : [], ...extra });
+
+test('closedTicketDue : refusé, expiré, intégré, avant et après l’échéance', async () => {
+    const { closedTicketDue } = await import('../dist/src/managers/RecrutementManager.js');
+    const closedAt = Date.parse('2026-10-01T00:00:00.000Z');
+    for (const status of ['refused', 'expired', 'integrated']) {
+        const d = closedDemande(status, closedAt);
+        assert.equal(closedTicketDue(d, new Date(closedAt + 30 * DAY - 1), 30), false, status);
+        assert.equal(closedTicketDue(d, new Date(closedAt + 30 * DAY), 30), true, status);
+        assert.equal(closedTicketDue(d, closedAt + 31 * DAY, 30), true, status);
+    }
+});
+
+test('closedTicketDue : la dernière décision de clôture fait foi, un dossier sans date n’est jamais dû', async () => {
+    const { closedTicketDue } = await import('../dist/src/managers/RecrutementManager.js');
+    const now = Date.parse('2027-01-01T00:00:00.000Z');
+    const d = closedDemande('refused', Date.parse('2026-12-30T00:00:00.000Z'));
+    d.decisions.unshift({ from: 'review', to: 'refused', actorId: ids.rh, at: '2026-01-01T00:00:00.000Z' });
+    assert.equal(closedTicketDue(d, now, 30), false);
+    assert.equal(closedTicketDue(closedDemande('refused', null), now, 30), false);
+    assert.equal(closedTicketDue(closedDemande('expired', null, { decisions: [{ from: 'review', to: 'expired', actorId: ids.rh, at: 'pas une date' }] }), now, 30), false);
+});
+
+test('closedTicketDue : candidat devenu membre = mentorship.closedAt ; candidat en cours jamais dû', async () => {
+    const { closedTicketDue } = await import('../dist/src/managers/RecrutementManager.js');
+    const closedAt = Date.parse('2026-10-01T00:00:00.000Z');
+    const member = closedDemande('candidate', null, { mentorship: { closedAt: new Date(closedAt).toISOString() } });
+    assert.equal(closedTicketDue(member, closedAt + 30 * DAY - 1, 30), false);
+    assert.equal(closedTicketDue(member, closedAt + 30 * DAY, 30), true);
+    assert.equal(closedTicketDue(closedDemande('candidate', null, { mentorship: {} }), closedAt + 365 * DAY, 30), false);
+});
+
+test('closedTicketDue : marqueur posé, sans salon, suppression désactivée ou dossier rouvert', async () => {
+    const { closedTicketDue } = await import('../dist/src/managers/RecrutementManager.js');
+    const closedAt = Date.parse('2026-10-01T00:00:00.000Z'), later = closedAt + 90 * DAY;
+    assert.equal(closedTicketDue(closedDemande('refused', closedAt), later, 30), true);
+    assert.equal(closedTicketDue(closedDemande('refused', closedAt, { mentorship: { ticketDeletedAt: new Date(later).toISOString() } }), later, 30), false);
+    assert.equal(closedTicketDue(closedDemande('refused', closedAt, { channelId: undefined }), later, 30), false);
+    assert.equal(closedTicketDue(closedDemande('refused', closedAt), later, 0), false);
+    assert.equal(closedTicketDue(closedDemande('refused', closedAt), later, -5), false);
+    assert.equal(closedTicketDue(closedDemande('waiting_rsi', closedAt), later, 30), false);
+    assert.equal(closedTicketDue(closedDemande('review', closedAt), later, 30), false);
+});
+
+test('paramètre closed_ticket_retention_days : 30 par défaut, 0 ou négatif conservé (désactivé), invalide = défaut', async () => {
+    const { closedTicketRetentionDays } = await import('../dist/src/utils/RecruitmentDelays.js');
+    const saved = settingsService.getInt;
+    try {
+        settingsService.getInt = async (key, fallback) => settings[key] ?? fallback;
+        settings = {};
+        assert.equal(await closedTicketRetentionDays(), 30);
+        settings = { 'bot.recrutement.closed_ticket_retention_days': 45 };
+        assert.equal(await closedTicketRetentionDays(), 45);
+        settings = { 'bot.recrutement.closed_ticket_retention_days': 0 };
+        assert.equal(await closedTicketRetentionDays(), 0);
+        settings = { 'bot.recrutement.closed_ticket_retention_days': -3 };
+        assert.equal(await closedTicketRetentionDays(), -3);
+        settings = { 'bot.recrutement.closed_ticket_retention_days': 'abc' };
+        assert.equal(await closedTicketRetentionDays(), 30);
+        settings = { 'bot.recrutement.closed_ticket_retention_days': Number.NaN };
+        assert.equal(await closedTicketRetentionDays(), 30);
+        settingsService.getInt = async () => { throw new Error('indisponible'); };
+        assert.equal(await closedTicketRetentionDays(), 30);
+    } finally { settingsService.getInt = saved; }
+});
+
+for (const [label, prepare] of [
+    ['refusé', d => { d.status = 'refused'; d.decisions.push({ from: 'review', to: 'refused', actorId: ids.rh, at: '2026-10-01T00:00:00.000Z' }); }],
+    ['expiré', d => { d.status = 'expired'; d.decisions.push({ from: 'review', to: 'expired', actorId: ids.rh, at: '2026-10-01T00:00:00.000Z' }); }],
+    ['intégré', d => { d.status = 'integrated'; d.decisions.push({ from: 'review', to: 'integrated', actorId: ids.rh, at: '2026-10-01T00:00:00.000Z' }); }],
+    ['candidat devenu membre', d => { d.status = 'candidate'; d.mentorship = { closedAt: '2026-10-01T00:00:00.000Z' }; }],
+]) {
+    test(`resume() d’un dossier ${label} dont le ticket est supprimé : aucun salon ni message recréé`, async () => {
+        const f = fixture();
+        prepare(f.d);
+        f.d.mentorship = { ...f.d.mentorship, ticketDeletedAt: '2026-11-05T00:00:00.000Z', cleInconnue: 'conservee' };
+        f.d.channelId = undefined; f.d.welcomeMessageId = undefined;
+        f.d.needsSync = true;
+        await f.manager.resume(1);
+        assert.equal(f.operations.some(x => x[0] === 'create-channel'), false);
+        assert.equal(f.operations.some(x => x[0] === 'send' && x[1] === ids.ticket), false);
+        assert.equal(f.d.channelId, undefined);
+        assert.equal(f.d.welcomeMessageId, undefined);
+        assert.equal(f.d.needsSync, false);
+        assert.equal(f.d.mentorship.ticketDeletedAt, '2026-11-05T00:00:00.000Z');
+        assert.equal(f.d.mentorship.cleInconnue, 'conservee');
+        // La fiche RH est quand même mise à jour, sans lien vers le salon supprimé.
+        const sent = f.operations.find(x => x[0] === 'send' && x[2].embeds?.[0]?.data.title === 'Annonce Candidature');
+        assert.ok(sent);
+        const field = sent[2].embeds[0].data.fields.find(x => x.name === 'Ticket de recrutement');
+        assert.equal(field.value, 'Ticket supprimé');
+    });
+}
+
+test('resume() d’un dossier clos dont le ticket n’est pas supprimé : comportement inchangé (salon recréé si absent)', async () => {
+    const f = fixture({ status: 'refused' });
+    f.d.decisions.push({ from: 'review', to: 'refused', actorId: ids.rh, at: '2026-10-01T00:00:00.000Z' });
+    f.d.channelId = undefined; f.d.needsSync = true;
+    await f.manager.resume(1);
+    assert.equal(f.operations.filter(x => x[0] === 'create-channel').length, 1);
+});
+
+test('fiche RH : plus de bouton « Ouvrir le ticket » une fois le ticket supprimé', () => {
+    const labels = d => View.staff({ guild: { id: ids.guild } }, d).rows.flatMap(r => r.components).map(c => c.label ?? c.data?.label);
+    const open = closedDemande('refused', Date.parse('2026-10-01T00:00:00.000Z'));
+    assert.ok(labels(open).includes('Ouvrir le ticket'));
+    const deleted = closedDemande('refused', Date.parse('2026-10-01T00:00:00.000Z'), { mentorship: { ticketDeletedAt: '2026-11-05T00:00:00.000Z' } });
+    assert.equal(labels(deleted).includes('Ouvrir le ticket'), false);
+});
+
+test('« Accéder à mon ticket » : dossier clos ou ticket supprimé, aucun lien vers un salon', async () => {
+    const f = fixture({ status: 'refused' });
+    f.d.decisions.push({ from: 'review', to: 'refused', actorId: ids.rh, at: '2026-10-01T00:00:00.000Z' });
+    f.d.mentorship = { ticketDeletedAt: '2026-11-05T00:00:00.000Z' };
+    let i = await f.run(A.Ticket, ids.applicant);
+    assert.match(i.response, /terminée/); assert.doesNotMatch(i.response, /<#/);
+    // Candidat devenu membre : le statut reste « candidate », mais le ticket supprimé n'est plus proposé.
+    f.d.status = 'candidate'; f.d.mentorship = { closedAt: '2026-10-01T00:00:00.000Z', ticketDeletedAt: '2026-11-05T00:00:00.000Z' };
+    i = await f.run(A.Ticket, ids.applicant);
+    assert.match(i.response, /terminée/); assert.doesNotMatch(i.response, /<#/);
+    // Ticket encore présent : le lien est donné.
+    f.d.status = 'review'; f.d.mentorship = undefined;
+    i = await f.run(A.Ticket, ids.applicant);
+    assert.match(i.response, new RegExp(`<#${ids.ticket}>`));
+});

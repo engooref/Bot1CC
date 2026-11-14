@@ -2,6 +2,7 @@ import type { BotManager } from '../BotManager.js';
 import { BaseComponentView, ViewHandlers } from './BaseView.js';
 import { ComponentType } from '../entities/ui/ViewContext.js';
 import { RecrutementDemande } from '../entities/recrutement/RecrutementDemande.js';
+import { ticketDeleted } from '../utils/ClosedTicket.js';
 import { JSONTypeComponent as T, type JSONComponent } from '../utils/Type.js';
 
 export const RecruitmentActions = {
@@ -45,7 +46,7 @@ export default class RecrutementView extends BaseComponentView {
         // Acceptation déléguée au site (ticket #43, lot 3). Les rôles sont revérifiés au clic.
         if (d.status === 'candidate') definitions.push({ type: T.Button, customId: 'parrain_validate', label: 'Valider', style: 'Success', disabled: !!d.pendingStatus });
         definitions.push({ type: T.Button, customId: 'parrain_directory', label: 'Gérer les parrains', style: 'Secondary' });
-        if (d.channelId) definitions.push({ type: T.Button, customId: 'recrutement_ticket_link', label: 'Ouvrir le ticket', style: 'Link', url: `https://discord.com/channels/${d.guildId}/${d.channelId}` });
+        if (d.channelId && !ticketDeleted(d)) definitions.push({ type: T.Button, customId: 'recrutement_ticket_link', label: 'Ouvrir le ticket', style: 'Link', url: `https://discord.com/channels/${d.guildId}/${d.channelId}` });
         if (d.status === 'awaiting_mentor' && d.mentorship?.mentoraChannelId) definitions.push({ type: T.Button, customId: 'recrutement_mentora_link', label: 'Ouvrir le ticket Mentora', style: 'Link', url: `https://discord.com/channels/${d.guildId}/${d.mentorship.mentoraChannelId}` });
         return new RecrutementView(bot, { demandeId: d.id, guildId: d.guildId }, definitions);
     }

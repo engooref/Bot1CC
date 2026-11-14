@@ -47,6 +47,29 @@ export async function readDelayDays(key: DelayKey, fallback: number): Promise<nu
     return days;
 }
 
+export const DEFAULT_CLOSED_TICKET_RETENTION_DAYS = 30;
+
+/**
+ * Délai de conservation d'un ticket clos. 0 ou négatif = suppression désactivée (interrupteur de sécurité) ;
+ * valeur absente, non numérique ou non entière : défaut, journalisé.
+ */
+export async function closedTicketRetentionDays(): Promise<number> {
+    const key = SettingKeys.bot.recrutement.closedTicketRetentionDays;
+    const fallback = DEFAULT_CLOSED_TICKET_RETENTION_DAYS;
+    let raw: number;
+    try {
+        raw = await settingsService.getInt(key, fallback);
+    } catch (err) {
+        logger.warn({ err, key }, `Paramètre ${key} illisible : ${fallback} jour(s) par défaut`);
+        return fallback;
+    }
+    if (typeof raw !== 'number' || !Number.isInteger(raw)) {
+        logger.warn({ key, value: raw }, `Paramètre ${key} invalide : ${fallback} jour(s) par défaut`);
+        return fallback;
+    }
+    return raw;
+}
+
 export const arrivalDelayMs = async () => daysToMs(await readDelayDays(SettingKeys.bot.recrutement.arrivalDays, DEFAULT_ARRIVAL_DAYS));
 export const ticketInactivityDays = () => readDelayDays(SettingKeys.bot.recrutement.ticketInactivityDays, DEFAULT_TICKET_INACTIVITY_DAYS);
 export const mentorWaitDays = () => readDelayDays(SettingKeys.bot.recrutement.mentorWaitDays, DEFAULT_MENTOR_WAIT_DAYS);

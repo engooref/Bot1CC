@@ -7,6 +7,8 @@ export interface RecruitmentMentorship {
     periodStartAt?: string; periodExtraDays?: number; mentorRemindedAt?: string;
     /** Ticket Mentora (statut awaiting_mentor). */
     mentoraChannelId?: string; mentoraMessageId?: string;
+    /** Posé quand le salon d'admission d'un dossier clos a été supprimé (ticket #41) : plus aucune recréation. */
+    ticketDeletedAt?: string;
 }
 export type RecrutementStatus = 'waiting_rsi' | 'review' | 'postulant' | 'awaiting_mentor' | 'candidate' | 'refused' | 'expired' | 'integrated';
 export interface PostulantChannelAccess { viewChannel: boolean | null; hadOverwrite: boolean; }

@@ -738,6 +738,17 @@ test('assign() conserve les clés inconnues de mentorship', async () => {
     assert.equal(f.requests[0].mentorship.periodRemindedAt, '2026-10-03T00:00:00.000Z');
 });
 
+test('assign() et finish() conservent ticketDeletedAt (ticket #41)', async () => {
+    const f = fixture();
+    f.requests[0].mentorship = { ticketDeletedAt: '2026-11-01T00:00:00.000Z' };
+    await f.manager.assign(1, ids.parrain, ids.staff, 0);
+    assert.equal(f.requests[0].mentorship.ticketDeletedAt, '2026-11-01T00:00:00.000Z');
+    await f.manager.finish(1, ids.staff, 'Retrait', false, f.assignments[0].id);
+    assert.equal(f.requests[0].mentorship.ticketDeletedAt, '2026-11-01T00:00:00.000Z');
+    await f.manager.closeForRequest(1, ids.staff, 'Fin');
+    assert.equal(f.requests[0].mentorship.ticketDeletedAt, '2026-11-01T00:00:00.000Z');
+});
+
 test('finish() conserve les clés inconnues de mentorship (retrait du parrain puis clôture)', async () => {
     const f = fixture();
     f.requests[0].mentorship = { cleInconnue: 'conservee', interviewRemindedAt: '2026-10-02T00:00:00.000Z', periodRemindedAt: '2026-10-03T00:00:00.000Z' };
