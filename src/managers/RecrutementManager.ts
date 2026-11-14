@@ -387,11 +387,7 @@ export class RecrutementManager {
         }
         const member = await this.bot.guild.members.fetch({ user: demande.applicantId, force: true });
         if (target === 'review') {
-            const profile = await this.bot.userManager.initMemberRh(demande.applicantId);
-            profile.status = 'Candidatures';
-            profile.dateEntree = demande.submittedAt!;
-            await this.bot.userManager.em.persist(profile).flush();
-            return;
+            return; // Dépôt RSI déclaré : aucun compte du site ni profil RH à ce stade.
         }
         if (target === 'refused') {
             const removable = member.roles.cache.filter(r => r.id !== member.guild.id && !r.managed);
@@ -409,10 +405,6 @@ export class RecrutementManager {
         } else if (target === 'awaiting_mentor') {
             return; // Entretien validé : ni rôle ni pseudo ne changent, le candidat reste Postulant [P].
         } else if (target === 'postulant') {
-            const profile = await this.bot.userManager.initMemberRh(demande.applicantId);
-            profile.status = 'Candidatures';
-            profile.dateEntree = demande.submittedAt ?? new Date();
-            await this.bot.userManager.em.persist(profile).flush();
             try {
                 await member.setNickname(recruitmentNickname(member.displayName, '[P]'), 'Dépôt RSI validé');
             } catch (error) {
@@ -433,6 +425,10 @@ export class RecrutementManager {
             } catch (error) {
                 await this.logger.error({ err: error, memberId: member.id }, 'Impossible de modifier le pseudonyme du membre');
             }
+            // Compte du site créé au passage Candidat (pas de profil RH avant l'acceptation).
+            // Membre rechargé pour que le pseudo et les rôles à jour soient ceux enregistrés ; rejouable sans effet.
+            const refreshed = await this.bot.guild.members.fetch({ user: demande.applicantId, force: true });
+            await this.bot.db.insertAndGetUser(refreshed);
         }
     }
 

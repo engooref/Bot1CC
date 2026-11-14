@@ -19,6 +19,7 @@ settingsService.getString = async key => settings[key] ?? '';
 settingsService.get = async key => settings[key];
 
 function fixture({ status = 'waiting_rsi', legacy = false, noRequest = false } = {}) {
+    let failUser = false;
     settings = {
         'bot.recrutement.enabled': true,
         'bot.roles.postulant': ids.postulant, 'bot.recrutement.role_candidat': ids.candidate,
@@ -132,7 +133,11 @@ function fixture({ status = 'waiting_rsi', legacy = false, noRequest = false } =
     };
     members.forEach(m => m.guild = guild);
     const profile = {};
-    const bot = { guild, user: { id: ids.bot }, roleMember: roles.get(ids.official), db: { getEm: () => em },
+    const bot = { guild, user: { id: ids.bot }, roleMember: roles.get(ids.official), db: { getEm: () => em, async insertAndGetUser(member) {
+            operations.push(['user', member.id]);
+            if (failUser) throw new Error('user failure');
+            return {};
+        } },
         userManager: { em, async initMemberRh() { operations.push(['profile']); return profile; } },
     };
     const manager = new RecrutementManager(bot);
@@ -153,7 +158,7 @@ function fixture({ status = 'waiting_rsi', legacy = false, noRequest = false } =
         const i = interaction(action, actor, modal); await manager.handler(i, { demandeId: 1, guildId: ids.guild, ...extra }); return i;
     };
     return { d, bot, em, manager, scheduler, applicant, operations, contexts, requests, run, interaction, profile, channels, makeChannel,
-        failNickname: v => failNickname = v, failChannelCreation: v => failChannelCreation = v, failMessage: v => failMessage = v };
+        failUser: v => failUser = v, failNickname: v => failNickname = v, failChannelCreation: v => failChannelCreation = v, failMessage: v => failMessage = v };
 }
 
 test('declaration RSI puis deux validations RH : rôles, dates, profil et boutons persistants', async () => {
@@ -161,10 +166,12 @@ test('declaration RSI puis deux validations RH : rôles, dates, profil et bouton
     await f.run(A.Submit, ids.applicant);
     assert.equal(f.d.status, 'review'); assert.equal(f.applicant.roles.cache.has(ids.postulant), true);
     assert.equal(f.operations.some(x => x[0] === 'add-role'), false);
-    assert.equal(f.profile.status, 'Candidatures');
+    assert.deepEqual(f.profile, {});
+    assert.equal(f.operations.some(x => x[0] === 'profile' || x[0] === 'user'), false);
     assert.equal(f.operations.filter(x => x[0] === 'send' && x[2].allowedMentions?.roles).length, 1);
     await f.run(A.Validate, ids.rh);
     assert.equal(f.d.status, 'postulant'); assert.equal(f.applicant.displayName, '[P] Alice');
+    assert.equal(f.operations.some(x => x[0] === 'profile' || x[0] === 'user'), false);
     await f.run(A.Interview, ids.rh);
     assert.equal(f.d.status, 'awaiting_mentor'); assert.equal(f.d.candidateAt, undefined);
     assert.equal(f.applicant.displayName, '[P] Alice');
@@ -1117,6 +1124,32 @@ test('affectation : awaiting_mentor → candidate donne le rôle Candidat et [C-
     assert.equal(f.d.mentorship.mentoraChannelId, id(600));
     assert.equal(f.d.mentorship.waitingSince, f.d.candidateAt.toISOString());
     assert.equal(mentoraCreations(f).length, 0);
+});
+
+test('passage Candidat : un seul insertAndGetUser, aucun rhmember, rien de plus au rejeu', async () => {
+    const f = fixture({ status: 'awaiting_mentor' });
+    f.d.pendingStatus = 'candidate';
+    f.d.decisions.push({ from: 'awaiting_mentor', to: 'candidate', actorId: ids.rh, at: new Date().toISOString() });
+    await f.manager.resume(1);
+    assert.deepEqual(f.operations.filter(x => x[0] === 'user'), [['user', ids.applicant]]);
+    assert.equal(f.operations.some(x => x[0] === 'profile'), false);
+    await f.manager.resume(1);
+    assert.equal(f.operations.filter(x => x[0] === 'user').length, 1);
+});
+
+test('passage Candidat : échec de création du compte, statut inchangé puis reprise sans erreur', async () => {
+    const f = fixture({ status: 'awaiting_mentor' });
+    f.d.pendingStatus = 'candidate';
+    f.d.decisions.push({ from: 'awaiting_mentor', to: 'candidate', actorId: ids.rh, at: new Date().toISOString() });
+    f.failUser(true);
+    await assert.rejects(() => f.manager.resume(1), /user failure/);
+    assert.equal(f.d.status, 'awaiting_mentor'); assert.equal(f.d.pendingStatus, 'candidate');
+    f.failUser(false);
+    await f.manager.resume(1);
+    assert.equal(f.d.status, 'candidate'); assert.equal(f.d.pendingStatus, undefined);
+    assert.equal(f.applicant.roles.cache.has(ids.candidate), true);
+    assert.equal(f.applicant.roles.cache.has(ids.postulant), false);
+    assert.equal(f.operations.filter(x => x[0] === 'user').length, 2);
 });
 
 test('resume() au passage Candidat conserve les clés existantes de mentorship', async () => {
