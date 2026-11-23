@@ -579,7 +579,9 @@ export class EventManager {
     const weekEnd = new Date(weekStart);
     weekEnd.setDate(weekEnd.getDate() + 7);
 
-    const events = await this.em.getRepository(Event).find(
+    // EM neuf à chaque calcul : `this.em` est gardé pour toute la vie du bot et son cache d'identité
+    // conserverait les anciennes dates d'un événement déplacé par le site.
+    const events = await this.bot.db.getEm().getRepository(Event).find(
       { $or: [{ start: { $gte: weekStart, $lt: weekEnd } }, { end: { $gt: now } }] },
       { populate: ['type'] },
     );
